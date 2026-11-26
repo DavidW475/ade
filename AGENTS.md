@@ -31,6 +31,10 @@ eigene Konfiguration mit anderem Port und Datenverzeichnis verwenden (siehe
 | `internal/daemon/` | Daemon-Start, Lock, Client für die CLI |
 | `internal/store/` | SQLite und Migrationen (`migrations/NNNN_name.sql`, lückenlos nummeriert) |
 | `internal/browser/` | Browser öffnen (WSL → Windows) |
+| `internal/apperr/` | Fehlerarten (NotFound, Invalid, Conflict) → HTTP-Status |
+| `internal/git/` | Aufrufe des git-Binarys, Diff über temporären Index |
+| `internal/project/` | Projekte registrieren, `.ade/project.yaml` |
+| `internal/workspace/` | Workspaces: Clone, Setup, Diff, Löschen |
 | `web/` | Dashboard (Vite + React + TypeScript) |
 | `examples/`, `images/` | Beispielkonfigurationen, Container-Images (ab M5) |
 
@@ -44,6 +48,11 @@ Neue Module folgen der Struktur in [architecture.md](doc/architecture.md#10-repo
   und braucht Auth (außer `/api/health`). Änderungen an Auth, Gateway, Sandbox oder Proxy brauchen Tests.
 - **Abhängigkeiten** sparsam, Lizenz kompatibel zu Apache-2.0, kein cgo.
 - **Migrationen** nie nachträglich ändern, immer eine neue anlegen.
+- **Git** immer über `internal/git` aufrufen. Das Haupt-Repo eines Projekts wird nur gelesen;
+  Workspaces haben kein Remote zum Haupt-Repo (ADR-005).
+- **UI prüfen:** Unter WSL lässt sich das Dashboard mit Edge headless fotografieren
+  (`msedge.exe --headless=new --screenshot=… "http://localhost:<port>/auth/login?ticket=…&next=/pfad"`,
+  Ticket per `POST /api/auth/tickets` mit dem Daemon-Secret).
 - **Architekturentscheidungen** als neues ADR in `doc/decisions.md` anhängen.
 
 ## Arbeitsablauf: Meilensteine, Issues und PRs

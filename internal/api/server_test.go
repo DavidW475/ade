@@ -279,3 +279,22 @@ func TestSPAHandlerWithoutFrontend(t *testing.T) {
 		t.Fatalf("Code = %d, Body = %q", w.Code, w.Body.String())
 	}
 }
+
+func TestSafeNext(t *testing.T) {
+	cases := map[string]string{
+		"":                     "/",
+		"/projects/abc":        "/projects/abc",
+		"/workspaces/x?tab=1":  "/workspaces/x?tab=1",
+		"//evil.example":       "/",
+		"https://evil.example": "/",
+		"/\\evil.example":      "/",
+		"projects":             "/",
+		"/auth/login?ticket=x": "/",
+		"/a\r\nSet-Cookie: x":  "/",
+	}
+	for in, want := range cases {
+		if got := safeNext(in); got != want {
+			t.Errorf("safeNext(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

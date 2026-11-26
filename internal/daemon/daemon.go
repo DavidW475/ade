@@ -14,7 +14,9 @@ import (
 
 	"github.com/DavidW475/ade/internal/api"
 	"github.com/DavidW475/ade/internal/config"
+	"github.com/DavidW475/ade/internal/project"
 	"github.com/DavidW475/ade/internal/store"
+	"github.com/DavidW475/ade/internal/workspace"
 )
 
 // Run startet den Daemon und blockiert, bis ctx beendet wird.
@@ -36,6 +38,13 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	}
 	defer func() { _ = st.Close() }()
 
+	projects := project.NewService(st)
+	workspaces := workspace.NewManager(st, projects, cfg.WorkspacesDir, log)
+	if err := workspaces.Recover(ctx); err != nil {
+		return err
+	}
+	defer workspaces.Close()
+
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return fmt.Errorf("auf %s lauschen: %w", cfg.Listen, err)
@@ -50,11 +59,13 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 
 	srv := &http.Server{
 		Handler: api.New(api.Options{
-			Version: version,
-			Port:    cfg.Port(),
-			Store:   st,
-			Auth:    api.NewAuth(secret),
-			Logger:  log,
+			Version:    version,
+			Port:       cfg.Port(),
+			Store:      st,
+			Auth:       api.NewAuth(secret),
+			Logger:     log,
+			Projects:   projects,
+			Workspaces: workspaces,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),

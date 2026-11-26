@@ -60,9 +60,9 @@ flowchart LR
 - Diff-Endpunkt `GET /api/workspaces/{id}/diff` (Dateiliste + Patches)
 
 **Fertig, wenn:**
-- [ ] Ein Repo lässt sich registrieren und erscheint im Dashboard
-- [ ] Workspaces lassen sich anlegen und löschen, ohne das Haupt-Repo zu verändern
-- [ ] Manuelle Änderungen im Workspace erscheinen im Diff-Endpunkt
+- [x] Ein Repo lässt sich registrieren und erscheint im Dashboard
+- [x] Workspaces lassen sich anlegen und löschen, ohne das Haupt-Repo zu verändern
+- [x] Manuelle Änderungen im Workspace erscheinen im Diff-Endpunkt
 
 **Nicht dabei:** Agenten, Merge.
 

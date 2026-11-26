@@ -1,0 +1,18 @@
+# Projekt-Konfiguration: <repo>/.ade/project.yaml
+# Alle Schlüssel sind optional. Unbekannte Schlüssel sind ein Fehler.
+
+# Anzeigename im Dashboard (Default: Verzeichnisname des Repos).
+name: Mein Projekt
+
+# Branch, von dem neue Workspaces abzweigen
+# (Default: origin/HEAD bzw. der Branch, der beim Registrieren ausgecheckt war).
+base_branch: main
+
+# Standard-Adapter für Agent-Sessions: claude, codex oder pty (ab M2 genutzt).
+adapter: claude
+
+# Befehle, die nach dem Anlegen eines Workspaces darin laufen (sh -c, nacheinander,
+# Abbruch beim ersten Fehler). Verfügbar: $ADE_WORKSPACE_ID, $ADE_WORKSPACE_PATH.
+setup:
+  - npm ci
+  - go mod download
