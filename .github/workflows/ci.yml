@@ -49,6 +49,9 @@ jobs:
         with:
           version: latest
       - run: go test -race ./...
+        env:
+          # Sandbox-Tests gegen den Docker-Daemon des Runners
+          ADE_TEST_DOCKER: "1"
       - run: make go
       - name: Binary enthält das Dashboard
         run: |

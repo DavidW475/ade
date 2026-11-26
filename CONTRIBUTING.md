@@ -20,6 +20,14 @@ make lint    # golangci-lint und ESLint
 `go build` und `go test` funktionieren auch ohne Frontend-Build; dann zeigt das Dashboard
 nur einen Hinweis.
 
+Tests gegen einen echten Docker-Daemon (Sandbox) laufen nur mit `ADE_TEST_DOCKER=1`; sie bauen
+ein kleines Debian-Image mit git (`ade-test-git:1`) oder nehmen `ADE_TEST_IMAGE`:
+
+```sh
+ADE_TEST_DOCKER=1 go test ./internal/sandbox/ ./internal/agent/
+make image   # Sandbox-Image ade-agent-base lokal bauen (Tag :dev)
+```
+
 ## Lokal entwickeln
 
 ```sh

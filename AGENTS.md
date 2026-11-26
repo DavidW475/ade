@@ -39,8 +39,9 @@ eigene Konfiguration mit anderem Port und Datenverzeichnis verwenden (siehe
 | `internal/agent/adapter/` | Adapter-Interface, Event-Typen + JSON-Schema; `claude/`, `pty/`, `fake/` (Tests) |
 | `internal/ide/` | openvscode-server je Workspace: Download mit Prüfsumme, Start, Inaktivitäts-Stopp |
 | `internal/gateway/` | Reverse-Proxy `ws-<id>.localhost` → IDE, Ticket-Anmeldung, Connection-Token |
+| `internal/sandbox/` | Docker-Container je Workspace über die Docker-CLI, `.ade/sandbox.yaml`, GC |
 | `web/` | Dashboard (Vite + React + TypeScript, Monaco Diff Editor) |
-| `examples/`, `images/` | Beispielkonfigurationen, Container-Images (ab M5) |
+| `examples/`, `images/` | Beispielkonfigurationen, Container-Images (`images/agent-base`) |
 
 Neue Module folgen der Struktur in [architecture.md](doc/architecture.md#10-repo-struktur).
 
@@ -55,7 +56,7 @@ Neue Module folgen der Struktur in [architecture.md](doc/architecture.md#10-repo
 - **Git** immer über `internal/git` aufrufen. Das Haupt-Repo eines Projekts wird nur gelesen,
   außer bei den Übernahme-Schritten des Daemons (Fetch nach `ade/<id>`, Mergen, Push, Branch
   löschen, ADR-013); Workspaces haben kein Remote zum Haupt-Repo (ADR-005). Befehle im Workspace
-  mit `git.WorkspaceArgs` (keine Hooks).
+  über `git.Worktree` (keine Hooks; bei Sandbox-Workspaces im Container, #41).
 - **UI prüfen:** Unter WSL lässt sich das Dashboard mit Edge headless fotografieren
   (`msedge.exe --headless=new --screenshot=… "http://localhost:<port>/auth/login?ticket=…&next=/pfad"`,
   Ticket per `POST /api/auth/tickets` mit dem Daemon-Secret).

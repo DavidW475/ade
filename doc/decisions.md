@@ -148,3 +148,39 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
   Der Monaco-Editor wird lokal gebündelt (kein CDN, Dashboard-CSP nur `'self'`) und als eigener
   Chunk erst auf der Workspace-Seite geladen.
 
+
+## ADR-014: Docker-Sandbox über die Docker-CLI, git des Daemons im Container
+
+- **Kontext:** M5 isoliert Agent, Setup und IDE in einem Container pro Workspace. Dafür braucht
+  ADE Container-Verwaltung, `docker exec` mit PTY und Signale an Prozesse im Container. Außerdem
+  führt der Daemon git-Befehle im Workspace aus, dessen Repo-Konfiguration dem Agenten gehört (#41).
+- **Entscheidung:**
+  1. ADE ruft die **Docker-CLI** auf (wie das git-Binary), nicht den Go-Client. `docker exec -it`
+     läuft im selben PTY-Code wie lokale Prozesse, Größenänderungen reicht die CLI weiter, und es
+     kommt keine große Abhängigkeit hinzu.
+  2. Container `ade-ws-<id>`: einziger Mount ist der Workspace als `/workspace`, User = UID/GID
+     des Nutzers, `--cap-drop ALL`, `no-new-privileges`, `--init`, Grenzen aus `.ade/sandbox.yaml`
+     (gelesen aus dem Projekt-Repo), Hauptprozess `sleep infinity`. Labels `ade.managed`,
+     `ade.workspace`, `ade.data_dir`; über `ade.data_dir` trennen sich mehrere ADE-Instanzen.
+  3. Da die CLI Signale nicht an `docker exec` weiterreicht, beendet ADE Prozesse im Container
+     über ihre Umgebung (`ADE_SESSION_ID=<id>` bzw. `ADE_IDE_OWNER`): ein kleines Skript im
+     Container signalisiert alle Prozesse mit dieser Variable – wie eine Prozessgruppe.
+  4. Umgebungsvariablen gehen ohne Wert an `docker exec --env KEY` und mit Wert in die Umgebung
+     der CLI, damit z. B. API-Keys nicht in der Prozessliste stehen.
+  5. Sandbox ist eine Eigenschaft des Workspaces (festgelegt beim Anlegen). Sandbox-Workspaces
+     klonen ohne Hardlinks: Geteilte Inodes würden dem Container erlauben, Objektdateien des
+     Haupt-Repos zu überschreiben.
+  6. **#41:** Bei Sandbox-Workspaces laufen alle git-Befehle des Daemons im Workspace (WIP-Commit,
+     Diff, Datei-Inhalte, temporärer Index) per `docker exec` im Container (`git.Worktree` mit
+     Runner). Filter, fsmonitor oder Hooks aus der Workspace-Konfiguration wirken damit nur in der
+     Sandbox. Das `fetch` ins Haupt-Repo läuft weiter auf dem Host; `upload-pack` führt keine
+     Befehle aus der Repo-Konfiguration aus.
+  7. Beim Daemon-Start werden verwaiste Container entfernt und die übrigen gestoppt (beendet
+     Prozesse des letzten Laufs); sie starten bei Bedarf wieder. Beim Beenden stoppt der Daemon
+     seine Container. `ade gc` entfernt verwaiste Container auch ohne laufenden Daemon.
+  8. Die IDE läuft im Container auf Port 3000, Docker veröffentlicht ihn nur auf `127.0.0.1`.
+- **Konsequenzen:** Jede git-Abfrage eines Sandbox-Workspaces kostet einige `docker exec`
+  (~50–100 ms). Die Workspace-Liste startet keine Container und zeigt für gestoppte keine
+  Änderungszahlen. Der Container hat bis M6 normales Netz; ein API-Key aus der Konfiguration ist
+  im Container lesbar. Rootless Docker und abweichende UIDs funktionieren, die Datei-Eigentümer im
+  Workspace stimmen aber nur bei klassischem Docker mit dem Nutzer überein.

@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { api, isActive, type Session, type SessionEvent } from "../api";
 import { sessionTitle } from "../sessions";
 import { IdeButton } from "../components/ide";
+import { SandboxBadge } from "../components/sandbox";
 import { Terminal } from "../components/Terminal";
 import { Timeline } from "../components/Timeline";
 import { Notice, SessionStatusBadge } from "../components/ui";
@@ -23,6 +24,11 @@ export function SessionPage() {
     queryFn: () => api.project(session.data!.project_id),
     enabled: !!session.data,
   });
+  const workspace = useQuery({
+    queryKey: ["workspace", session.data?.workspace_id],
+    queryFn: () => api.workspace(session.data!.workspace_id),
+    enabled: !!session.data,
+  });
 
   if (session.isPending) return <p className="muted">Lade Session …</p>;
   if (session.isError) return <Notice tone="bad">{errorMessage(session.error)}</Notice>;
@@ -36,7 +42,7 @@ export function SessionPage() {
         <Link to={`/workspaces/${s.workspace_id}`} className="mono">
           {s.workspace_id}
         </Link>{" "}
-        / {s.id}
+        / {s.id} {workspace.data && <SandboxBadge workspace={workspace.data} />}
       </div>
       <SessionHeader session={s} />
       {s.capabilities.terminal ? <Terminal key={s.id} sessionId={s.id} onExit={refresh} /> : <AgentView key={s.id} session={s} />}

@@ -1,0 +1,15 @@
+# Sandbox-Konfiguration eines Projekts: <repo>/.ade/sandbox.yaml (doc/sandbox.md).
+# ADE liest sie aus dem Projekt-Repo, nie aus dem Workspace. Alle Schlüssel sind optional.
+
+# Eigenes Image, z. B. vom Basis-Image abgeleitet (FROM ghcr.io/davidw475/ade-agent-base) mit
+# den Werkzeugen des Projekts. Leer = sandbox.image aus der globalen Konfiguration.
+# image: ghcr.io/me/mein-projekt-sandbox:1
+
+# Grenzen des Containers (Defaults wie hier).
+resources:
+  memory: 4g
+  cpus: 2
+  pids: 512
+
+# Netzwerk-Regeln (egress) kommen mit M6. Bis dahin lehnt ADE den Schlüssel ab, damit niemand
+# eine Einschränkung annimmt, die es noch nicht gibt.
