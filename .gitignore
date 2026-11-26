@@ -6,7 +6,8 @@
 # Frontend
 node_modules/
 web/dist/
-internal/api/dist/
+internal/api/dist/*
+!internal/api/dist/.gitkeep
 
 # Lokal
 *.db

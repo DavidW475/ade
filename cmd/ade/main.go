@@ -1,0 +1,158 @@
+// Command ade ist die Leitstelle für KI-Agenten: Daemon, CLI und eingebettetes Dashboard.
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
+
+	"github.com/DavidW475/ade/internal/browser"
+	"github.com/DavidW475/ade/internal/config"
+	"github.com/DavidW475/ade/internal/daemon"
+)
+
+// version wird beim Build per -ldflags "-X main.version=…" gesetzt.
+var version = "dev"
+
+const usage = `ade – AI Developer Environment
+
+Verwendung:
+  ade <befehl> [optionen]
+
+Befehle:
+  start     Daemon starten (falls nötig) und Dashboard im Browser öffnen
+  serve     Daemon im Vordergrund ausführen
+  version   Version ausgeben
+  help      Diese Hilfe anzeigen
+
+Mit "ade <befehl> -h" werden die Optionen eines Befehls angezeigt.
+`
+
+func main() {
+	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
+		if !errors.Is(err, flag.ErrHelp) {
+			fmt.Fprintln(os.Stderr, "ade:", err)
+		}
+		os.Exit(exitCode(err))
+	}
+}
+
+type usageError struct{ msg string }
+
+func (e usageError) Error() string { return e.msg }
+
+func exitCode(err error) int {
+	var ue usageError
+	if errors.As(err, &ue) || errors.Is(err, flag.ErrHelp) {
+		return 2
+	}
+	return 1
+}
+
+func run(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		_, _ = fmt.Fprint(stderr, usage)
+		return usageError{"kein Befehl angegeben"}
+	}
+	switch cmd, rest := args[0], args[1:]; cmd {
+	case "start":
+		return cmdStart(rest, stdout, stderr)
+	case "serve":
+		return cmdServe(rest, stderr)
+	case "version", "--version":
+		_, _ = fmt.Fprintln(stdout, "ade", version)
+		return nil
+	case "help", "-h", "--help":
+		_, _ = fmt.Fprint(stdout, usage)
+		return nil
+	default:
+		_, _ = fmt.Fprint(stderr, usage)
+		return usageError{fmt.Sprintf("unbekannter Befehl %q", cmd)}
+	}
+}
+
+// loadConfig wertet --config aus und liefert Konfiguration und absoluten Pfad.
+func loadConfig(fs *flag.FlagSet, args []string) (*config.Config, string, error) {
+	def, err := config.DefaultPath()
+	if err != nil {
+		return nil, "", err
+	}
+	path := fs.String("config", def, "Pfad zur Konfigurationsdatei")
+	if err := fs.Parse(args); err != nil {
+		return nil, "", err
+	}
+	if fs.NArg() > 0 {
+		return nil, "", usageError{fmt.Sprintf("unerwartete Argumente: %v", fs.Args())}
+	}
+	abs, err := filepath.Abs(*path)
+	if err != nil {
+		return nil, "", err
+	}
+	cfg, err := config.Load(abs)
+	return cfg, abs, err
+}
+
+func cmdServe(args []string, stderr io.Writer) error {
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	debug := fs.Bool("debug", false, "ausführliches Logging")
+	cfg, _, err := loadConfig(fs, args)
+	if err != nil {
+		return err
+	}
+	level := slog.LevelInfo
+	if *debug {
+		level = slog.LevelDebug
+	}
+	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return daemon.Run(ctx, cfg, version, log)
+}
+
+func cmdStart(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("start", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	noBrowser := fs.Bool("no-browser", false, "Browser nicht öffnen, nur die Anmelde-URL ausgeben")
+	cfg, cfgPath, err := loadConfig(fs, args)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	h, started, err := daemon.EnsureRunning(ctx, cfg, cfgPath)
+	if err != nil {
+		return err
+	}
+	if started {
+		_, _ = fmt.Fprintf(stdout, "ADE-Daemon gestartet (%s, Log: %s)\n", h.Version, cfg.LogPath())
+	} else {
+		_, _ = fmt.Fprintf(stdout, "ADE-Daemon läuft bereits (%s)\n", h.Version)
+	}
+
+	login, err := daemon.NewClient(cfg).LoginURL(ctx)
+	if err != nil {
+		return err
+	}
+	if !*noBrowser {
+		err := browser.Open(login)
+		if err == nil {
+			_, _ = fmt.Fprintf(stdout, "Dashboard geöffnet: %s\n", cfg.BaseURL())
+			return nil
+		}
+		_, _ = fmt.Fprintf(stderr, "Browser konnte nicht geöffnet werden: %v\n", err)
+	}
+	_, _ = fmt.Fprintf(stdout, "Anmelden (Link gilt einmal, 2 Minuten):\n  %s\n", login)
+	return nil
+}

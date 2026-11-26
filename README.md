@@ -4,9 +4,9 @@ Eine Leitstelle für KI-Agenten, gebaut für **WSL2**: Agenten starten und beoba
 **Docker-Sandboxen** hinter einem **Egress-Proxy** arbeiten lassen, ihre Workspaces in einer
 **VS-Code-kompatiblen Browser-IDE** ansehen und Ergebnisse prüfen und freigeben, alles im Browser.
 
-> **Status:** frühe Planungsphase. Es gibt noch keinen lauffähigen Code.
-> Der Plan steht in [`doc/`](doc/README.md), der Fortschritt in den
-> [Meilensteinen](https://github.com/DavidW475/ade/milestones).
+> **Status:** in Entwicklung (Meilenstein M0 – Fundament). Der Daemon startet und liefert das
+> Dashboard aus; Agenten gibt es noch nicht. Der Plan steht in [`doc/`](doc/README.md), der
+> Fortschritt in den [Meilensteinen](https://github.com/DavidW475/ade/milestones).
 
 ## Idee
 
@@ -21,6 +21,19 @@ ade start  →  http://localhost:7000
 - **Review:** Diff ansehen, mergen, PR erstellen, Feedback geben oder verwerfen
 - **Software-Fabriken:** Planer, Entwickler, Reviewer und Tester als Pipeline, mit unterschiedlichen Modellen
 
+## Schnellstart (aus dem Quellcode)
+
+Voraussetzungen: Go und Node.js 22+ (siehe [CONTRIBUTING.md](CONTRIBUTING.md)).
+
+```sh
+make build
+bin/ade start            # startet den Daemon und öffnet das Dashboard im Windows-Browser
+bin/ade start --no-browser   # gibt stattdessen die Anmelde-URL aus
+```
+
+Konfiguration: `~/.config/ade/config.yaml` (optional, Beispiel in
+[architecture.md](doc/architecture.md#6-konfiguration)). Daten liegen in `~/.local/share/ade/`.
+
 ## Dokumentation
 
 - [Überblick und Begriffe](doc/README.md)
@@ -29,6 +42,7 @@ ade start  →  http://localhost:7000
 - [Software-Fabriken](doc/factory.md)
 - [Meilensteine](doc/milestones.md)
 - [Architekturentscheidungen](doc/decisions.md)
+- [Mitwirken](CONTRIBUTING.md)
 
 ## Lizenz
 
