@@ -1,0 +1,33 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - revive
+    - unconvert
+  settings:
+    staticcheck:
+      checks:
+        - all
+        # Deutsche Fehlermeldungen beginnen oft mit einem Substantiv.
+        - -ST1005
+        - -ST1000
+    gosec:
+      excludes:
+        # Unterprozesse (Daemon, Browser) sind gewollt.
+        - G204
+        # Konfigurations- und Logpfade aus Variablen zu lesen ist hier der Zweck.
+        - G304
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters: [gosec]
+
+formatters:
+  enable:
+    - gofmt

@@ -1,0 +1,48 @@
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -s -w -X main.version=$(VERSION)
+BIN     := bin/ade
+DIST    := internal/api/dist
+
+.PHONY: all build web go test lint fmt dev clean
+
+all: build
+
+## build: Frontend bauen und in ein einzelnes Binary einbetten (bin/ade)
+build: web go
+
+## web: Dashboard bauen (web/ → internal/api/dist)
+web: web/node_modules
+	cd web && npm run build
+	@touch $(DIST)/.gitkeep
+
+web/node_modules: web/package.json web/package-lock.json
+	cd web && npm ci
+	@touch $@
+
+## go: Go-Binary bauen (bettet den aktuellen Inhalt von internal/api/dist ein)
+go:
+	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/ade
+
+## test: Go-Tests (mit Race-Detector) und Frontend-Typprüfung
+test: web/node_modules
+	go test -race ./...
+	cd web && npm run typecheck
+
+## lint: golangci-lint
+lint:
+	golangci-lint run ./...
+
+## fmt: Go-Code formatieren
+fmt:
+	gofmt -w .
+
+## dev: Daemon im Vordergrund mit go run (Frontend separat: cd web && npm run dev)
+dev:
+	go run ./cmd/ade serve --debug
+
+## clean: Build-Artefakte entfernen
+clean:
+	rm -rf bin $(DIST)/assets $(DIST)/index.html $(DIST)/favicon.svg
+
+help:
+	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## /  /'
