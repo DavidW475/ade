@@ -299,11 +299,17 @@ func (m *Manager) Input(ctx context.Context, id, text string) (*View, error) {
 		if text == "" {
 			return nil, apperr.Invalid("leere Anweisung")
 		}
+		// Status und Nachricht vor dem Senden: Ein schneller Agent kann seine Runde sonst
+		// beenden (idle), bevor „running“ gesetzt ist, und bliebe dann scheinbar beschäftigt.
+		r.mu.Lock()
+		prev := r.status
+		r.mu.Unlock()
+		r.setStatus(store.SessionRunning, "")
 		if err := r.send(a, text); err != nil {
+			r.setStatus(prev, "")
 			return nil, err
 		}
 		m.emit(id, adapter.TypeMessage, adapter.Message{Role: "user", Text: text})
-		r.setStatus(store.SessionRunning, "")
 		return m.Get(ctx, id)
 	}
 
