@@ -4,8 +4,8 @@ Eine Leitstelle für KI-Agenten, gebaut für **WSL2**: Agenten starten und beoba
 **Docker-Sandboxen** hinter einem **Egress-Proxy** arbeiten lassen, ihre Workspaces in einer
 **VS-Code-kompatiblen Browser-IDE** ansehen und Ergebnisse prüfen und freigeben, alles im Browser.
 
-> **Status:** in Entwicklung (Meilenstein M0 – Fundament). Der Daemon startet und liefert das
-> Dashboard aus; Agenten gibt es noch nicht. Der Plan steht in [`doc/`](doc/README.md), der
+> **Status:** in Entwicklung (M1 – Projekte & Workspaces). Repositories lassen sich registrieren,
+> Workspaces anlegen, Diffs ansehen; Agenten gibt es noch nicht. Der Plan steht in [`doc/`](doc/README.md), der
 > Fortschritt in den [Meilensteinen](https://github.com/DavidW475/ade/milestones).
 
 ## Idee
@@ -29,10 +29,12 @@ Voraussetzungen: Go und Node.js 22+ (siehe [CONTRIBUTING.md](CONTRIBUTING.md)).
 make build
 bin/ade start            # startet den Daemon und öffnet das Dashboard im Windows-Browser
 bin/ade start --no-browser   # gibt stattdessen die Anmelde-URL aus
+bin/ade project add ~/git/mein-repo   # Repository registrieren (oder im Dashboard)
 ```
 
-Konfiguration: `~/.config/ade/config.yaml` (optional, Beispiel in
-[architecture.md](doc/architecture.md#6-konfiguration)). Daten liegen in `~/.local/share/ade/`.
+Konfiguration: `~/.config/ade/config.yaml` und pro Repo `.ade/project.yaml` (beide optional,
+Beispiele in [`examples/`](examples/)). Daten liegen in `~/.local/share/ade/`, Workspaces in
+`~/.ade/workspaces/`.
 
 ## Dokumentation
 

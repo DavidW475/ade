@@ -1,0 +1,60 @@
+import type { ReactNode } from "react";
+import type { FileStatus, WorkspaceStatus } from "../api";
+
+const workspaceLabels: Record<WorkspaceStatus, string> = {
+  creating: "wird angelegt",
+  setup: "Setup läuft",
+  ready: "bereit",
+  setup_failed: "Setup fehlgeschlagen",
+  error: "Fehler",
+};
+
+const workspaceTone: Record<WorkspaceStatus, Tone> = {
+  creating: "busy",
+  setup: "busy",
+  ready: "ok",
+  setup_failed: "warn",
+  error: "bad",
+};
+
+type Tone = "ok" | "warn" | "bad" | "busy" | "neutral";
+
+export function Badge({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
+  return <span className={`badge ${tone}`}>{children}</span>;
+}
+
+export function WorkspaceStatusBadge({ status }: { status: WorkspaceStatus }) {
+  return <Badge tone={workspaceTone[status]}>{workspaceLabels[status]}</Badge>;
+}
+
+const fileLabels: Record<FileStatus, string> = {
+  added: "neu",
+  modified: "geändert",
+  deleted: "gelöscht",
+  renamed: "umbenannt",
+  copied: "kopiert",
+  type_changed: "Typ geändert",
+  unmerged: "Konflikt",
+};
+
+export function FileStatusBadge({ status }: { status: FileStatus }) {
+  const tone: Tone = status === "added" ? "ok" : status === "deleted" ? "bad" : status === "unmerged" ? "warn" : "neutral";
+  return <Badge tone={tone}>{fileLabels[status]}</Badge>;
+}
+
+export function Notice({ tone, title, children }: { tone: "warn" | "bad" | "info"; title?: string; children: ReactNode }) {
+  return (
+    <div className={`notice ${tone}`} role={tone === "bad" ? "alert" : "status"}>
+      {title && <strong>{title}</strong>}
+      <div>{children}</div>
+    </div>
+  );
+}
+
+export function LineStats({ additions, deletions }: { additions: number; deletions: number }) {
+  return (
+    <span className="linestats">
+      <span className="add">+{additions}</span> <span className="del">−{deletions}</span>
+    </span>
+  );
+}

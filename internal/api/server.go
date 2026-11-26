@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/DavidW475/ade/internal/project"
+	"github.com/DavidW475/ade/internal/workspace"
 )
 
 // Store ist der Teil der Datenbank, den die API in M0 braucht.
@@ -24,6 +27,9 @@ type Options struct {
 	Store  Store
 	Auth   *Auth
 	Logger *slog.Logger
+	// Projects und Workspaces sind optional; ohne sie fehlen die zugehörigen Routen.
+	Projects   *project.Service
+	Workspaces *workspace.Manager
 }
 
 // Server ist der HTTP-Handler des Daemons.
@@ -44,6 +50,7 @@ func New(opts Options) *Server {
 	mux.HandleFunc("POST /api/auth/tickets", s.requireSecret(s.handleNewTicket))
 	mux.HandleFunc("GET /api/session", s.requireAuth(s.handleSession))
 	mux.HandleFunc("POST /api/auth/logout", s.requireAuth(s.handleLogout))
+	s.routesProjects(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "unbekannter API-Pfad")
 	})
@@ -125,7 +132,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 	s.opts.Logger.Info("Browser angemeldet", "remote", r.RemoteAddr)
 	// Redirect entfernt das Ticket aus der Adresszeile und dem Verlauf.
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, safeNext(r.URL.Query().Get("next")), http.StatusSeeOther) //nolint:gosec // G710: safeNext erlaubt nur lokale Pfade
+}
+
+// safeNext lässt als Ziel nach der Anmeldung nur Pfade auf dem Dashboard zu
+// (kein offener Redirect auf fremde Seiten).
+func safeNext(next string) string {
+	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") ||
+		strings.ContainsAny(next, "\\\r\n") || strings.HasPrefix(next, "/auth/") {
+		return "/"
+	}
+	return next
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, _ *http.Request) {

@@ -11,8 +11,10 @@
     "lint": "eslint --max-warnings 0 ."
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.108.4",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "react-router": "^8.5.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

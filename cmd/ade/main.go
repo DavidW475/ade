@@ -32,6 +32,7 @@ Verwendung:
 Befehle:
   start     Daemon starten (falls nötig) und Dashboard im Browser öffnen
   serve     Daemon im Vordergrund ausführen
+  project   Projekte verwalten (add, list, remove)
   version   Version ausgeben
   help      Diese Hilfe anzeigen
 
@@ -92,6 +93,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return cmdStart(rest, stdout, stderr)
 	case "serve":
 		return cmdServe(rest, stderr)
+	case "project":
+		return cmdProject(rest, stdout, stderr)
 	case "version", "--version":
 		_, _ = fmt.Fprintln(stdout, versionString())
 		return nil
@@ -105,7 +108,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 }
 
 // loadConfig wertet --config aus und liefert Konfiguration und absoluten Pfad.
-func loadConfig(fs *flag.FlagSet, args []string) (*config.Config, string, error) {
+// Mit allowArgs sind Positionsargumente erlaubt (fs.Args()).
+func loadConfig(fs *flag.FlagSet, args []string, allowArgs ...bool) (*config.Config, string, error) {
 	def, err := config.DefaultPath()
 	if err != nil {
 		return nil, "", err
@@ -114,7 +118,7 @@ func loadConfig(fs *flag.FlagSet, args []string) (*config.Config, string, error)
 	if err := fs.Parse(args); err != nil {
 		return nil, "", err
 	}
-	if fs.NArg() > 0 {
+	if fs.NArg() > 0 && (len(allowArgs) == 0 || !allowArgs[0]) {
 		return nil, "", usageError{fmt.Sprintf("unerwartete Argumente: %v", fs.Args())}
 	}
 	abs, err := filepath.Abs(*path)

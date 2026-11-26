@@ -1,71 +1,69 @@
-import { useEffect, useState } from "react";
-import { fetchAuthenticated, fetchHealth, type Health } from "./api";
-
-type State =
-  | { kind: "loading" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; health: Health; authenticated: boolean };
+import { useQuery } from "@tanstack/react-query";
+import { Link, Route, Routes } from "react-router";
+import { fetchAuthenticated, fetchHealth } from "./api";
+import { Notice } from "./components/ui";
+import { errorMessage } from "./format";
+import { ProjectPage } from "./pages/ProjectPage";
+import { ProjectsPage } from "./pages/ProjectsPage";
+import { WorkspacePage } from "./pages/WorkspacePage";
 
 export function App() {
-  const [state, setState] = useState<State>({ kind: "loading" });
-
-  useEffect(() => {
-    const ctrl = new AbortController();
-    Promise.all([fetchHealth(ctrl.signal), fetchAuthenticated(ctrl.signal)])
-      .then(([health, authenticated]) => setState({ kind: "ready", health, authenticated }))
-      .catch((err: unknown) => {
-        if (ctrl.signal.aborted) return;
-        setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
-      });
-    return () => ctrl.abort();
-  }, []);
+  const health = useQuery({ queryKey: ["health"], queryFn: fetchHealth, refetchInterval: 15_000 });
+  const auth = useQuery({ queryKey: ["session"], queryFn: fetchAuthenticated });
 
   return (
-    <main className="shell">
-      <header className="brand">
-        <img src="/favicon.svg" alt="" width={32} height={32} />
-        <span>ADE</span>
-      </header>
-      <section className="card">{renderBody(state)}</section>
-    </main>
-  );
-}
-
-function renderBody(state: State) {
-  switch (state.kind) {
-    case "loading":
-      return <p className="muted">Verbinde mit dem Daemon …</p>;
-    case "error":
-      return (
-        <>
-          <h1>Daemon nicht erreichbar</h1>
-          <p className="muted">{state.message}</p>
-        </>
-      );
-    case "ready": {
-      const { health, authenticated } = state;
-      return (
-        <>
-          <h1>
-            <span className={`dot ${health.status}`} aria-hidden /> ADE läuft
-          </h1>
-          <dl className="facts">
-            <dt>Version</dt>
-            <dd>{health.version}</dd>
-            <dt>Status</dt>
-            <dd>{health.status === "ok" ? "bereit" : "eingeschränkt"}</dd>
-            <dt>Schema</dt>
-            <dd>{health.schema}</dd>
-            <dt>Anmeldung</dt>
-            <dd>{authenticated ? "angemeldet" : "nicht angemeldet"}</dd>
-          </dl>
-          {!authenticated && (
-            <p className="hint">
-              Zum Anmelden im Terminal <code>ade start</code> ausführen.
-            </p>
+    <div className="app">
+      <header className="topbar">
+        <Link to="/" className="brand">
+          <img src="/favicon.svg" alt="" width={24} height={24} />
+          <span>ADE</span>
+        </Link>
+        <nav>
+          <Link to="/">Projekte</Link>
+        </nav>
+        <div className="daemon" title={health.data ? `Schema ${health.data.schema}` : undefined}>
+          {health.isError ? (
+            <>
+              <span className="dot bad" aria-hidden /> Daemon nicht erreichbar
+            </>
+          ) : health.data ? (
+            <>
+              <span className={`dot ${health.data.status === "ok" ? "ok" : "warn"}`} aria-hidden /> ADE läuft ·{" "}
+              {health.data.version}
+            </>
+          ) : (
+            "…"
           )}
-        </>
-      );
-    }
-  }
+        </div>
+      </header>
+
+      <main className="content">
+        {auth.isPending ? (
+          <p className="muted">Verbinde mit dem Daemon …</p>
+        ) : auth.isError ? (
+          <Notice tone="bad" title="Daemon nicht erreichbar">
+            {errorMessage(auth.error)}
+          </Notice>
+        ) : !auth.data ? (
+          <Notice tone="info" title="Nicht angemeldet">
+            Zum Anmelden im Terminal <code>ade start</code> ausführen.
+          </Notice>
+        ) : (
+          <Routes>
+            <Route path="/" element={<ProjectsPage />} />
+            <Route path="/projects/:id" element={<ProjectPage />} />
+            <Route path="/workspaces/:id" element={<WorkspacePage />} />
+            <Route
+              path="*"
+              element={
+                <Notice tone="warn" title="Seite nicht gefunden">
+                  <Link to="/">Zur Projektübersicht</Link>
+                </Notice>
+              }
+            />
+          </Routes>
+        )}
+      </main>
+    </div>
+  );
 }

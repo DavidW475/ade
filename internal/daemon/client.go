@@ -1,10 +1,12 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -102,4 +104,58 @@ func (c *Client) LoginURL(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return c.cfg.BaseURL() + tr.LoginPath, nil
+}
+
+// APIError ist eine Fehlerantwort der API.
+type APIError struct {
+	Status int
+	Msg    string
+}
+
+func (e *APIError) Error() string { return e.Msg }
+
+// Do ruft die API mit dem Daemon-Secret auf. in wird als JSON gesendet (nil: kein Body),
+// die Antwort nach out dekodiert (nil: verwerfen).
+func (c *Client) Do(ctx context.Context, method, p string, in, out any) error {
+	secret, err := os.ReadFile(c.cfg.SecretPath())
+	if err != nil {
+		return fmt.Errorf("Daemon-Secret lesen: %w", err)
+	}
+	var body io.Reader
+	if in != nil {
+		data, err := json.Marshal(in)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(data)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.url(p), body)
+	if err != nil {
+		return err
+	}
+	req.Host = "localhost:" + c.cfg.Port()
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(secret)))
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	// Workspaces anlegen kann dauern; hier gilt das Timeout des Kontexts.
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 300 {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&e)
+		if e.Error == "" {
+			e.Error = resp.Status
+		}
+		return &APIError{Status: resp.StatusCode, Msg: e.Error}
+	}
+	if out == nil || resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
 }
