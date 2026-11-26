@@ -12,7 +12,9 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -345,5 +347,109 @@ func TestKillOwned(t *testing.T) {
 	}
 	if err := other.Process.Signal(syscall.Signal(0)); err != nil {
 		t.Errorf("fremder Prozess wurde beendet: %v", err)
+	}
+}
+
+// fakeSandbox spielt den Container: Pfade unter /home/ade landen in dir, der Port wird auf
+// einen freien Port umgeschrieben, Signal trifft die gestarteten Prozesse.
+type fakeSandbox struct {
+	exe, dir string
+	port     int
+
+	mu      sync.Mutex
+	procs   []*exec.Cmd
+	signals []string
+}
+
+func (f *fakeSandbox) path(p string) string {
+	if rest, ok := strings.CutPrefix(p, "/home/ade/"); ok {
+		return filepath.Join(f.dir, rest)
+	}
+	return p
+}
+
+func (f *fakeSandbox) Command(ctx context.Context, argv, env []string) *exec.Cmd {
+	args := append([]string(nil), argv[1:]...)
+	for i := range args {
+		switch {
+		case i > 0 && args[i-1] == "--port":
+			args[i] = fmt.Sprint(f.port)
+		case i > 0 && args[i-1] == "--host":
+			args[i] = "127.0.0.1"
+		default:
+			args[i] = f.path(args[i])
+		}
+	}
+	cmd := exec.CommandContext(ctx, f.exe, args...)
+	cmd.Env = append([]string{"ADE_FAKE_IDE=ok", "PATH=" + os.Getenv("PATH")}, env...)
+	f.mu.Lock()
+	f.procs = append(f.procs, cmd)
+	f.mu.Unlock()
+	return cmd
+}
+
+func (f *fakeSandbox) Signal(_ context.Context, marker string, sig syscall.Signal) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.signals = append(f.signals, marker+" "+sig.String())
+	for _, c := range f.procs {
+		if c.Process != nil && slices.Contains(c.Env, marker) {
+			_ = c.Process.Signal(sig)
+		}
+	}
+	return nil
+}
+
+func (f *fakeSandbox) HostPort(context.Context, int) (int, error) { return f.port, nil }
+
+func (f *fakeSandbox) WriteFile(_ context.Context, p string, data []byte) error {
+	p = f.path(p)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(p, data, 0o600)
+}
+
+func TestSandboxIDE(t *testing.T) {
+	exe, _ := os.Executable()
+	port, err := freePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb := &fakeSandbox{exe: exe, dir: t.TempDir(), port: port}
+	f := newFixture(t, "ok", func(o *Options) {
+		o.Binary = "/gibt/es/nicht" // darf im Sandbox-Modus nicht gebraucht werden
+		o.Sandbox = func(_ context.Context, id string) (Sandbox, error) {
+			if id == "lokal" {
+				return nil, nil
+			}
+			return sb, nil
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	up, err := f.m.Acquire(ctx, "box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if up.URL.Host != fmt.Sprintf("127.0.0.1:%d", port) {
+		t.Errorf("Upstream = %s", up.URL)
+	}
+	code, body := get(t, up, up.Token)
+	if code != http.StatusOK || !strings.Contains(body, "folder=/workspace") || !strings.Contains(body, "env=box") {
+		t.Errorf("Antwort %d %q", code, body)
+	}
+	if code, _ := get(t, up, "falsch"); code != http.StatusForbidden {
+		t.Errorf("falscher Token: %d", code)
+	}
+	up.Release()
+	f.m.Stop("box")
+	if st := f.m.Status("box"); st.State != StateStopped {
+		t.Errorf("nach Stop: %+v", st)
+	}
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	if len(sb.signals) == 0 || !strings.HasPrefix(sb.signals[0], EnvOwner+"=") || !strings.HasSuffix(sb.signals[0], "terminated") {
+		t.Errorf("Signale = %v", sb.signals)
 	}
 }

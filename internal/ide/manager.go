@@ -56,6 +56,29 @@ const (
 // apperr.Conflict.
 type WorkspaceFunc func(ctx context.Context, id string) (string, error)
 
+// Sandbox führt Befehle im Docker-Container eines Workspaces aus (ab M5). Die IDE läuft
+// dann dort: openvscode-server aus dem Image, Port per Docker auf 127.0.0.1 veröffentlicht.
+type Sandbox interface {
+	// Command baut einen Prozess im Container (läuft im Workspace-Verzeichnis).
+	Command(ctx context.Context, argv, env []string) *exec.Cmd
+	// Signal sendet sig an alle Prozesse im Container mit der Variable marker (KEY=VALUE).
+	Signal(ctx context.Context, marker string, sig syscall.Signal) error
+	// HostPort liefert den Port auf 127.0.0.1 für port im Container.
+	HostPort(ctx context.Context, port int) (int, error)
+	// WriteFile schreibt eine Datei im Container, nur für den Nutzer lesbar.
+	WriteFile(ctx context.Context, path string, data []byte) error
+}
+
+// SandboxFunc liefert die Sandbox eines Workspaces (nil: IDE läuft lokal). Sie startet den
+// Container bei Bedarf.
+type SandboxFunc func(ctx context.Context, id string) (Sandbox, error)
+
+// Pfade und Port der IDE im Container.
+const (
+	sandboxPort      = 3000
+	sandboxTokenFile = "/home/ade/.ade/ide-connection-token" //nolint:gosec // G101: Pfad, kein Secret
+)
+
 // Options konfiguriert den Manager.
 type Options struct {
 	// Dir enthält die heruntergeladene IDE, gemeinsame Erweiterungen und Daten je Workspace.
@@ -63,7 +86,9 @@ type Options struct {
 	// Binary ist ein eigener openvscode-server; leer = festgelegte Version herunterladen.
 	Binary     string
 	Workspaces WorkspaceFunc
-	Logger     *slog.Logger
+	// Sandbox ist optional; ohne sie laufen alle IDEs lokal.
+	Sandbox SandboxFunc
+	Logger  *slog.Logger
 
 	IdleTimeout  time.Duration
 	StartTimeout time.Duration
@@ -116,6 +141,7 @@ type instance struct {
 	port    int
 	token   string
 	pid     int
+	sb      Sandbox // gesetzt, wenn die IDE im Container läuft
 
 	// ctx endet mit Stop; er bricht Download und Startwarten ab, nicht den Prozess selbst.
 	ctx    context.Context
@@ -225,7 +251,7 @@ func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 	}
 	m.inst[id] = in
 	m.wg.Add(1)
-	go m.run(in, path)
+	go m.run(in, path) //nolint:gosec // G118: Die IDE überdauert die Anfrage; sie endet mit in.ctx
 	return m.statusLocked(id), nil
 }
 
@@ -292,11 +318,21 @@ func (m *Manager) Stop(id string) {
 		return
 	}
 	in.stopping = true
-	pid := in.pid
+	pid, sb := in.pid, in.sb
 	m.mu.Unlock()
 	in.cancel()
 
-	if pid > 0 {
+	if pid > 0 && sb != nil {
+		marker := EnvOwner + "=" + m.opts.Dir
+		_ = sb.Signal(context.Background(), marker, syscall.SIGTERM)
+		select {
+		case <-in.exited:
+		case <-time.After(m.opts.StopTimeout):
+			_ = sb.Signal(context.Background(), marker, syscall.SIGKILL)
+			_ = syscall.Kill(-pid, syscall.SIGKILL)
+			<-in.exited
+		}
+	} else if pid > 0 {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 		select {
 		case <-in.exited:
@@ -345,15 +381,31 @@ func (m *Manager) run(in *instance, workdir string) {
 		m.log.Error("IDE fehlgeschlagen", "workspace", in.wsID, "err", err)
 	}
 
-	bin, err := m.binary(in)
-	if err != nil {
-		fail(err)
-		return
+	var sb Sandbox
+	if m.opts.Sandbox != nil {
+		var err error
+		if sb, err = m.opts.Sandbox(in.ctx, in.wsID); err != nil {
+			fail(fmt.Errorf("Sandbox-Container: %w", err))
+			return
+		}
 	}
-	cmd, err := m.command(in, bin, workdir)
-	if err != nil {
-		fail(err)
-		return
+	var cmd *exec.Cmd
+	if sb != nil {
+		var err error
+		if cmd, err = m.sandboxCommand(in, sb); err != nil {
+			fail(err)
+			return
+		}
+	} else {
+		bin, err := m.binary(in)
+		if err != nil {
+			fail(err)
+			return
+		}
+		if cmd, err = m.command(in, bin, workdir); err != nil {
+			fail(err)
+			return
+		}
 	}
 	var stderr tail
 	cmd.Stdout, cmd.Stderr = &stderr, &stderr
@@ -371,13 +423,33 @@ func (m *Manager) run(in *instance, workdir string) {
 	}
 	in.pid = cmd.Process.Pid
 	m.mu.Unlock()
-	m.log.Info("IDE gestartet", "workspace", in.wsID, "pid", in.pid, "port", in.port)
+	if sb != nil {
+		// Den veröffentlichten Port kennt Docker erst nach dem Container-Start.
+		port, err := sb.HostPort(in.ctx, sandboxPort)
+		if err != nil {
+			_ = sb.Signal(context.Background(), EnvOwner+"="+m.opts.Dir, syscall.SIGKILL)
+			_ = syscall.Kill(-in.pid, syscall.SIGKILL)
+			_ = cmd.Wait()
+			fail(fmt.Errorf("IDE-Port: %w", err))
+			return
+		}
+		m.mu.Lock()
+		in.port, in.sb = port, sb
+		m.mu.Unlock()
+	}
+	m.log.Info("IDE gestartet", "workspace", in.wsID, "pid", in.pid, "port", in.port, "sandbox", sb != nil)
 
 	waitErr := make(chan error, 1)
 	go func() { waitErr <- cmd.Wait() }()
 
-	if err := m.waitReady(in, waitErr); err != nil {
+	killAll := func() {
+		if sb != nil {
+			_ = sb.Signal(context.Background(), EnvOwner+"="+m.opts.Dir, syscall.SIGKILL)
+		}
 		_ = syscall.Kill(-in.pid, syscall.SIGKILL)
+	}
+	if err := m.waitReady(in, waitErr); err != nil {
+		killAll()
 		if out := strings.TrimSpace(stderr.String()); out != "" {
 			err = fmt.Errorf("%w: %s", err, lastLine(out))
 		}
@@ -389,9 +461,9 @@ func (m *Manager) run(in *instance, workdir string) {
 	m.mu.Unlock()
 	readyOnce()
 
-	err = <-waitErr
+	err := <-waitErr
 	// Reste der Prozessgruppe (z. B. Extension-Hosts) mitnehmen.
-	_ = syscall.Kill(-in.pid, syscall.SIGKILL)
+	killAll()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if in.stopping {
@@ -535,6 +607,30 @@ func (m *Manager) command(in *instance, bin, workdir string) (*exec.Cmd, error) 
 
 	m.mu.Lock()
 	in.port, in.token = port, token
+	m.mu.Unlock()
+	return cmd, nil
+}
+
+// sandboxCommand baut den Aufruf von openvscode-server im Container. Der Connection-Token
+// liegt in einer Datei im Container; der Server lauscht auf allen Adressen des Containers,
+// erreichbar ist er von außen nur über den auf 127.0.0.1 veröffentlichten Port.
+func (m *Manager) sandboxCommand(in *instance, sb Sandbox) (*exec.Cmd, error) {
+	token := randomToken()
+	if err := sb.WriteFile(in.ctx, sandboxTokenFile, []byte(token)); err != nil {
+		return nil, fmt.Errorf("Connection-Token im Container schreiben: %w", err)
+	}
+	cmd := sb.Command(m.ctx, []string{
+		"openvscode-server",
+		"--host", "0.0.0.0",
+		"--port", strconv.Itoa(sandboxPort),
+		"--connection-token-file", sandboxTokenFile,
+		"--default-folder", "/workspace",
+		"--telemetry-level", "off",
+	}, []string{EnvOwner + "=" + m.opts.Dir, EnvWorkspaceID + "=" + in.wsID, EnvWorkspacePath + "=/workspace"})
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	m.mu.Lock()
+	in.token = token
 	m.mu.Unlock()
 	return cmd, nil
 }

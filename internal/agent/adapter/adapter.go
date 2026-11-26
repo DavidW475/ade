@@ -40,6 +40,9 @@ type Spec struct {
 	PermissionMode string
 	// ResumeID ist die Session-ID der CLI aus einem früheren Lauf (Sink.SetResumeID).
 	ResumeID string
+	// Sandbox: Der Prozess läuft im Docker-Container des Workspaces (Workdir /workspace).
+	// Programme werden dann im Image gesucht, nicht auf dem Host.
+	Sandbox bool
 }
 
 // Cmd ist ein Prozessaufruf. Path wird über $PATH aufgelöst.

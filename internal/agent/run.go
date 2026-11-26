@@ -17,6 +17,7 @@ import (
 
 	"github.com/DavidW475/ade/internal/agent/adapter"
 	"github.com/DavidW475/ade/internal/apperr"
+	"github.com/DavidW475/ade/internal/sandbox"
 	"github.com/DavidW475/ade/internal/store"
 )
 
@@ -34,6 +35,7 @@ type run struct {
 	id          string
 	workspaceID string
 	caps        adapter.Capabilities
+	sandbox     bool // Prozess läuft per docker exec im Container des Workspaces
 	done        chan struct{}
 	cancel      context.CancelFunc // bricht das Warten vor dem Start ab
 
@@ -54,7 +56,7 @@ type run struct {
 func (m *Manager) launch(sess *store.Session, a adapter.Adapter, ws *store.Workspace, spec adapter.Spec) error {
 	ctx, cancel := context.WithCancel(m.ctx)
 	r := &run{
-		m: m, id: sess.ID, workspaceID: ws.ID, caps: a.Capabilities(), done: make(chan struct{}), cancel: cancel,
+		m: m, id: sess.ID, workspaceID: ws.ID, caps: a.Capabilities(), sandbox: ws.Sandbox, done: make(chan struct{}), cancel: cancel,
 		status: store.SessionStarting, resumeID: sess.ResumeID, sessionUSD: sess.CostUSD,
 	}
 	m.mu.Lock()
@@ -104,21 +106,40 @@ func (r *run) execute(ctx context.Context, a adapter.Adapter, ws *store.Workspac
 		return store.SessionFailed, fmt.Sprintf("Workspace ist nicht bereit (Status %s)", w.Status), nil
 	}
 
-	c, err := a.Command(spec)
-	if err != nil {
-		return store.SessionFailed, err.Error(), nil
-	}
-	path, err := exec.LookPath(c.Path)
-	if err != nil {
-		return store.SessionFailed, fmt.Sprintf("Programm %s nicht gefunden", c.Path), nil
-	}
-	cmd := exec.Command(path, c.Args...) //nolint:gosec // G204: Befehl kommt vom Adapter bzw. vom angemeldeten Nutzer
-	cmd.Dir = ws.Path
 	var extra []string
 	if m.opts.AdapterEnv != nil {
 		extra = m.opts.AdapterEnv(a.Name())
 	}
-	cmd.Env = buildEnv(daemonEnv(), r.caps.Terminal, r.id, ws.ID, ws.Path, append(extra, c.Env...))
+	if r.sandbox {
+		spec.Workdir = sandbox.Workdir
+	}
+	c, err := a.Command(spec)
+	if err != nil {
+		return store.SessionFailed, err.Error(), nil
+	}
+	var cmd *exec.Cmd
+	if r.sandbox {
+		if err := m.opts.Workspaces.EnsureSandbox(ctx, ws.ID); err != nil {
+			if ctx.Err() != nil {
+				return r.endStatus(store.SessionStopped), "vor dem Start abgebrochen", nil
+			}
+			return store.SessionFailed, fmt.Sprintf("Sandbox-Container: %v", err), nil
+		}
+		cmd = m.opts.Workspaces.Sandbox().Command(context.Background(), ws.ID, sandbox.Exec{
+			Argv:  append([]string{c.Path}, c.Args...),
+			Env:   sandboxEnv(r.caps.Terminal, r.id, ws.ID, append(extra, c.Env...)),
+			TTY:   r.caps.Terminal,
+			Stdin: true,
+		})
+	} else {
+		path, err := exec.LookPath(c.Path)
+		if err != nil {
+			return store.SessionFailed, fmt.Sprintf("Programm %s nicht gefunden", c.Path), nil
+		}
+		cmd = exec.Command(path, c.Args...) //nolint:gosec // G204: Befehl kommt vom Adapter bzw. vom angemeldeten Nutzer
+		cmd.Dir = ws.Path
+		cmd.Env = buildEnv(daemonEnv(), r.caps.Terminal, r.id, ws.ID, ws.Path, append(extra, c.Env...))
+	}
 
 	r.mu.Lock()
 	if r.stopAs != "" {
@@ -306,6 +327,19 @@ func (r *run) stop(as string) {
 		_ = r.stdin.Close()
 	}
 	pid := r.proc.Pid
+	if r.sandbox {
+		// Die Docker-CLI reicht Signale nicht an docker exec weiter: Prozesse im Container
+		// über ihre Session-ID beenden; die CLI endet mit ihnen.
+		sb, wsID, marker := r.m.opts.Workspaces.Sandbox(), r.workspaceID, EnvSessionID+"="+r.id
+		go func() { _ = sb.Signal(context.Background(), wsID, marker, syscall.SIGTERM) }()
+		if r.killTimer == nil {
+			r.killTimer = time.AfterFunc(r.m.opts.StopTimeout, func() {
+				_ = sb.Signal(context.Background(), wsID, marker, syscall.SIGKILL)
+				_ = syscall.Kill(-pid, syscall.SIGKILL)
+			})
+		}
+		return
+	}
 	_ = syscall.Kill(-pid, syscall.SIGTERM)
 	if r.killTimer == nil {
 		r.killTimer = time.AfterFunc(r.m.opts.StopTimeout, func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })

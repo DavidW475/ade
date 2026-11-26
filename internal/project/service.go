@@ -12,6 +12,7 @@ import (
 
 	"github.com/DavidW475/ade/internal/apperr"
 	"github.com/DavidW475/ade/internal/git"
+	"github.com/DavidW475/ade/internal/sandbox"
 	"github.com/DavidW475/ade/internal/store"
 )
 
@@ -23,6 +24,10 @@ type View struct {
 	Config     *Config `json:"config"`
 	// ConfigError ist gesetzt, wenn .ade/project.yaml ungültig ist.
 	ConfigError string `json:"config_error,omitempty"`
+	// Sandbox ist die wirksame Konfiguration aus .ade/sandbox.yaml (mit Voreinstellungen).
+	Sandbox *sandbox.Config `json:"sandbox"`
+	// SandboxError ist gesetzt, wenn .ade/sandbox.yaml ungültig ist.
+	SandboxError string `json:"sandbox_error,omitempty"`
 	// Warnings sind Hinweise wie "liegt unter /mnt".
 	Warnings []string `json:"warnings,omitempty"`
 }
@@ -135,6 +140,11 @@ func (s *Service) load(ctx context.Context, p *store.Project) *View {
 
 func (s *Service) view(p *store.Project, cfg *Config, cfgErr error) *View {
 	v := &View{Project: p, Config: cfg, BaseBranch: p.DefaultBranch}
+	sb, sbErr := sandbox.LoadConfig(p.RepoPath)
+	v.Sandbox = sb
+	if sbErr != nil {
+		v.SandboxError = sbErr.Error()
+	}
 	if cfg.BaseBranch != "" {
 		v.BaseBranch = cfg.BaseBranch
 	}

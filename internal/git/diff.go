@@ -54,20 +54,21 @@ var statusNames = map[byte]string{
 //
 // Dafür wird ein temporärer Index verwendet (GIT_INDEX_FILE): Der Index des Workspaces
 // bleibt unverändert, auch wenn ein Agent gerade darin arbeitet.
-func WorktreeDiff(ctx context.Context, dir, base string, withPatch bool) (*Diff, error) {
-	head, err := Output(ctx, dir, "rev-parse", "--verify", "HEAD^{commit}")
+func WorktreeDiff(ctx context.Context, w Worktree, base string, withPatch bool) (*Diff, error) {
+	out, err := Run(ctx, workspaceCmd(w, nil, "rev-parse", "--verify", "HEAD^{commit}"))
 	if err != nil {
 		return nil, err
 	}
+	head := strings.TrimSpace(string(out))
 
-	idx, cleanup, err := tempIndex(ctx, dir)
+	idx, cleanup, err := tempIndex(ctx, w)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
 	env := []string{"GIT_INDEX_FILE=" + idx}
 
-	if _, err := Run(ctx, workspaceCmd(dir, env, "add", "--all", "--", ".")); err != nil {
+	if _, err := Run(ctx, workspaceCmd(w, env, "add", "--all", "--", ".")); err != nil {
 		return nil, err
 	}
 
@@ -75,11 +76,11 @@ func WorktreeDiff(ctx context.Context, dir, base string, withPatch bool) (*Diff,
 		return append([]string{"diff", "--cached", "--find-renames", "--no-color", "--no-ext-diff", "--no-textconv"},
 			append(extra, base, "--")...)
 	}
-	nameStatus, err := Run(ctx, Cmd{Dir: dir, Env: env, Args: diffArgs("--name-status", "-z")})
+	nameStatus, err := Run(ctx, workspaceCmd(w, env, diffArgs("--name-status", "-z")...))
 	if err != nil {
 		return nil, err
 	}
-	numStat, err := Run(ctx, Cmd{Dir: dir, Env: env, Args: diffArgs("--numstat", "-z")})
+	numStat, err := Run(ctx, workspaceCmd(w, env, diffArgs("--numstat", "-z")...))
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +100,7 @@ func WorktreeDiff(ctx context.Context, dir, base string, withPatch bool) (*Diff,
 	}
 
 	if withPatch && len(files) > 0 {
-		patch, err := Run(ctx, Cmd{Dir: dir, Env: env, Args: diffArgs("--patch")})
+		patch, err := Run(ctx, workspaceCmd(w, env, diffArgs("--patch")...))
 		if err != nil {
 			return nil, err
 		}
@@ -108,9 +109,38 @@ func WorktreeDiff(ctx context.Context, dir, base string, withPatch bool) (*Diff,
 	return d, nil
 }
 
+// remoteTempIndex legt die Kopie des Index am Ort des Runners an (im Container unter /tmp)
+// und gibt ihren Pfad aus. Ohne Index bleibt nur der Pfad; git beginnt dann leer.
+const remoteTempIndex = `f=$(mktemp /tmp/ade-index-XXXXXX) || exit 1
+i=$(git rev-parse --git-path index) || exit 1
+cp -- "$i" "$f" 2>/dev/null || rm -f -- "$f"
+printf '%s' "$f"`
+
 // tempIndex kopiert den Index des Repos in eine temporäre Datei. Die Kopie spart
 // git add das erneute Hashen unveränderter Dateien.
-func tempIndex(ctx context.Context, dir string) (string, func(), error) {
+func tempIndex(ctx context.Context, w Worktree) (string, func(), error) {
+	if w.Runner != nil {
+		run := func(argv ...string) ([]byte, error) {
+			cmd := w.Runner(ctx, baseEnv, argv)
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			if err := cmd.Run(); err != nil {
+				return nil, &Error{Args: argv[:1], Stderr: stderr.String(), Err: err}
+			}
+			return stdout.Bytes(), nil
+		}
+		out, err := run("sh", "-c", remoteTempIndex)
+		if err != nil {
+			return "", nil, err
+		}
+		path := strings.TrimSpace(string(out))
+		if !strings.HasPrefix(path, "/tmp/ade-index-") {
+			return "", nil, fmt.Errorf("temporärer Index: unerwartete Ausgabe %q", path)
+		}
+		cleanup := func() { _, _ = run("rm", "-f", "--", path) }
+		return path, cleanup, nil
+	}
+	dir := w.Path
 	gitIndex, err := Output(ctx, dir, "rev-parse", "--git-path", "index")
 	if err != nil {
 		return "", nil, err

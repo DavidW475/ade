@@ -33,6 +33,7 @@ Befehle:
   start     Daemon starten (falls nötig) und Dashboard im Browser öffnen
   serve     Daemon im Vordergrund ausführen
   project   Projekte verwalten (add, list, remove)
+  gc        Verwaiste Sandbox-Container entfernen
   version   Version ausgeben
   help      Diese Hilfe anzeigen
 
@@ -95,6 +96,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return cmdServe(rest, stderr)
 	case "project":
 		return cmdProject(rest, stdout, stderr)
+	case "gc":
+		return cmdGC(rest, stdout, stderr)
 	case "version", "--version":
 		_, _ = fmt.Fprintln(stdout, versionString())
 		return nil

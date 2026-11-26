@@ -53,7 +53,7 @@ func (a *Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 	if bin == "" {
 		bin = Binary
 	}
-	if _, err := exec.LookPath(bin); err != nil {
+	if _, err := exec.LookPath(bin); err != nil && !spec.Sandbox {
 		return nil, fmt.Errorf("%s nicht gefunden – Claude Code installieren und anmelden (https://docs.claude.com/claude-code)", bin)
 	}
 	args := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"}

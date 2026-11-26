@@ -23,38 +23,44 @@ const (
 	FallbackEmail = "ade@localhost"
 )
 
-func workspaceCmd(dir string, env []string, args ...string) Cmd {
-	return Cmd{Dir: dir, Env: env, Args: append(append([]string{}, WorkspaceArgs...), args...)}
+func workspaceCmd(w Worktree, env []string, args ...string) Cmd {
+	return w.cmd(env, append(append([]string{}, WorkspaceArgs...), args...)...)
 }
 
 // IdentityEnv liefert Umgebungsvariablen für Autor und Committer, falls in dir kein
 // user.name bzw. user.email konfiguriert ist.
-func IdentityEnv(ctx context.Context, dir string) []string {
+func IdentityEnv(ctx context.Context, dir string) []string { return identityEnv(ctx, Local(dir)) }
+
+func identityEnv(ctx context.Context, w Worktree) []string {
+	get := func(key string) string {
+		out, _ := Run(ctx, w.cmd(nil, "config", key))
+		return strings.TrimSpace(string(out))
+	}
 	var env []string
-	if v, _ := Output(ctx, dir, "config", "user.name"); v == "" {
+	if get("user.name") == "" {
 		env = append(env, "GIT_AUTHOR_NAME="+FallbackName, "GIT_COMMITTER_NAME="+FallbackName)
 	}
-	if v, _ := Output(ctx, dir, "config", "user.email"); v == "" {
+	if get("user.email") == "" {
 		env = append(env, "GIT_AUTHOR_EMAIL="+FallbackEmail, "GIT_COMMITTER_EMAIL="+FallbackEmail)
 	}
 	return env
 }
 
-// CommitAll committet alle Änderungen im Arbeitsbaum von dir (auch neue, nicht ignorierte
+// CommitAll committet alle Änderungen im Arbeitsbaum von w (auch neue, nicht ignorierte
 // Dateien) ohne Hooks und Signatur. Liefert false, wenn es nichts zu committen gab.
-func CommitAll(ctx context.Context, dir, message string) (bool, error) {
-	out, err := Run(ctx, workspaceCmd(dir, nil, "status", "--porcelain", "-z", "--untracked-files=all"))
+func CommitAll(ctx context.Context, w Worktree, message string) (bool, error) {
+	out, err := Run(ctx, workspaceCmd(w, nil, "status", "--porcelain", "-z", "--untracked-files=all"))
 	if err != nil {
 		return false, err
 	}
 	if len(bytes.TrimSpace(out)) == 0 {
 		return false, nil
 	}
-	if _, err := Run(ctx, workspaceCmd(dir, nil, "add", "--all", "--", ".")); err != nil {
+	if _, err := Run(ctx, workspaceCmd(w, nil, "add", "--all", "--", ".")); err != nil {
 		return false, err
 	}
-	env := IdentityEnv(ctx, dir)
-	if _, err := Run(ctx, workspaceCmd(dir, env, "-c", "commit.gpgSign=false",
+	env := identityEnv(ctx, w)
+	if _, err := Run(ctx, workspaceCmd(w, env, "-c", "commit.gpgSign=false",
 		"commit", "--quiet", "--no-verify", "--allow-empty-message", "-m", message)); err != nil {
 		return false, err
 	}
@@ -198,32 +204,32 @@ const MaxBlob = 4 << 20
 var ErrTooLarge = errors.New("Datei zu groß")
 
 // Blob liefert den Inhalt von path im Commit rev; ok ist false, wenn die Datei dort fehlt.
-func Blob(ctx context.Context, dir, rev, path string) (data []byte, ok bool, err error) {
-	return blob(ctx, Cmd{Dir: dir}, rev+":"+path)
+func Blob(ctx context.Context, w Worktree, rev, path string) (data []byte, ok bool, err error) {
+	return blob(ctx, w.cmd(nil), rev+":"+path)
 }
 
 // WorktreeBlob liefert den Inhalt von path im Arbeitsbaum, so wie git ihn sieht
 // (Symlinks als Linkziel, Filter angewendet). Der Index des Workspaces bleibt unverändert.
-func WorktreeBlob(ctx context.Context, dir, path string) (data []byte, ok bool, err error) {
+func WorktreeBlob(ctx context.Context, w Worktree, path string) (data []byte, ok bool, err error) {
 	// Gelöschte Dateien: git add würde am Pfad scheitern. Lstat folgt keinem Link am Ende;
 	// Pfade hinter Symlinks weist git add selbst zurück.
-	if _, err := os.Lstat(filepath.Join(dir, path)); errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Lstat(filepath.Join(w.Path, path)); errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	}
-	idx, cleanup, err := tempIndex(ctx, dir)
+	idx, cleanup, err := tempIndex(ctx, w)
 	if err != nil {
 		return nil, false, err
 	}
 	defer cleanup()
 	env := []string{"GIT_INDEX_FILE=" + idx, "GIT_LITERAL_PATHSPECS=1"}
-	if _, err := Run(ctx, workspaceCmd(dir, env, "add", "--all", "--", path)); err != nil {
+	if _, err := Run(ctx, workspaceCmd(w, env, "add", "--all", "--", path)); err != nil {
 		return nil, false, err
 	}
-	return blob(ctx, workspaceCmd(dir, env), ":0:"+path)
+	return blob(ctx, workspaceCmd(w, env), ":0:"+path)
 }
 
 func blob(ctx context.Context, c Cmd, object string) ([]byte, bool, error) {
-	size, err := Run(ctx, Cmd{Dir: c.Dir, Env: c.Env, Args: append(append([]string{}, c.Args...), "cat-file", "-s", object)})
+	size, err := Run(ctx, Cmd{Dir: c.Dir, Env: c.Env, Runner: c.Runner, Args: append(append([]string{}, c.Args...), "cat-file", "-s", object)})
 	if err != nil {
 		// Fehlende Datei (oder fehlender Pfad im Commit) ist kein Fehler.
 		return nil, false, nil
@@ -235,7 +241,7 @@ func blob(ctx context.Context, c Cmd, object string) ([]byte, bool, error) {
 	if n > MaxBlob {
 		return nil, true, ErrTooLarge
 	}
-	out, err := Run(ctx, Cmd{Dir: c.Dir, Env: c.Env, Args: append(append([]string{}, c.Args...), "cat-file", "blob", object)})
+	out, err := Run(ctx, Cmd{Dir: c.Dir, Env: c.Env, Runner: c.Runner, Args: append(append([]string{}, c.Args...), "cat-file", "blob", object)})
 	if err != nil {
 		return nil, false, err
 	}

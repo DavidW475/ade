@@ -41,10 +41,15 @@ type Workspace struct {
 	MergedAt    *time.Time `json:"merged_at,omitempty"`
 	// PRURL ist der Pull Request nach „PR erstellen“.
 	PRURL string `json:"pr_url,omitempty"`
+
+	// Sandbox: Agent, Setup und IDE laufen im Docker-Container des Workspaces (M5).
+	Sandbox bool `json:"sandbox"`
+	// SandboxImage ist das Image, mit dem der Container angelegt wird bzw. wurde.
+	SandboxImage string `json:"sandbox_image,omitempty"`
 }
 
 const workspaceCols = `id, project_id, path, branch, base_branch, base_commit, status, error, setup_log, created_at, updated_at,
-	head_commit, collected_at, merge_commit, merged_at, pr_url`
+	head_commit, collected_at, merge_commit, merged_at, pr_url, sandbox, sandbox_image`
 
 func scanWorkspace(row interface{ Scan(...any) error }) (*Workspace, error) {
 	var w Workspace
@@ -52,7 +57,7 @@ func scanWorkspace(row interface{ Scan(...any) error }) (*Workspace, error) {
 	var collected, merged sql.NullString
 	if err := row.Scan(&w.ID, &w.ProjectID, &w.Path, &w.Branch, &w.BaseBranch, &w.BaseCommit,
 		&w.Status, &w.Error, &w.SetupLog, &created, &updated,
-		&w.HeadCommit, &collected, &w.MergeCommit, &merged, &w.PRURL); err != nil {
+		&w.HeadCommit, &collected, &w.MergeCommit, &merged, &w.PRURL, &w.Sandbox, &w.SandboxImage); err != nil {
 		return nil, err
 	}
 	w.CreatedAt, w.UpdatedAt = parseTime(created), parseTime(updated)
@@ -63,9 +68,9 @@ func scanWorkspace(row interface{ Scan(...any) error }) (*Workspace, error) {
 // CreateWorkspace legt einen Workspace-Datensatz an.
 func (s *Store) CreateWorkspace(ctx context.Context, w *Workspace) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO workspaces (id, project_id, path, branch, base_branch, base_commit, status)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		w.ID, w.ProjectID, w.Path, w.Branch, w.BaseBranch, w.BaseCommit, w.Status)
+		`INSERT INTO workspaces (id, project_id, path, branch, base_branch, base_commit, status, sandbox, sandbox_image)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		w.ID, w.ProjectID, w.Path, w.Branch, w.BaseBranch, w.BaseCommit, w.Status, w.Sandbox, w.SandboxImage)
 	if isForeignKeyViolation(err) {
 		return apperr.NotFound("Projekt %s nicht gefunden", w.ProjectID)
 	}

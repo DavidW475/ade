@@ -108,7 +108,11 @@ func (m *Manager) collect(ctx context.Context, id, label string) (*store.Workspa
 	if label == "" {
 		label = w.ID
 	}
-	committed, err := git.CommitAll(ctx, w.Path, "ade: wip "+label)
+	wt, err := m.worktree(ctx, w, true)
+	if err != nil {
+		return nil, err
+	}
+	committed, err := git.CommitAll(ctx, *wt, "ade: wip "+label)
 	if err != nil {
 		return nil, fmt.Errorf("WIP-Commit: %w", err)
 	}
@@ -464,11 +468,15 @@ func (m *Manager) File(ctx context.Context, id, file, oldPath string) (*FileCont
 	if oldPath != file {
 		fc.OldPath = oldPath
 	}
-	data, ok, err := git.Blob(ctx, w.Path, w.BaseCommit, oldPath)
+	wt, err := m.worktree(ctx, w, true)
+	if err != nil {
+		return nil, err
+	}
+	data, ok, err := git.Blob(ctx, *wt, w.BaseCommit, oldPath)
 	if fc.Original, err = side(data, ok, err); err != nil {
 		return nil, err
 	}
-	data, ok, err = git.WorktreeBlob(ctx, w.Path, file)
+	data, ok, err = git.WorktreeBlob(ctx, *wt, file)
 	if fc.Modified, err = side(data, ok, err); err != nil {
 		return nil, err
 	}
