@@ -1,0 +1,17 @@
+# Build
+/bin/
+/dist/
+/ade
+
+# Frontend
+node_modules/
+web/dist/
+internal/api/dist/
+
+# Lokal
+*.db
+.env
+.env.*
+.DS_Store
+.idea/
+.vscode/
