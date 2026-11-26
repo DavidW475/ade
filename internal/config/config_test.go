@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func setHome(t *testing.T) string {
@@ -31,6 +32,9 @@ func TestLoadMissingFileUsesDefaults(t *testing.T) {
 	if want := filepath.Join(home, ".ade", "workspaces"); cfg.WorkspacesDir != want {
 		t.Errorf("WorkspacesDir = %q, want %q", cfg.WorkspacesDir, want)
 	}
+	if cfg.IDE.IdleTimeout != DefaultIDEIdleTimeout || cfg.IDE.Binary != "" {
+		t.Errorf("IDE = %#v", cfg.IDE)
+	}
 	if cfg.BaseURL() != "http://localhost:7000" {
 		t.Errorf("BaseURL = %q", cfg.BaseURL())
 	}
@@ -48,6 +52,9 @@ providers:
 defaults:
   adapter: pty
   sandbox: false
+ide:
+  binary: ~/bin/openvscode-server
+  idle_timeout: 1h
 `)
 
 	cfg, err := Load(path)
@@ -68,6 +75,9 @@ defaults:
 	}
 	if cfg.Defaults.Adapter != "pty" || cfg.Defaults.Sandbox {
 		t.Errorf("Defaults = %#v", cfg.Defaults)
+	}
+	if cfg.IDE.Binary != filepath.Join(home, "bin", "openvscode-server") || cfg.IDE.IdleTimeout != time.Hour {
+		t.Errorf("IDE = %#v", cfg.IDE)
 	}
 }
 
@@ -93,6 +103,9 @@ func TestLoadRejectsInvalid(t *testing.T) {
 		"port-null":          "listen: 127.0.0.1:0\n",
 		"unbekannter-schl":   "lissten: 127.0.0.1:7000\n",
 		"relativer-data-dir": "data_dir: daten\n",
+		"relatives-ide":      "ide:\n  binary: bin/ovs\n",
+		"ide-idle-zu-kurz":   "ide:\n  idle_timeout: 10s\n",
+		"ide-idle-kaputt":    "ide:\n  idle_timeout: bald\n",
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {

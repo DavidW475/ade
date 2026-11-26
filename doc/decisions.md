@@ -100,3 +100,25 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
   `acceptEdits`); Werkzeuge, die eine Bestätigung bräuchten, lehnt die CLI im Print-Modus ab.
   Das stream-json-Format ist nicht formal spezifiziert: Der Parser ignoriert unbekannte Zeilen,
   Tests nutzen aufgezeichnete Ausgaben (`internal/agent/adapter/claude/testdata`).
+
+## ADR-012: Browser-IDE lokal mit festgelegter openvscode-server-Version und eigener Subdomain-Session
+
+- **Kontext:** Bis M5 läuft die IDE ohne Container. openvscode-server ist nicht installiert und
+  wird nicht über einen Paketmanager verteilt. Die IDE führt Code aus (Terminal, Erweiterungen)
+  und darf das Dashboard nicht steuern können.
+- **Entscheidung:** ADE lädt eine festgelegte Version (`ide.Version`, Prüfsumme je Architektur im
+  Code) beim ersten Start nach `<data_dir>/ide/` und bricht bei falscher Prüfsumme ab;
+  `ide.binary` in der Konfiguration ersetzt den Download. Pro Workspace läuft ein Prozess auf
+  `127.0.0.1` mit freiem Port und zufälligem Connection-Token, der nur in einer Datei steht
+  (`--connection-token-file`). Das Gateway setzt das Token-Cookie `vscode-tkn` selbst. Anmeldung an
+  `ws-<id>.localhost` über ein Einmal-Ticket aus `POST /api/workspaces/{id}/ide/ticket`, das an
+  den Workspace und die Dashboard-Session gebunden ist; es wird gegen ein Host-only-Cookie
+  `ade_ide` (HttpOnly, `SameSite=Lax`) getauscht. Logout im Dashboard beendet auch die
+  IDE-Sessions. Erweiterungen teilen sich alle IDEs, Einstellungen und Serverdaten liegen je
+  Workspace. Ohne offene Verbindung stoppt ADE eine IDE nach `ide.idle_timeout` (Standard 15 min).
+- **Konsequenzen:** Lax statt Strict, weil `localhost` und `ws-<id>.localhost` verschiedene Sites
+  sind und der Sprung aus dem Dashboard eine Cross-Site-Navigation ist. Origin-Prüfung: Auf einer
+  IDE-Subdomain ist nur deren eigener Origin erlaubt, auf dem Dashboard keine IDE. Die
+  Dashboard-CSP gilt nicht für IDE-Subdomains. Die IDE erbt dieselbe gefilterte Umgebung wie
+  Agenten (kein `GH_TOKEN`, kein `SSH_AUTH_SOCK`). Webviews lädt VS Code von `vscode-cdn.net`, dafür
+  braucht es Internet. Beim Anheben der Version müssen beide Prüfsummen neu berechnet werden.

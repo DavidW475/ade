@@ -183,6 +183,16 @@ export interface UnknownEvent {
   payload: unknown;
 }
 
+export type IdeState = "stopped" | "installing" | "starting" | "running" | "error";
+
+export interface IdeStatus {
+  state: IdeState;
+  error?: string;
+  started_at?: string;
+  connections: number;
+  url: string;
+}
+
 /** Fehler einer API-Antwort mit HTTP-Status und Meldung des Daemons. */
 export class ApiError extends Error {
   readonly status: number;
@@ -260,7 +270,18 @@ export const api = {
   session: (id: string) => request<Session>("GET", `/api/sessions/${encodeURIComponent(id)}`),
   sendInput: (id: string, text: string) => request<Session>("POST", `/api/sessions/${encodeURIComponent(id)}/input`, { text }),
   stopSession: (id: string) => request<Session>("POST", `/api/sessions/${encodeURIComponent(id)}/stop`),
+  ideStatus: (workspaceId: string) => request<IdeStatus>("GET", `/api/workspaces/${encodeURIComponent(workspaceId)}/ide`),
+  startIde: (workspaceId: string) => request<IdeStatus>("POST", `/api/workspaces/${encodeURIComponent(workspaceId)}/ide`),
+  stopIde: (workspaceId: string) => request<void>("DELETE", `/api/workspaces/${encodeURIComponent(workspaceId)}/ide`),
+  /** Liefert die Anmelde-URL der IDE-Subdomain (Einmal-Ticket, ADR-004). */
+  ideTicket: (workspaceId: string) =>
+    request<{ url: string }>("POST", `/api/workspaces/${encodeURIComponent(workspaceId)}/ide/ticket`),
 };
+
+/** IDEs in diesen Zuständen werden gleich bereit – öfter abfragen. */
+export function ideBusy(state: IdeState): boolean {
+  return state === "installing" || state === "starting";
+}
 
 /** Sessions in diesen Zuständen haben einen Prozess (oder bekommen gleich einen). */
 export function isActive(status: SessionStatus): boolean {

@@ -49,7 +49,9 @@ func hostGuard(port string, next http.Handler) http.Handler {
 }
 
 // originGuard schützt zustandsändernde Anfragen und WebSocket-Upgrades vor fremden Webseiten
-// (CSRF): Ein mitgeschickter Origin muss das Dashboard auf dem eigenen Port sein.
+// (CSRF): Ein mitgeschickter Origin muss das Dashboard auf dem eigenen Port sein, bei einer
+// IDE-Subdomain genau diese Subdomain (eine IDE darf weder das Dashboard noch eine andere
+// IDE ansprechen).
 // Anfragen ohne Origin stammen nicht aus einem Browser-Kontext (z. B. CLI) und brauchen
 // weiterhin eine gültige Authentifizierung.
 func originGuard(port string, next http.Handler) http.Handler {
@@ -61,7 +63,7 @@ func originGuard(port string, next http.Handler) http.Handler {
 				http.Error(w, "Cross-Site-Anfrage abgelehnt", http.StatusForbidden)
 				return
 			}
-			if origin := r.Header.Get("Origin"); origin != "" && !sameDashboardOrigin(origin, port) {
+			if origin := r.Header.Get("Origin"); origin != "" && !allowedOrigin(origin, r.Host, port) {
 				http.Error(w, "unzulässiger Origin", http.StatusForbidden)
 				return
 			}
@@ -70,7 +72,7 @@ func originGuard(port string, next http.Handler) http.Handler {
 	})
 }
 
-func sameDashboardOrigin(origin, port string) bool {
+func allowedOrigin(origin, reqHost, port string) bool {
 	u, err := url.Parse(origin)
 	if err != nil || u.Scheme != "http" {
 		return false
@@ -79,7 +81,14 @@ func sameDashboardOrigin(origin, port string) bool {
 	if p == "" {
 		p = "80"
 	}
-	return dashboardHost(u.Hostname()) && p == port
+	if p != port {
+		return false
+	}
+	host, _ := splitHost(reqHost)
+	if dashboardHost(host) {
+		return dashboardHost(u.Hostname())
+	}
+	return strings.EqualFold(u.Hostname(), strings.TrimSuffix(host, "."))
 }
 
 // securityHeaders setzt Header, die für alle Antworten gelten.

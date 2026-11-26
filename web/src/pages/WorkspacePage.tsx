@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, isBusy, type FileChange } from "../api";
 import { SessionTable, StartAgent } from "../components/agents";
+import { IdeButton } from "../components/ide";
 import { useSessions } from "../sessions";
 import { FileStatusBadge, LineStats, Notice, WorkspaceStatusBadge } from "../components/ui";
 import { errorMessage, formatTime, shortCommit } from "../format";
@@ -44,16 +45,19 @@ export function WorkspacePage() {
       </div>
       <div className="pagehead">
         <h1 className="mono">{w.branch}</h1>
-        <button
-          type="button"
-          className="danger"
-          disabled={del.isPending}
-          onClick={() => window.confirm(
-              `Workspace ${w.branch} mit allen Änderungen löschen?${sessions.data?.some((x) => x.live) ? "\n\nLaufende Agenten werden dabei gestoppt." : ""}`,
-            ) && del.mutate()}
-        >
-          Workspace löschen
-        </button>
+        <div className="actions">
+          <IdeButton workspaceId={w.id} disabled={!hasTree} />
+          <button
+            type="button"
+            className="danger"
+            disabled={del.isPending}
+            onClick={() => window.confirm(
+                `Workspace ${w.branch} mit allen Änderungen löschen?${sessions.data?.some((x) => x.live) ? "\n\nLaufende Agenten und die IDE werden dabei gestoppt." : ""}`,
+              ) && del.mutate()}
+          >
+            Workspace löschen
+          </button>
+        </div>
       </div>
       {del.isError && <Notice tone="bad">{errorMessage(del.error)}</Notice>}
 

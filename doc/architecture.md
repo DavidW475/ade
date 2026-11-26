@@ -153,6 +153,11 @@ sich mit einer neuen Anweisung fortsetzen.
 - Extensions kommen aus **Open VSX**, nicht aus dem Microsoft-Marketplace.
 - Der Daemon setzt einen zufälligen `connection-token`; das Gateway reicht ihn durch,
   der Nutzer sieht ihn nie.
+- Ablauf „IDE öffnen“: Dashboard-Tab `/ide/<id>` startet die IDE (`POST /api/workspaces/{id}/ide`),
+  wartet auf `running`, holt ein Einmal-Ticket und leitet auf
+  `ws-<id>.localhost:7000/_ade/login?ticket=…` weiter. Das Gateway tauscht das Ticket gegen ein
+  Cookie nur für diese Subdomain (ADR-012). Ohne offene Verbindung stoppt die IDE nach
+  `ide.idle_timeout`; ein erneuter Aufruf startet sie wieder.
 
 ## 3. Datenmodell
 
@@ -339,6 +344,9 @@ providers:
 defaults:
   adapter: claude
   sandbox: true
+ide:
+  binary: ""          # leer = festgelegte openvscode-server-Version herunterladen (ADR-012)
+  idle_timeout: 15m
 ```
 
 ## 7. Sicherheit

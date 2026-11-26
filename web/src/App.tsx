@@ -5,6 +5,7 @@ import { fetchAuthenticated, fetchHealth } from "./api";
 import { Notice } from "./components/ui";
 import { errorMessage } from "./format";
 import { AgentsPage } from "./pages/AgentsPage";
+import { IdePage } from "./pages/IdePage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
@@ -60,6 +61,7 @@ export function App() {
             <Route path="/projects/:id" element={<ProjectPage />} />
             <Route path="/workspaces/:id" element={<WorkspacePage />} />
             <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/ide/:id" element={<IdePage />} />
             <Route
               path="/sessions/:id"
               element={

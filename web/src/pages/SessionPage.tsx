@@ -3,6 +3,7 @@ import { useCallback, useState, type FormEvent, type KeyboardEvent } from "react
 import { Link, useNavigate, useParams } from "react-router";
 import { api, isActive, type Session, type SessionEvent } from "../api";
 import { sessionTitle } from "../sessions";
+import { IdeButton } from "../components/ide";
 import { Terminal } from "../components/Terminal";
 import { Timeline } from "../components/Timeline";
 import { Notice, SessionStatusBadge } from "../components/ui";
@@ -62,6 +63,7 @@ function SessionHeader({ session: s }: { session: Session }) {
       <div className="pagehead">
         <h1 className="sessiontitle">{sessionTitle(s)}</h1>
         <div className="actions">
+          <IdeButton workspaceId={s.workspace_id} />
           {!s.capabilities.terminal && (
             <button type="button" onClick={() => shell.mutate()} disabled={shell.isPending} title="Neues Terminal im selben Workspace">
               Terminal im Workspace

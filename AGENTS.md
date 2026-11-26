@@ -37,6 +37,8 @@ eigene Konfiguration mit anderem Port und Datenverzeichnis verwenden (siehe
 | `internal/workspace/` | Workspaces: Clone, Setup, Diff, Löschen |
 | `internal/agent/` | Agent-Sessions: Prozesse (PTY/Pipes), Event-Hub mit Replay, Neustart-Aufräumen |
 | `internal/agent/adapter/` | Adapter-Interface, Event-Typen + JSON-Schema; `claude/`, `pty/`, `fake/` (Tests) |
+| `internal/ide/` | openvscode-server je Workspace: Download mit Prüfsumme, Start, Inaktivitäts-Stopp |
+| `internal/gateway/` | Reverse-Proxy `ws-<id>.localhost` → IDE, Ticket-Anmeldung, Connection-Token |
 | `web/` | Dashboard (Vite + React + TypeScript) |
 | `examples/`, `images/` | Beispielkonfigurationen, Container-Images (ab M5) |
 
