@@ -80,9 +80,9 @@ flowchart LR
 - Daemon-Neustart: laufende Sessions als „unterbrochen“ markieren, Fortsetzen falls die CLI es kann
 
 **Fertig, wenn:**
-- [ ] Claude Code löst eine kleine Aufgabe im Workspace; Tool-Aufrufe erscheinen live in der Timeline
-- [ ] Browser schließen und wieder öffnen zeigt die vollständige Historie
-- [ ] Ein interaktives Terminal (`pty`-Adapter mit `bash`) funktioniert im Browser
+- [x] Claude Code löst eine kleine Aufgabe im Workspace; Tool-Aufrufe erscheinen live in der Timeline
+- [x] Browser schließen und wieder öffnen zeigt die vollständige Historie
+- [x] Ein interaktives Terminal (`pty`-Adapter mit `bash`) funktioniert im Browser
 
 **Nicht dabei:** Sandbox, IDE, Freigaben.
 

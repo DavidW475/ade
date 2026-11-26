@@ -35,6 +35,8 @@ eigene Konfiguration mit anderem Port und Datenverzeichnis verwenden (siehe
 | `internal/git/` | Aufrufe des git-Binarys, Diff über temporären Index |
 | `internal/project/` | Projekte registrieren, `.ade/project.yaml` |
 | `internal/workspace/` | Workspaces: Clone, Setup, Diff, Löschen |
+| `internal/agent/` | Agent-Sessions: Prozesse (PTY/Pipes), Event-Hub mit Replay, Neustart-Aufräumen |
+| `internal/agent/adapter/` | Adapter-Interface, Event-Typen + JSON-Schema; `claude/`, `pty/`, `fake/` (Tests) |
 | `web/` | Dashboard (Vite + React + TypeScript) |
 | `examples/`, `images/` | Beispielkonfigurationen, Container-Images (ab M5) |
 

@@ -1,11 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
+import { lazy, Suspense } from "react";
 import { Link, Route, Routes } from "react-router";
 import { fetchAuthenticated, fetchHealth } from "./api";
 import { Notice } from "./components/ui";
 import { errorMessage } from "./format";
+import { AgentsPage } from "./pages/AgentsPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
+
+// Die Session-Seite bringt xterm.js mit – erst laden, wenn sie gebraucht wird.
+const SessionPage = lazy(() => import("./pages/SessionPage").then((m) => ({ default: m.SessionPage })));
 
 export function App() {
   const health = useQuery({ queryKey: ["health"], queryFn: fetchHealth, refetchInterval: 15_000 });
@@ -20,6 +25,7 @@ export function App() {
         </Link>
         <nav>
           <Link to="/">Projekte</Link>
+          <Link to="/agents">Agenten</Link>
         </nav>
         <div className="daemon" title={health.data ? `Schema ${health.data.schema}` : undefined}>
           {health.isError ? (
@@ -53,6 +59,15 @@ export function App() {
             <Route path="/" element={<ProjectsPage />} />
             <Route path="/projects/:id" element={<ProjectPage />} />
             <Route path="/workspaces/:id" element={<WorkspacePage />} />
+            <Route path="/agents" element={<AgentsPage />} />
+            <Route
+              path="/sessions/:id"
+              element={
+                <Suspense fallback={<p className="muted">Lade …</p>}>
+                  <SessionPage />
+                </Suspense>
+              }
+            />
             <Route
               path="*"
               element={

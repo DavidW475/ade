@@ -1,6 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, isBusy, type FileChange } from "../api";
+import { SessionTable, StartAgent } from "../components/agents";
+import { useSessions } from "../sessions";
 import { FileStatusBadge, LineStats, Notice, WorkspaceStatusBadge } from "../components/ui";
 import { errorMessage, formatTime, shortCommit } from "../format";
 
@@ -24,6 +26,7 @@ export function WorkspacePage() {
     enabled: !!hasTree,
     refetchInterval: 5000,
   });
+  const sessions = useSessions({ workspace_id: id });
   const del = useMutation({
     mutationFn: () => api.deleteWorkspace(id),
     onSuccess: () => void navigate(ws.data ? `/projects/${ws.data.project_id}` : "/"),
@@ -45,7 +48,9 @@ export function WorkspacePage() {
           type="button"
           className="danger"
           disabled={del.isPending}
-          onClick={() => window.confirm(`Workspace ${w.branch} mit allen Änderungen löschen?`) && del.mutate()}
+          onClick={() => window.confirm(
+              `Workspace ${w.branch} mit allen Änderungen löschen?${sessions.data?.some((x) => x.live) ? "\n\nLaufende Agenten werden dabei gestoppt." : ""}`,
+            ) && del.mutate()}
         >
           Workspace löschen
         </button>
@@ -77,6 +82,21 @@ export function WorkspacePage() {
           <summary>Setup-Ausgabe</summary>
           <pre className="log">{w.setup_log}</pre>
         </details>
+      )}
+
+      <div className="sectionhead">
+        <h2>Agenten in diesem Workspace</h2>
+        <StartAgent
+          projectId={w.project_id}
+          workspaceId={w.id}
+          defaultAdapter={project.data?.config.adapter}
+          disabled={w.status === "creating" || w.status === "error"}
+        />
+      </div>
+      {sessions.data?.length ? (
+        <SessionTable sessions={sessions.data} showWorkspace={false} />
+      ) : (
+        <p className="muted">Noch keine Agenten in diesem Workspace.</p>
       )}
 
       <div className="sectionhead">

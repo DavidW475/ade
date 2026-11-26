@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DavidW475/ade/internal/agent"
 	"github.com/DavidW475/ade/internal/project"
 	"github.com/DavidW475/ade/internal/workspace"
 )
@@ -30,6 +31,10 @@ type Options struct {
 	// Projects und Workspaces sind optional; ohne sie fehlen die zugehörigen Routen.
 	Projects   *project.Service
 	Workspaces *workspace.Manager
+	// Agents ist optional; ohne ihn fehlen die Routen für Sessions.
+	Agents *agent.Manager
+	// DefaultAdapter ist der globale Standard-Adapter (für das Dashboard).
+	DefaultAdapter string
 }
 
 // Server ist der HTTP-Handler des Daemons.
@@ -51,9 +56,12 @@ func New(opts Options) *Server {
 	mux.HandleFunc("GET /api/session", s.requireAuth(s.handleSession))
 	mux.HandleFunc("POST /api/auth/logout", s.requireAuth(s.handleLogout))
 	s.routesProjects(mux)
-	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
+	s.routesAgents(mux)
+	unknown := func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "unbekannter API-Pfad")
-	})
+	}
+	mux.HandleFunc("/api/", unknown)
+	mux.HandleFunc("/ws/", unknown)
 	mux.HandleFunc("GET /auth/login", s.handleLogin)
 	mux.Handle("/", staticHandler())
 
@@ -62,7 +70,7 @@ func New(opts Options) *Server {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/api/") {
+	if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ws/") {
 		w.Header().Set("Cache-Control", "no-store")
 	}
 	s.opts.Logger.Debug("Anfrage", "method", r.Method, "host", r.Host, "path", r.URL.Path, "remote", r.RemoteAddr)

@@ -12,6 +12,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/DavidW475/ade/internal/agent"
+	"github.com/DavidW475/ade/internal/agent/adapter"
+	"github.com/DavidW475/ade/internal/agent/adapter/claude"
+	"github.com/DavidW475/ade/internal/agent/adapter/pty"
 	"github.com/DavidW475/ade/internal/api"
 	"github.com/DavidW475/ade/internal/config"
 	"github.com/DavidW475/ade/internal/project"
@@ -45,6 +49,23 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	}
 	defer workspaces.Close()
 
+	agents := agent.NewManager(agent.Options{
+		Store:          st,
+		Projects:       projects,
+		Workspaces:     workspaces,
+		Adapters:       adapter.NewRegistry(claude.New(), pty.New()),
+		DataDir:        cfg.DataDir,
+		Logger:         log,
+		DefaultAdapter: cfg.Defaults.Adapter,
+		AdapterEnv:     adapterEnv(cfg, log),
+	})
+	if err := agents.Recover(ctx); err != nil {
+		return err
+	}
+	// Läuft vor workspaces.Close (defer-Reihenfolge): erst Agenten beenden, dann Setups.
+	defer agents.Close()
+	workspaces.SetBeforeDelete(agents.BeforeWorkspaceDelete)
+
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return fmt.Errorf("auf %s lauschen: %w", cfg.Listen, err)
@@ -66,6 +87,9 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 			Logger:     log,
 			Projects:   projects,
 			Workspaces: workspaces,
+			Agents:     agents,
+			// Wie der Manager: ohne Konfiguration gilt claude.
+			DefaultAdapter: defaultAdapter(cfg),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
@@ -111,4 +135,36 @@ func writeSecret(path, secret string) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+func defaultAdapter(cfg *config.Config) string {
+	if cfg.Defaults.Adapter != "" {
+		return cfg.Defaults.Adapter
+	}
+	return "claude"
+}
+
+// adapterEnv liefert API-Keys aus der Konfiguration an die passenden Adapter. Ohne Eintrag
+// nutzt die CLI ihre eigene Anmeldung (ADR-010).
+func adapterEnv(cfg *config.Config, log *slog.Logger) func(string) []string {
+	keys := map[string]struct{ provider, env string }{
+		"claude": {"anthropic", "ANTHROPIC_API_KEY"},
+		"codex":  {"openai", "OPENAI_API_KEY"},
+	}
+	return func(name string) []string {
+		k, ok := keys[name]
+		if !ok {
+			return nil
+		}
+		p, ok := cfg.Providers[k.provider]
+		if !ok || p.APIKey == "" {
+			return nil
+		}
+		v, err := p.ResolveAPIKey()
+		if err != nil {
+			log.Warn("API-Key nicht auflösbar, die CLI nutzt ihre eigene Anmeldung", "provider", k.provider, "err", err)
+			return nil
+		}
+		return []string{k.env + "=" + v}
+	}
 }

@@ -44,6 +44,9 @@ type Manager struct {
 
 	mu    sync.Mutex
 	setup map[string]*setupRun // laufende Setups je Workspace
+
+	// beforeDelete läuft vor dem Löschen eines Workspaces (z. B. Agent-Sessions beenden).
+	beforeDelete func(ctx context.Context, id string) error
 }
 
 type setupRun struct {
@@ -67,6 +70,30 @@ func (m *Manager) Recover(ctx context.Context) error {
 		m.log.Warn("unterbrochene Workspaces markiert", "anzahl", n)
 	}
 	return err
+}
+
+// SetBeforeDelete registriert eine Funktion, die vor dem Löschen eines Workspaces läuft.
+// Liefert sie einen Fehler, wird nicht gelöscht.
+func (m *Manager) SetBeforeDelete(fn func(ctx context.Context, id string) error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.beforeDelete = fn
+}
+
+// WaitSetup wartet, bis ein laufendes Setup des Workspaces fertig ist (sofort, wenn keins läuft).
+func (m *Manager) WaitSetup(ctx context.Context, id string) error {
+	m.mu.Lock()
+	run := m.setup[id]
+	m.mu.Unlock()
+	if run == nil {
+		return nil
+	}
+	select {
+	case <-run.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Close bricht laufende Setups ab und wartet auf sie.
@@ -302,8 +329,13 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	m.mu.Lock()
-	run := m.setup[id]
+	run, before := m.setup[id], m.beforeDelete
 	m.mu.Unlock()
+	if before != nil {
+		if err := before(ctx, id); err != nil {
+			return err
+		}
+	}
 	if run != nil {
 		run.cancel()
 		<-run.done
