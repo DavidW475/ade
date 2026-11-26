@@ -80,6 +80,8 @@ func (m *Manager) launch(sess *store.Session, a adapter.Adapter, ws *store.Works
 		delete(m.runs, r.id)
 		m.mu.Unlock()
 		m.finish(r.id, status, msg, exit)
+		// Vor done: Wer auf das Ende wartet (Feedback, Löschen), sieht den gesicherten Stand.
+		m.collect(ws.ID, r.id)
 		close(r.done)
 		m.releaseHub(r.id)
 		m.log.Info("Session beendet", "id", r.id, "status", status, "grund", msg)
@@ -258,8 +260,11 @@ func (r *run) exitStatus(cmd *exec.Cmd, waitErr error, stderr string) (string, s
 	}
 	if stopAs != "" {
 		reason := "vom Nutzer gestoppt"
-		if stopAs == store.SessionInterrupted {
+		switch stopAs {
+		case store.SessionInterrupted:
 			reason = "Daemon wurde beendet"
+		case store.SessionDone:
+			reason = "beendet – Feedback läuft in einer neuen Session"
 		}
 		return stopAs, reason, exit
 	}
@@ -356,6 +361,15 @@ func (r *run) setStatus(status, reason string) {
 		r.m.log.Error("Session-Status speichern", "session", r.id, "err", err)
 	}
 	r.m.emit(r.id, adapter.TypeStatus, adapter.Status{Status: status, Reason: reason})
+	if status == store.SessionIdle {
+		// Der Agent ist mit seiner Runde fertig: Stand sichern. Der Lauf hält den WaitGroup-
+		// Zähler, Add ist daher hier erlaubt.
+		r.m.wg.Add(1)
+		go func() {
+			defer r.m.wg.Done()
+			r.m.collect(r.workspaceID, r.id)
+		}()
+	}
 }
 
 // sink nimmt die Events des Adapters entgegen.

@@ -42,6 +42,50 @@ export interface Workspace {
   updated_at: string;
   changes?: { files: number; additions: number; deletions: number };
   diff_error?: string;
+  /** Zuletzt ins Projekt-Repo geholter Stand von ade/<id>. */
+  head_commit?: string;
+  collected_at?: string;
+  merge_commit?: string;
+  merged_at?: string;
+  pr_url?: string;
+}
+
+/** Eine Seite einer Datei im Diff-Editor (Basis-Commit bzw. Workspace). */
+export interface FileSide {
+  exists: boolean;
+  binary?: boolean;
+  too_large?: boolean;
+  text?: string;
+}
+
+export interface FileContents {
+  path: string;
+  old_path?: string;
+  original: FileSide;
+  modified: FileSide;
+}
+
+export interface PRDraft {
+  title: string;
+  body: string;
+  base: string;
+  head: string;
+  remote: string;
+  remote_url?: string;
+  url?: string;
+}
+
+export interface PRRequest {
+  title?: string;
+  body?: string;
+  draft?: boolean;
+}
+
+export interface FeedbackRequest {
+  comment: string;
+  adapter?: string;
+  model?: string;
+  permission_mode?: string;
 }
 
 export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "type_changed" | "unmerged";
@@ -196,10 +240,21 @@ export interface IdeStatus {
 /** Fehler einer API-Antwort mit HTTP-Status und Meldung des Daemons. */
 export class ApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  /** Weitere Felder der Fehlerantwort (z. B. conflicts beim Mergen). */
+  readonly details: Record<string, unknown>;
+  constructor(status: number, message: string, details: Record<string, unknown> = {}) {
     super(message);
     this.status = status;
+    this.details = details;
   }
+}
+
+/** Dateien mit Konflikten aus einer fehlgeschlagenen Merge-Antwort. */
+export function mergeConflicts(err: unknown): string[] {
+  if (err instanceof ApiError && Array.isArray(err.details.conflicts)) {
+    return err.details.conflicts.filter((c): c is string => typeof c === "string");
+  }
+  return [];
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -210,13 +265,15 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   });
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
+    let details: Record<string, unknown> = {};
     try {
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as { error?: string } & Record<string, unknown>;
       if (data.error) message = data.error;
+      details = data;
     } catch {
       // Kein JSON – Statuszeile genügt.
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, details);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -255,7 +312,20 @@ export const api = {
     ),
   workspace: (id: string) => request<Workspace>("GET", `/api/workspaces/${encodeURIComponent(id)}`),
   deleteWorkspace: (id: string) => request<void>("DELETE", `/api/workspaces/${encodeURIComponent(id)}`),
-  diff: (id: string) => request<Diff>("GET", `/api/workspaces/${encodeURIComponent(id)}/diff`),
+  diff: (id: string, patch = true) =>
+    request<Diff>("GET", `/api/workspaces/${encodeURIComponent(id)}/diff${patch ? "" : "?patch=false"}`),
+  file: (id: string, path: string, oldPath?: string) => {
+    const q = new URLSearchParams({ path });
+    if (oldPath) q.set("old_path", oldPath);
+    return request<FileContents>("GET", `/api/workspaces/${encodeURIComponent(id)}/file?${q.toString()}`);
+  },
+  collect: (id: string) => request<Workspace>("POST", `/api/workspaces/${encodeURIComponent(id)}/collect`),
+  merge: (id: string) => request<Workspace>("POST", `/api/workspaces/${encodeURIComponent(id)}/merge`),
+  prDraft: (id: string) => request<PRDraft>("GET", `/api/workspaces/${encodeURIComponent(id)}/pull-request`),
+  createPR: (id: string, req: PRRequest) =>
+    request<Workspace>("POST", `/api/workspaces/${encodeURIComponent(id)}/pull-request`, req),
+  feedback: (id: string, req: FeedbackRequest) =>
+    request<Session>("POST", `/api/workspaces/${encodeURIComponent(id)}/feedback`, req),
   adapters: () => request<Adapters>("GET", "/api/adapters"),
   startAgent: (req: StartAgentRequest) => request<Session>("POST", "/api/agents", req),
   sessions: (filter: { project_id?: string; workspace_id?: string; active?: boolean; limit?: number } = {}) => {

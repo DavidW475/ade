@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { FileStatus, SessionStatus, WorkspaceStatus } from "../api";
 
 const workspaceLabels: Record<WorkspaceStatus, string> = {
@@ -82,4 +82,31 @@ const sessionTone: Record<SessionStatus, Tone> = {
 export function SessionStatusBadge({ status, terminal = false }: { status: SessionStatus; terminal?: boolean }) {
   const label = terminal && status === "running" ? "läuft" : sessionLabels[status];
   return <Badge tone={sessionTone[status]}>{label}</Badge>;
+}
+
+/** Modaler Dialog (natives <dialog>): Escape und Klick auf den Hintergrund schließen ihn. */
+export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const d = ref.current;
+    if (d && !d.open) d.showModal();
+    return () => d?.close();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="modal"
+      aria-label={title}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      onClick={(e) => e.target === ref.current && onClose()}
+    >
+      <div className="modalbody">
+        <h2>{title}</h2>
+        {children}
+      </div>
+    </dialog>
+  );
 }

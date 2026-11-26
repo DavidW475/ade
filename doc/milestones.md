@@ -117,8 +117,8 @@ flowchart LR
 
 **Fertig, wenn:**
 - [ ] Kompletter Ablauf: Aufgabe → Agent → Diff ansehen → PR auf GitHub
-- [ ] Feedback-Schleife erzeugt einen zweiten Commit im selben Branch
-- [ ] Verwerfen entfernt Workspace und Branch rückstandsfrei
+- [x] Feedback-Schleife erzeugt einen zweiten Commit im selben Branch
+- [x] Verwerfen entfernt Workspace und Branch rückstandsfrei
 
 **v0.1:** README mit Installationsanleitung, erstes GitHub-Release (Binary für linux/amd64).
 

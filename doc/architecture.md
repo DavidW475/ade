@@ -276,17 +276,34 @@ sequenceDiagram
     D-->>U: WebSocket /ws/sessions/<id>
 ```
 
+Liegen Repo und `workspaces_dir` auf verschiedenen Dateisystemen, sind keine Hardlinks möglich;
+dann klont ADE mit `--no-hardlinks` (Objekte werden kopiert).
+
 ### 4.2 Review und Übernahme
 
-1. Agent meldet *fertig* (oder Nutzer stoppt).
-2. Daemon committet ggf. offene Änderungen im Workspace (`ade: wip <id>`).
-3. Daemon holt den Branch ins Projekt-Repo: `git -C <repo> fetch <workspace> ade/<id>:ade/<id>`.
-4. Dashboard zeigt Diff `base_commit..ade/<id>`.
-5. Nutzer wählt: **Mergen** (lokal), **PR erstellen** (`gh pr create`, Push vom Host),
-   **Feedback** (neue Session im selben Workspace) oder **Verwerfen**.
+1. Agent meldet *fertig* (Runde beendet, Status `idle`) oder der Prozess endet.
+2. Daemon committet ggf. offene Änderungen im Workspace (`ade: wip <session-id>`), ohne Hooks
+   und Signatur.
+3. Daemon holt den Branch ins Projekt-Repo: `git -C <repo> fetch <workspace> +ade/<id>:ade/<id>`.
+   Das ist die einzige Änderung am Projekt-Repo ohne Nutzeraktion (ADR-013).
+4. Dashboard zeigt den Diff des Workspaces gegen `base_commit` (Dateiliste ohne Patches; die
+   beiden Dateistände lädt der Monaco Diff Editor erst bei Auswahl über
+   `GET /api/workspaces/{id}/file`).
+5. Nutzer wählt:
+   - **Mergen:** Konflikte vorab mit `git merge-tree --write-tree` prüfen – bei Konflikten ändert
+     sich nichts. Ist der Basis-Branch im Projekt-Repo ausgecheckt, läuft `git merge --no-ff` in
+     dessen Arbeitsbaum, sonst entsteht der Merge-Commit ohne Arbeitsbaum (`commit-tree`,
+     `update-ref` mit Vergleichswert).
+   - **PR erstellen:** `git push origin ade/<id>` vom Host, dann `gh pr create` mit generierter
+     Beschreibung (Aufgabe, Feedback, Dateiliste). Weitere Pushes aktualisieren den PR.
+   - **Feedback:** neue Session im selben Workspace (Rolle `feedback`) mit Kommentar und aktuellem
+     Diff als Anweisung; ein wartender Agent wird vorher beendet. Ihr Ende erzeugt einen weiteren
+     Commit im selben Branch.
+   - **Verwerfen:** Sessions stoppen, IDE-Daten, Terminal-Logs, Workspace-Verzeichnis, Branch
+     `ade/<id>` im Projekt-Repo und Datensätze löschen. Ein gepushter Branch und der PR bleiben.
 
-Der Agent selbst hat **keine Push-Rechte** – Veröffentlichen ist immer ein Daemon-Schritt
-nach Freigabe.
+Mergen und PR warten, bis kein Agent im Workspace mehr arbeitet. Der Agent selbst hat **keine
+Push-Rechte** – Veröffentlichen ist immer ein Daemon-Schritt nach Freigabe.
 
 ### 4.3 Freigaben
 
@@ -306,7 +323,12 @@ Merges und Pushes.
 | `GET/POST` | `/api/projects` | Projekte auflisten / registrieren |
 | `GET/POST` | `/api/projects/{id}/workspaces` | Workspaces |
 | `GET` | `/api/workspaces/{id}/diff` | Diff gegen Basis |
-| `POST` | `/api/workspaces/{id}/merge` \| `/pr` \| `/discard` | Übernahme |
+| `GET` | `/api/workspaces/{id}/file?path=&old_path=` | Datei im Basis-Commit und im Workspace (Diff-Editor) |
+| `POST` | `/api/workspaces/{id}/collect` | WIP-Commit und Fetch ins Projekt-Repo |
+| `POST` | `/api/workspaces/{id}/merge` | In den Basis-Branch mergen (409 mit `conflicts`) |
+| `GET/POST` | `/api/workspaces/{id}/pull-request` | PR-Entwurf / Push und `gh pr create` |
+| `POST` | `/api/workspaces/{id}/feedback` | Feedback-Session starten |
+| `DELETE` | `/api/workspaces/{id}` | Verwerfen |
 | `GET` | `/api/adapters` | Verfügbare Adapter und ihre Fähigkeiten |
 | `POST` | `/api/agents` | Agent-Session starten (`project_id`, optional `workspace_id`, `adapter`, `task`, `command`, `model`, `permission_mode`) |
 | `GET` | `/api/sessions[?project_id&workspace_id&active=true]`, `/api/sessions/{id}` | Sessions |

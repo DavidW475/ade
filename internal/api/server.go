@@ -61,6 +61,7 @@ func New(opts Options) *Server {
 	mux.HandleFunc("POST /api/auth/logout", s.requireAuth(s.handleLogout))
 	s.routesProjects(mux)
 	s.routesAgents(mux)
+	s.routesReview(mux)
 	s.routesIDE(mux)
 	unknown := func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "unbekannter API-Pfad")

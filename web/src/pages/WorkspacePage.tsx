@@ -1,15 +1,15 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router";
-import { api, isBusy, type FileChange } from "../api";
+import { useQuery } from "@tanstack/react-query";
+import { Link, useParams } from "react-router";
+import { api, isBusy } from "../api";
 import { SessionTable, StartAgent } from "../components/agents";
 import { IdeButton } from "../components/ide";
+import { DiffView, ReviewPanel } from "../components/review";
 import { useSessions } from "../sessions";
-import { FileStatusBadge, LineStats, Notice, WorkspaceStatusBadge } from "../components/ui";
+import { LineStats, Notice, WorkspaceStatusBadge } from "../components/ui";
 import { errorMessage, formatTime, shortCommit } from "../format";
 
 export function WorkspacePage() {
   const { id = "" } = useParams();
-  const navigate = useNavigate();
   const ws = useQuery({
     queryKey: ["workspace", id],
     queryFn: () => api.workspace(id),
@@ -23,15 +23,12 @@ export function WorkspacePage() {
   const hasTree = ws.data && ws.data.status !== "creating" && ws.data.status !== "error";
   const diff = useQuery({
     queryKey: ["diff", id],
-    queryFn: () => api.diff(id),
+    // Nur die Dateiliste; Inhalte lädt der Diff-Editor je Datei.
+    queryFn: () => api.diff(id, false),
     enabled: !!hasTree,
     refetchInterval: 5000,
   });
   const sessions = useSessions({ workspace_id: id });
-  const del = useMutation({
-    mutationFn: () => api.deleteWorkspace(id),
-    onSuccess: () => void navigate(ws.data ? `/projects/${ws.data.project_id}` : "/"),
-  });
 
   if (ws.isPending) return <p className="muted">Lade Workspace …</p>;
   if (ws.isError) return <Notice tone="bad">{errorMessage(ws.error)}</Notice>;
@@ -47,19 +44,8 @@ export function WorkspacePage() {
         <h1 className="mono">{w.branch}</h1>
         <div className="actions">
           <IdeButton workspaceId={w.id} disabled={!hasTree} />
-          <button
-            type="button"
-            className="danger"
-            disabled={del.isPending}
-            onClick={() => window.confirm(
-                `Workspace ${w.branch} mit allen Änderungen löschen?${sessions.data?.some((x) => x.live) ? "\n\nLaufende Agenten und die IDE werden dabei gestoppt." : ""}`,
-              ) && del.mutate()}
-          >
-            Workspace löschen
-          </button>
         </div>
       </div>
-      {del.isError && <Notice tone="bad">{errorMessage(del.error)}</Notice>}
 
       <dl className="facts panel">
         <dt>Status</dt>
@@ -112,6 +98,13 @@ export function WorkspacePage() {
           </span>
         ) : null}
       </div>
+      <ReviewPanel
+        workspace={w}
+        projectName={project.data?.name ?? w.project_id}
+        repoPath={project.data?.repo_path}
+        sessions={sessions.data}
+        hasChanges={!!diff.data?.files?.length || (!!w.head_commit && w.head_commit !== w.base_commit)}
+      />
       {!hasTree ? (
         <p className="muted">Kein Arbeitsverzeichnis vorhanden.</p>
       ) : diff.isPending ? (
@@ -126,62 +119,8 @@ export function WorkspacePage() {
           </p>
         </div>
       ) : (
-        <ul className="files">
-          {diff.data.files.map((f) => (
-            <FileDiff key={f.path} file={f} />
-          ))}
-        </ul>
+        <DiffView workspaceId={w.id} diff={diff.data} />
       )}
     </>
-  );
-}
-
-function FileDiff({ file: f }: { file: FileChange }) {
-  return (
-    <li>
-      <details>
-        <summary>
-          <FileStatusBadge status={f.status} />
-          <span className="mono path">
-            {f.old_path ? (
-              <>
-                {f.old_path} → {f.path}
-              </>
-            ) : (
-              f.path
-            )}
-          </span>
-          {f.binary ? <span className="muted">binär</span> : <LineStats additions={f.additions} deletions={f.deletions} />}
-        </summary>
-        {f.truncated ? (
-          <p className="muted pad">Patch zu groß für die Anzeige.</p>
-        ) : f.binary ? (
-          <p className="muted pad">Binärdatei – kein Text-Diff.</p>
-        ) : (
-          <Patch text={f.patch ?? ""} />
-        )}
-      </details>
-    </li>
-  );
-}
-
-function Patch({ text }: { text: string }) {
-  // Kopfzeilen (diff --git, index, ---/+++) ausblenden, Hunks einfärben.
-  const lines = text.split("\n");
-  const start = lines.findIndex((l) => l.startsWith("@@"));
-  const body = start < 0 ? [] : lines.slice(start);
-  if (body.length === 0) return <p className="muted pad">Keine Textänderungen (z. B. nur Dateimodus).</p>;
-  return (
-    <pre className="patch">
-      {body.map((l, i) => {
-        const cls = l.startsWith("@@") ? "hunk" : l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : undefined;
-        return (
-          <span key={i} className={cls}>
-            {l || " "}
-            {"\n"}
-          </span>
-        );
-      })}
-    </pre>
   );
 }

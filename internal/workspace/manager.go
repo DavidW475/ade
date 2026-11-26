@@ -47,6 +47,10 @@ type Manager struct {
 
 	// beforeDelete läuft vor dem Löschen eines Workspaces (z. B. Agent-Sessions beenden).
 	beforeDelete func(ctx context.Context, id string) error
+	// busyCheck läuft vor Mergen und PR (review.go).
+	busyCheck func(ctx context.Context, id string) error
+	gh        string
+	locks     map[string]*wsLock
 }
 
 type setupRun struct {
@@ -60,7 +64,8 @@ func NewManager(st *store.Store, projects *project.Service, dir string, log *slo
 		log = slog.Default()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Manager{store: st, projects: projects, dir: dir, log: log, ctx: ctx, cancel: cancel, setup: map[string]*setupRun{}}
+	return &Manager{store: st, projects: projects, dir: dir, log: log, ctx: ctx, cancel: cancel,
+		setup: map[string]*setupRun{}, gh: "gh", locks: map[string]*wsLock{}}
 }
 
 // Recover markiert Workspaces, deren Anlegen oder Setup beim letzten Lauf unterbrochen wurde.
@@ -169,9 +174,27 @@ func (m *Manager) Create(ctx context.Context, projectID string, opts CreateOptio
 
 // clone legt den Clone an und entfernt danach die Verbindung zum Haupt-Repo, damit ein
 // Agent nicht dorthin pushen kann. Ergebnisse holt später der Daemon per fetch (ADR-005).
+//
+// Liegen Repo und Workspace-Verzeichnis auf verschiedenen Dateisystemen, scheitern die
+// Hardlinks von --local (EXDEV); dann kopiert git die Objekte (--no-hardlinks).
 func clone(ctx context.Context, repo string, w *store.Workspace) error {
+	cloneArgs := func(hardlinks bool) []string {
+		args := []string{"clone", "--local", "--quiet"}
+		if !hardlinks {
+			args = append(args, "--no-hardlinks")
+		}
+		return append(args, "--branch", w.BaseBranch, "--", repo, w.Path)
+	}
+	hardlinks := git.SameDevice(repo, filepath.Dir(w.Path))
+	_, err := git.Run(ctx, git.Cmd{Args: cloneArgs(hardlinks)})
+	if err != nil && hardlinks && isCrossDevice(err) {
+		_ = removeAll(w.Path)
+		_, err = git.Run(ctx, git.Cmd{Args: cloneArgs(false)})
+	}
+	if err != nil {
+		return fmt.Errorf("Workspace anlegen: %w", err)
+	}
 	steps := []git.Cmd{
-		{Args: []string{"clone", "--local", "--quiet", "--branch", w.BaseBranch, "--", repo, w.Path}},
 		{Dir: w.Path, Args: []string{"remote", "remove", "origin"}},
 		{Dir: w.Path, Args: []string{"switch", "--quiet", "--create", w.Branch, w.BaseCommit}},
 	}
@@ -181,6 +204,11 @@ func clone(ctx context.Context, repo string, w *store.Workspace) error {
 		}
 	}
 	return nil
+}
+
+func isCrossDevice(err error) bool {
+	var ge *git.Error
+	return errors.As(err, &ge) && strings.Contains(ge.Stderr, "cross-device")
 }
 
 func (m *Manager) startSetup(w *store.Workspace, cmds []string) {
@@ -321,8 +349,9 @@ func (m *Manager) Diff(ctx context.Context, id string, withPatch bool) (*git.Dif
 	return git.WorktreeDiff(ctx, w.Path, w.BaseCommit, withPatch)
 }
 
-// Delete bricht ein laufendes Setup ab, löscht das Verzeichnis und den Datensatz.
-// Das Haupt-Repo bleibt unverändert.
+// Delete („Verwerfen“) bricht ein laufendes Setup ab, löscht den Branch ade/<id> im
+// Haupt-Repo (falls übernommen), das Verzeichnis und den Datensatz. Ein schon gepushter
+// Branch und ein Pull Request bleiben auf dem Remote.
 func (m *Manager) Delete(ctx context.Context, id string) error {
 	w, err := m.store.GetWorkspace(ctx, id)
 	if err != nil {
@@ -343,6 +372,20 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 
 	if err := m.checkPath(w); err != nil {
 		return err
+	}
+	// Nach beforeDelete: Ein WIP-Commit beendeter Sessions kann den Branch noch anlegen.
+	unlock := m.lockWorkspace(id)
+	defer unlock()
+	if p, err := m.store.GetProject(ctx, w.ProjectID); err == nil {
+		if wt, _ := git.CheckedOutIn(ctx, p.RepoPath, w.Branch); wt != "" {
+			return apperr.Conflict("Branch %s ist in %s ausgecheckt – dort erst einen anderen Branch auschecken", w.Branch, wt)
+		}
+		if err := git.DeleteBranch(ctx, p.RepoPath, w.Branch); err != nil {
+			if _, statErr := os.Stat(p.RepoPath); statErr == nil {
+				return fmt.Errorf("Branch %s im Projekt-Repo löschen: %w", w.Branch, err)
+			}
+			m.log.Warn("Projekt-Repo nicht erreichbar, Branch bleibt", "id", id, "repo", p.RepoPath, "err", err)
+		}
 	}
 	if err := removeAll(w.Path); err != nil {
 		return fmt.Errorf("Workspace-Verzeichnis löschen: %w", err)

@@ -184,13 +184,9 @@ td.actions { text-align: right; }
 .linestats .add { color: var(--ok); }
 .linestats .del { color: var(--bad); }
 
-.files { list-style: none; padding: 0; margin: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--card); overflow: hidden; }
-.files > li + li { border-top: 1px solid var(--border); }
-.files summary { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.9rem; cursor: pointer; }
-.files summary .path { flex: 1; word-break: break-all; }
 .pad { padding: 0 0.9rem 0.75rem; margin: 0; }
 
-pre.patch, pre.log {
+pre.log {
   margin: 0;
   padding: 0.5rem 0;
   overflow-x: auto;
@@ -199,10 +195,6 @@ pre.patch, pre.log {
   line-height: 1.45;
   border-top: 1px solid var(--border);
 }
-pre.patch span { display: block; padding: 0 0.9rem; }
-pre.patch .add { background: var(--add-bg); }
-pre.patch .del { background: var(--del-bg); }
-pre.patch .hunk { color: var(--hunk); background: var(--code-bg); }
 pre.log { padding: 0.75rem 0.9rem; white-space: pre-wrap; word-break: break-all; max-height: 24rem; overflow-y: auto; }
 details.panel summary { cursor: pointer; font-weight: 600; }
 details.panel pre.log { margin-top: 0.75rem; }
@@ -299,4 +291,85 @@ pre.tl-output {
 .termbox { height: min(70vh, 40rem); padding: 0.4rem; }
 @media (prefers-color-scheme: dark) {
   .terminal { background: #0b0d11; }
+}
+
+/* --- Review (M4) ------------------------------------------------------------------------ */
+.review { margin: 0.75rem 0; }
+.reviewhead { display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
+.reviewstate { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; min-width: 16rem; font-size: 0.92rem; }
+.review .hint { margin-top: 0.6rem; }
+label.check { display: flex; align-items: center; gap: 0.45rem; font-weight: normal; margin: 0.5rem 0; }
+label.check input { width: auto; min-width: 0; flex: none; }
+ul.conflicts { margin: 0.3rem 0; padding-left: 1.2rem; }
+
+dialog.modal {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0;
+  width: min(44rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 4rem);
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.25);
+}
+dialog.modal::backdrop { background: rgb(15 17 21 / 0.45); }
+.modalbody { padding: 1.25rem 1.5rem; }
+.modalbody h2 { margin-bottom: 0.75rem; }
+.modalbody > p { margin: 0.5rem 0; }
+.modalbody ul { margin: 0.4rem 0; padding-left: 1.3rem; }
+.modalbody .actions { margin-top: 1rem; }
+.modalbody textarea { margin-top: 0.25rem; }
+.modalbody input:not([type="checkbox"]) { width: 100%; }
+
+/* Die Diff-Ansicht nutzt mehr Breite als die Textspalte. */
+.diffview {
+  display: grid;
+  grid-template-columns: minmax(14rem, 20rem) 1fr;
+  width: min(100rem, calc(100vw - 2rem));
+  margin-left: calc(50% - min(50rem, 50vw - 1rem));
+  height: min(78vh, 52rem);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  overflow: hidden;
+}
+.difffiles { border-right: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; }
+.difffilter { margin: 0.5rem; width: auto; }
+.difffiles ul { list-style: none; margin: 0; padding: 0; }
+.difffiles li button {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: "badge name stats" "badge dir dir";
+  gap: 0 0.5rem;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  padding: 0.4rem 0.7rem;
+  font-weight: normal;
+}
+.difffiles li button:hover:not(:disabled) { background: var(--code-bg); }
+.difffiles li button.active { background: var(--info-bg); }
+.difffiles .badge { grid-area: badge; }
+.difffiles .path { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.difffiles .dir { grid-area: dir; color: var(--muted); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.difffiles .linestats, .difffiles .muted { grid-area: stats; font-size: 0.8rem; }
+.diffmain { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.diffbar { display: flex; align-items: center; gap: 0.75rem; padding: 0.4rem 0.8rem; border-bottom: 1px solid var(--border); }
+.diffbar .path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.segmented { display: inline-flex; }
+.segmented button { border-radius: 0; padding: 0.2rem 0.65rem; font-size: 0.85rem; }
+.segmented button:first-child { border-radius: 6px 0 0 6px; }
+.segmented button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+.segmented button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.diffeditor { flex: 1; min-height: 0; }
+.diffnote { padding-top: 1rem; }
+.diffmain .notice { margin: 1rem; }
+
+@media (max-width: 52rem) {
+  .diffview { grid-template-columns: 1fr; grid-template-rows: minmax(8rem, 30%) 1fr; margin-left: 0; width: 100%; height: 85vh; }
+  .difffiles { border-right: none; border-bottom: 1px solid var(--border); }
 }

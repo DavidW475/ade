@@ -14,6 +14,8 @@ export default defineConfig({
   build: {
     outDir: "../internal/api/dist",
     emptyOutDir: true,
+    // Monaco (Diff-Editor) ist ein eigener, erst bei Bedarf geladener Chunk von ~2,7 MB.
+    chunkSizeWarningLimit: 3000,
   },
   server: {
     port: 5173,

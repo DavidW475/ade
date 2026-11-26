@@ -21,3 +21,8 @@ export function useSessions(filter: Parameters<typeof api.sessions>[0]) {
   });
 }
 
+
+/** Arbeitet im Workspace gerade ein Agent (nicht nur wartend)? */
+export function agentBusy(sessions: Session[] | undefined): Session | undefined {
+  return sessions?.find((x) => x.live && !x.capabilities.terminal && x.status !== "idle");
+}

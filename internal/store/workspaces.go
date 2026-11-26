@@ -32,18 +32,31 @@ type Workspace struct {
 	SetupLog   string    `json:"setup_log,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+
+	// HeadCommit ist der zuletzt ins Haupt-Repo geholte Stand des Branches.
+	HeadCommit  string     `json:"head_commit,omitempty"`
+	CollectedAt *time.Time `json:"collected_at,omitempty"`
+	// MergeCommit ist der Merge-Commit im Basis-Branch nach „Mergen“.
+	MergeCommit string     `json:"merge_commit,omitempty"`
+	MergedAt    *time.Time `json:"merged_at,omitempty"`
+	// PRURL ist der Pull Request nach „PR erstellen“.
+	PRURL string `json:"pr_url,omitempty"`
 }
 
-const workspaceCols = `id, project_id, path, branch, base_branch, base_commit, status, error, setup_log, created_at, updated_at`
+const workspaceCols = `id, project_id, path, branch, base_branch, base_commit, status, error, setup_log, created_at, updated_at,
+	head_commit, collected_at, merge_commit, merged_at, pr_url`
 
 func scanWorkspace(row interface{ Scan(...any) error }) (*Workspace, error) {
 	var w Workspace
 	var created, updated string
+	var collected, merged sql.NullString
 	if err := row.Scan(&w.ID, &w.ProjectID, &w.Path, &w.Branch, &w.BaseBranch, &w.BaseCommit,
-		&w.Status, &w.Error, &w.SetupLog, &created, &updated); err != nil {
+		&w.Status, &w.Error, &w.SetupLog, &created, &updated,
+		&w.HeadCommit, &collected, &w.MergeCommit, &merged, &w.PRURL); err != nil {
 		return nil, err
 	}
 	w.CreatedAt, w.UpdatedAt = parseTime(created), parseTime(updated)
+	w.CollectedAt, w.MergedAt = nullTime(collected), nullTime(merged)
 	return &w, nil
 }
 
@@ -107,17 +120,27 @@ type WorkspaceUpdate struct {
 	Status     *string
 	Error      *string
 	SetupLog   *string
+	// HeadCommit setzt zugleich collected_at auf jetzt.
+	HeadCommit *string
+	// MergeCommit setzt zugleich merged_at auf jetzt.
+	MergeCommit *string
+	PRURL       *string
 }
 
 // UpdateWorkspace ändert die gesetzten Felder.
 func (s *Store) UpdateWorkspace(ctx context.Context, id string, u WorkspaceUpdate) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE workspaces SET
-		base_commit = COALESCE(?, base_commit),
-		status      = COALESCE(?, status),
-		error       = COALESCE(?, error),
-		setup_log   = COALESCE(?, setup_log),
-		updated_at  = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-		WHERE id = ?`, u.BaseCommit, u.Status, u.Error, u.SetupLog, id)
+		base_commit  = COALESCE(?1, base_commit),
+		status       = COALESCE(?2, status),
+		error        = COALESCE(?3, error),
+		setup_log    = COALESCE(?4, setup_log),
+		head_commit  = COALESCE(?5, head_commit),
+		collected_at = CASE WHEN ?5 IS NULL THEN collected_at ELSE strftime('%Y-%m-%dT%H:%M:%SZ', 'now') END,
+		merge_commit = COALESCE(?6, merge_commit),
+		merged_at    = CASE WHEN ?6 IS NULL THEN merged_at ELSE strftime('%Y-%m-%dT%H:%M:%SZ', 'now') END,
+		pr_url       = COALESCE(?7, pr_url),
+		updated_at   = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+		WHERE id = ?8`, u.BaseCommit, u.Status, u.Error, u.SetupLog, u.HeadCommit, u.MergeCommit, u.PRURL, id)
 	if err != nil {
 		return err
 	}
@@ -151,6 +174,14 @@ func (s *Store) MarkInterruptedWorkspaces(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+func nullTime(s sql.NullString) *time.Time {
+	if !s.Valid || s.String == "" {
+		return nil
+	}
+	t := parseTime(s.String)
+	return &t
 }
 
 // Ptr liefert einen Zeiger auf v (für WorkspaceUpdate).
