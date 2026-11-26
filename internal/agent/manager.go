@@ -102,6 +102,18 @@ type StartRequest struct {
 // Start legt eine Session an und startet den Prozess im Hintergrund, sobald das Setup des
 // Workspaces fertig ist.
 func (m *Manager) Start(ctx context.Context, req StartRequest) (*store.Session, error) {
+	return m.start(ctx, req, startExtra{})
+}
+
+// startExtra sind interne Startoptionen (z. B. für Feedback-Sessions).
+type startExtra struct {
+	Role string
+	// Prompt ersetzt die Aufgabe als Anweisung an den Agenten; Task bleibt die Kurzfassung
+	// für Liste und Verlauf.
+	Prompt string
+}
+
+func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra) (*store.Session, error) {
 	req.Task = strings.TrimSpace(req.Task)
 	ws, p, err := m.resolveWorkspace(ctx, req.ProjectID, req.WorkspaceID)
 	if err != nil {
@@ -159,6 +171,7 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) (*store.Session, 
 		Command:        req.Command,
 		Model:          req.Model,
 		PermissionMode: req.PermissionMode,
+		Role:           extra.Role,
 		Status:         store.SessionStarting,
 	}
 	if err := m.opts.Store.CreateSession(ctx, sess); err != nil {
@@ -168,7 +181,11 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) (*store.Session, 
 	if req.Task != "" {
 		m.emit(sess.ID, adapter.TypeMessage, adapter.Message{Role: "user", Text: req.Task})
 	}
-	spec := adapter.Spec{SessionID: sess.ID, Workdir: ws.Path, Task: req.Task, Command: req.Command, Model: req.Model, PermissionMode: req.PermissionMode}
+	prompt := req.Task
+	if extra.Prompt != "" {
+		prompt = extra.Prompt
+	}
+	spec := adapter.Spec{SessionID: sess.ID, Workdir: ws.Path, Task: prompt, Command: req.Command, Model: req.Model, PermissionMode: req.PermissionMode}
 	if err := m.launch(sess, a, ws, spec); err != nil {
 		return nil, err
 	}

@@ -67,7 +67,7 @@ func WorktreeDiff(ctx context.Context, dir, base string, withPatch bool) (*Diff,
 	defer cleanup()
 	env := []string{"GIT_INDEX_FILE=" + idx}
 
-	if _, err := Run(ctx, Cmd{Dir: dir, Env: env, Args: []string{"add", "--all", "--", "."}}); err != nil {
+	if _, err := Run(ctx, workspaceCmd(dir, env, "add", "--all", "--", ".")); err != nil {
 		return nil, err
 	}
 

@@ -32,14 +32,14 @@ eigene Konfiguration mit anderem Port und Datenverzeichnis verwenden (siehe
 | `internal/store/` | SQLite und Migrationen (`migrations/NNNN_name.sql`, lückenlos nummeriert) |
 | `internal/browser/` | Browser öffnen (WSL → Windows) |
 | `internal/apperr/` | Fehlerarten (NotFound, Invalid, Conflict) → HTTP-Status |
-| `internal/git/` | Aufrufe des git-Binarys, Diff über temporären Index |
+| `internal/git/` | Aufrufe des git-Binarys, Diff über temporären Index, Commit/Fetch/Merge/Push |
 | `internal/project/` | Projekte registrieren, `.ade/project.yaml` |
-| `internal/workspace/` | Workspaces: Clone, Setup, Diff, Löschen |
+| `internal/workspace/` | Workspaces: Clone, Setup, Diff, Übernahme (Collect, Merge, PR), Verwerfen |
 | `internal/agent/` | Agent-Sessions: Prozesse (PTY/Pipes), Event-Hub mit Replay, Neustart-Aufräumen |
 | `internal/agent/adapter/` | Adapter-Interface, Event-Typen + JSON-Schema; `claude/`, `pty/`, `fake/` (Tests) |
 | `internal/ide/` | openvscode-server je Workspace: Download mit Prüfsumme, Start, Inaktivitäts-Stopp |
 | `internal/gateway/` | Reverse-Proxy `ws-<id>.localhost` → IDE, Ticket-Anmeldung, Connection-Token |
-| `web/` | Dashboard (Vite + React + TypeScript) |
+| `web/` | Dashboard (Vite + React + TypeScript, Monaco Diff Editor) |
 | `examples/`, `images/` | Beispielkonfigurationen, Container-Images (ab M5) |
 
 Neue Module folgen der Struktur in [architecture.md](doc/architecture.md#10-repo-struktur).
@@ -52,8 +52,10 @@ Neue Module folgen der Struktur in [architecture.md](doc/architecture.md#10-repo
   und braucht Auth (außer `/api/health`). Änderungen an Auth, Gateway, Sandbox oder Proxy brauchen Tests.
 - **Abhängigkeiten** sparsam, Lizenz kompatibel zu Apache-2.0, kein cgo.
 - **Migrationen** nie nachträglich ändern, immer eine neue anlegen.
-- **Git** immer über `internal/git` aufrufen. Das Haupt-Repo eines Projekts wird nur gelesen;
-  Workspaces haben kein Remote zum Haupt-Repo (ADR-005).
+- **Git** immer über `internal/git` aufrufen. Das Haupt-Repo eines Projekts wird nur gelesen,
+  außer bei den Übernahme-Schritten des Daemons (Fetch nach `ade/<id>`, Mergen, Push, Branch
+  löschen, ADR-013); Workspaces haben kein Remote zum Haupt-Repo (ADR-005). Befehle im Workspace
+  mit `git.WorkspaceArgs` (keine Hooks).
 - **UI prüfen:** Unter WSL lässt sich das Dashboard mit Edge headless fotografieren
   (`msedge.exe --headless=new --screenshot=… "http://localhost:<port>/auth/login?ticket=…&next=/pfad"`,
   Ticket per `POST /api/auth/tickets` mit dem Daemon-Secret).

@@ -122,3 +122,29 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
   Dashboard-CSP gilt nicht für IDE-Subdomains. Die IDE erbt dieselbe gefilterte Umgebung wie
   Agenten (kein `GH_TOKEN`, kein `SSH_AUTH_SOCK`). Webviews lädt VS Code von `vscode-cdn.net`, dafür
   braucht es Internet. Beim Anheben der Version müssen beide Prüfsummen neu berechnet werden.
+
+## ADR-013: Übernahme ins Projekt-Repo durch den Daemon
+
+- **Kontext:** Bis M3 hat ADE das Projekt-Repo nur gelesen (ADR-005). Für Review und Übernahme
+  (M4) muss das Ergebnis eines Agenten dorthin, ohne dass der Agent Zugriff auf das Repo oder
+  Push-Rechte bekommt, und ohne den Arbeitsbaum des Nutzers ungefragt zu verändern.
+- **Entscheidung:** Der Daemon schreibt ins Projekt-Repo nur über `internal/git` und nur so:
+  1. ohne Nutzeraktion ausschließlich `refs/heads/ade/<id>` (WIP-Commit im Workspace, dann
+     `fetch` mit Force-Refspec – der Namensraum `ade/*` gehört ADE);
+  2. „Mergen“: immer ein Merge-Commit (`--no-ff`). Konflikte werden vorher mit
+     `git merge-tree --write-tree` erkannt; dann ändert sich nichts. Ist der Basis-Branch
+     ausgecheckt, läuft `git merge` in diesem Arbeitsbaum (git selbst verweigert den Merge bei
+     berührten lokalen Änderungen), sonst `commit-tree` + `update-ref` mit Vergleichswert;
+  3. „PR erstellen“: `git push origin ade/<id>` und `gh pr create` mit den Zugangsdaten des
+     Nutzers auf dem Host;
+  4. „Verwerfen“: `git branch -D ade/<id>` (nicht, wenn der Branch ausgecheckt ist).
+  Befehle im Workspace laufen mit `core.hooksPath=/dev/null` und `core.fsmonitor=false`, Commits
+  ohne Signatur. Fehlt eine Git-Identität, committet ADE als `ADE <ade@localhost>`.
+- **Konsequenzen:** Git ≥ 2.38 ist Voraussetzung. Merge-Commits im Haupt-Repo durchlaufen die
+  Hooks und die Signatur-Einstellung des Nutzers wie ein normales `git merge`. Ein Agent kann in
+  der Repo-Konfiguration des Workspaces weitere Befehle hinterlegen (z. B. Clean-Filter), die beim
+  WIP-Commit des Daemons laufen; bis zur Sandbox (M5) laufen Agenten ohnehin mit Nutzerrechten,
+  danach muss der Daemon diese Konfiguration ignorieren oder im Container committen (#41).
+  Der Monaco-Editor wird lokal gebündelt (kein CDN, Dashboard-CSP nur `'self'`) und als eigener
+  Chunk erst auf der Workspace-Seite geladen.
+

@@ -1,0 +1,46 @@
+# GoReleaser-Konfiguration für GitHub-Releases (Workflow: .github/workflows/release.yml).
+# Lokal prüfen: goreleaser check · Testlauf ohne Veröffentlichung: goreleaser release --snapshot --clean
+version: 2
+
+project_name: ade
+
+before:
+  hooks:
+    # Das Dashboard wird ins Binary eingebettet (internal/api/dist).
+    - sh -c "cd web && npm ci && npm run build && touch ../internal/api/dist/.gitkeep"
+
+builds:
+  - id: ade
+    main: ./cmd/ade
+    binary: ade
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: ade
+    formats: [tar.gz]
+    # Ohne Version im Namen, damit …/releases/latest/download/ade_linux_amd64.tar.gz stabil bleibt.
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: checksums.txt
+
+# Die Release-Notizen kommen aus CHANGELOG.md (siehe Workflow).
+changelog:
+  disable: true
+
+release:
+  github:
+    owner: DavidW475
+    name: ade
+  prerelease: auto

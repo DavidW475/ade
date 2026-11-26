@@ -86,6 +86,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	ides.Recover()
 	defer ides.Close()
 
+	workspaces.SetBusyCheck(agents.WorkspaceBusy)
 	workspaces.SetBeforeDelete(func(ctx context.Context, id string) error {
 		if err := agents.BeforeWorkspaceDelete(ctx, id); err != nil {
 			return err
