@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DavidW475/ade/internal/agent/adapter/event.schema.json",
+  "title": "ADE-Event",
+  "description": "Ein Ereignis einer Agent-Session. Alle Adapter erzeugen dieses Format; die UI kennt nur dieses. Siehe doc/architecture.md#event-schema.",
+  "type": "object",
+  "required": ["seq", "session_id", "ts", "type", "payload"],
+  "properties": {
+    "seq": { "type": "integer", "minimum": 1, "description": "Fortlaufend pro Session, ab 1, lückenlos." },
+    "session_id": { "type": "string" },
+    "ts": { "type": "string", "format": "date-time" },
+    "type": {
+      "type": "string",
+      "description": "Weitere Typen kommen mit späteren Meilensteinen hinzu (approval_request, approval_decision, egress, …); Clients zeigen unbekannte Typen generisch an."
+    },
+    "payload": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "status" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": ["status"],
+            "properties": {
+              "status": { "enum": ["starting", "running", "idle", "done", "failed", "stopped", "interrupted"] },
+              "reason": { "type": "string" },
+              "exit_code": { "type": "integer" },
+              "model": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "message" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": ["role", "text"],
+            "properties": {
+              "role": { "enum": ["user", "assistant"] },
+              "text": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "thinking" } } },
+      "then": {
+        "properties": {
+          "payload": { "type": "object", "required": ["text"], "properties": { "text": { "type": "string" } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "tool_call" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": ["id", "tool"],
+            "properties": {
+              "id": { "type": "string" },
+              "tool": { "type": "string" },
+              "input": { "description": "Eingabe des Werkzeugs, wie von der CLI geliefert." },
+              "parent_id": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "tool_result" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": ["id", "output"],
+            "properties": {
+              "id": { "type": "string", "description": "ID des zugehörigen tool_call." },
+              "output": { "type": "string" },
+              "is_error": { "type": "boolean" },
+              "truncated": { "type": "boolean" },
+              "parent_id": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "cost" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": ["turn_usd", "total_usd"],
+            "properties": {
+              "turn_usd": { "type": "number" },
+              "total_usd": { "type": "number" },
+              "input_tokens": { "type": "integer" },
+              "output_tokens": { "type": "integer" },
+              "cache_read_tokens": { "type": "integer" },
+              "cache_write_tokens": { "type": "integer" },
+              "duration_ms": { "type": "integer" },
+              "turns": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "error" } } },
+      "then": {
+        "properties": {
+          "payload": { "type": "object", "required": ["message"], "properties": { "message": { "type": "string" } } }
+        }
+      }
+    }
+  ]
+}

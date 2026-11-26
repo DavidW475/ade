@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, isBusy, type Workspace } from "../api";
+import { SessionTable, StartAgent } from "../components/agents";
+import { useSessions } from "../sessions";
 import { LineStats, Notice, WorkspaceStatusBadge } from "../components/ui";
 import { errorMessage, formatTime, shortCommit } from "../format";
 
@@ -14,6 +16,8 @@ export function ProjectPage() {
     enabled: project.isSuccess,
     refetchInterval: (q) => (q.state.data?.some((w) => isBusy(w.status)) ? 1500 : 10_000),
   });
+
+  const sessions = useSessions({ project_id: id, limit: 50 });
 
   if (project.isPending) return <p className="muted">Lade Projekt …</p>;
   if (project.isError) return <Notice tone="bad">{errorMessage(project.error)}</Notice>;
@@ -67,6 +71,19 @@ export function ProjectPage() {
           <code>{p.config_error}</code>
           <p>Neue Workspaces lassen sich erst nach der Korrektur anlegen.</p>
         </Notice>
+      )}
+
+      <div className="sectionhead">
+        <h2>Agenten</h2>
+        <StartAgent projectId={p.id} defaultAdapter={p.config.adapter} disabled={!!p.config_error} />
+      </div>
+      {sessions.data?.length ? (
+        <SessionTable sessions={sessions.data} />
+      ) : (
+        <div className="empty">
+          <p>Noch keine Agenten.</p>
+          <p className="muted">Ein Agent arbeitet in einem eigenen Workspace; du siehst ihm live zu und übernimmst das Ergebnis später.</p>
+        </div>
       )}
 
       <div className="sectionhead">

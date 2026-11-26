@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { api, type Project } from "../api";
+import { SessionTable } from "../components/agents";
+import { useSessions } from "../sessions";
 import { Badge, Notice } from "../components/ui";
 import { errorMessage } from "../format";
 
@@ -13,6 +15,8 @@ export function ProjectsPage() {
       <div className="pagehead">
         <h1>Projekte</h1>
       </div>
+
+      <RunningAgents />
 
       <AddProject />
 
@@ -99,6 +103,20 @@ function AddProject() {
           <Link to={`/projects/${add.data.id}`}>Zum Projekt</Link>
         </Notice>
       )}
+    </section>
+  );
+}
+
+function RunningAgents() {
+  const sessions = useSessions({ active: true });
+  if (!sessions.data?.length) return null;
+  return (
+    <section className="running">
+      <div className="sectionhead first">
+        <h2>Laufende Agenten</h2>
+        <Link to="/agents">Alle Agenten</Link>
+      </div>
+      <SessionTable sessions={sessions.data} />
     </section>
   );
 }

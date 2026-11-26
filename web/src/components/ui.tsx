@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { FileStatus, WorkspaceStatus } from "../api";
+import type { FileStatus, SessionStatus, WorkspaceStatus } from "../api";
 
 const workspaceLabels: Record<WorkspaceStatus, string> = {
   creating: "wird angelegt",
@@ -57,4 +57,29 @@ export function LineStats({ additions, deletions }: { additions: number; deletio
       <span className="add">+{additions}</span> <span className="del">−{deletions}</span>
     </span>
   );
+}
+
+const sessionLabels: Record<SessionStatus, string> = {
+  starting: "startet",
+  running: "arbeitet",
+  idle: "wartet",
+  done: "fertig",
+  failed: "fehlgeschlagen",
+  stopped: "gestoppt",
+  interrupted: "unterbrochen",
+};
+
+const sessionTone: Record<SessionStatus, Tone> = {
+  starting: "busy",
+  running: "busy",
+  idle: "ok",
+  done: "neutral",
+  failed: "bad",
+  stopped: "neutral",
+  interrupted: "warn",
+};
+
+export function SessionStatusBadge({ status, terminal = false }: { status: SessionStatus; terminal?: boolean }) {
+  const label = terminal && status === "running" ? "läuft" : sessionLabels[status];
+  return <Badge tone={sessionTone[status]}>{label}</Badge>;
 }

@@ -4,8 +4,9 @@ Eine Leitstelle für KI-Agenten, gebaut für **WSL2**: Agenten starten und beoba
 **Docker-Sandboxen** hinter einem **Egress-Proxy** arbeiten lassen, ihre Workspaces in einer
 **VS-Code-kompatiblen Browser-IDE** ansehen und Ergebnisse prüfen und freigeben, alles im Browser.
 
-> **Status:** in Entwicklung (M1 – Projekte & Workspaces). Repositories lassen sich registrieren,
-> Workspaces anlegen, Diffs ansehen; Agenten gibt es noch nicht. Der Plan steht in [`doc/`](doc/README.md), der
+> **Status:** in Entwicklung (M2 – Agent-Sessions). Repositories lassen sich registrieren,
+> Workspaces anlegen, Diffs ansehen; Claude Code oder ein beliebiges Terminal laufen im Workspace,
+> live im Browser (Timeline bzw. xterm.js). Noch ohne Sandbox. Der Plan steht in [`doc/`](doc/README.md), der
 > Fortschritt in den [Meilensteinen](https://github.com/DavidW475/ade/milestones).
 
 ## Idee
@@ -31,6 +32,11 @@ bin/ade start            # startet den Daemon und öffnet das Dashboard im Windo
 bin/ade start --no-browser   # gibt stattdessen die Anmelde-URL aus
 bin/ade project add ~/git/mein-repo   # Repository registrieren (oder im Dashboard)
 ```
+
+Agenten startest du im Dashboard über **Agent starten** im Projekt. Für den Adapter `claude`
+muss [Claude Code](https://docs.claude.com/claude-code) installiert und angemeldet sein (oder
+`providers.anthropic.api_key` in der Konfiguration gesetzt). Bis zur Sandbox (M5) laufen
+Agenten mit deinen Rechten – nur in vertrauenswürdigen Repositories verwenden.
 
 Konfiguration: `~/.config/ade/config.yaml` und pro Repo `.ade/project.yaml` (beide optional,
 Beispiele in [`examples/`](examples/)). Daten liegen in `~/.local/share/ade/`, Workspaces in

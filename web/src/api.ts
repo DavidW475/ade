@@ -65,6 +65,124 @@ export interface Diff {
   deletions: number;
 }
 
+export type SessionStatus = "starting" | "running" | "idle" | "done" | "failed" | "stopped" | "interrupted";
+
+export interface Capabilities {
+  terminal: boolean;
+  input: boolean;
+  resume: boolean;
+}
+
+export interface Session {
+  id: string;
+  workspace_id: string;
+  project_id: string;
+  adapter: string;
+  task?: string;
+  command?: string[];
+  model?: string;
+  permission_mode?: string;
+  status: SessionStatus;
+  error?: string;
+  exit_code?: number;
+  resume_id?: string;
+  cost_usd: number;
+  created_at: string;
+  updated_at: string;
+  ended_at?: string;
+  capabilities: Capabilities;
+  live: boolean;
+  resumable: boolean;
+}
+
+export interface AdapterInfo {
+  name: string;
+  capabilities: Capabilities;
+}
+
+export interface Adapters {
+  adapters: AdapterInfo[];
+  permission_modes: string[];
+  default: string;
+}
+
+export interface StartAgentRequest {
+  project_id: string;
+  workspace_id?: string;
+  adapter?: string;
+  task?: string;
+  command?: string[];
+  model?: string;
+  permission_mode?: string;
+}
+
+// Event-Payloads (internal/agent/adapter/events.go, Schema in event.schema.json).
+export interface StatusPayload {
+  status: SessionStatus;
+  reason?: string;
+  exit_code?: number;
+  model?: string;
+}
+export interface MessagePayload {
+  role: "user" | "assistant";
+  text: string;
+}
+export interface ThinkingPayload {
+  text: string;
+}
+export interface ToolCallPayload {
+  id: string;
+  tool: string;
+  input?: unknown;
+  parent_id?: string;
+}
+export interface ToolResultPayload {
+  id: string;
+  output: string;
+  is_error?: boolean;
+  truncated?: boolean;
+  parent_id?: string;
+}
+export interface CostPayload {
+  turn_usd: number;
+  total_usd: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  duration_ms?: number;
+  turns?: number;
+}
+export interface ErrorPayload {
+  message: string;
+}
+
+export type SessionEvent =
+  | EventOf<"status", StatusPayload>
+  | EventOf<"message", MessagePayload>
+  | EventOf<"thinking", ThinkingPayload>
+  | EventOf<"tool_call", ToolCallPayload>
+  | EventOf<"tool_result", ToolResultPayload>
+  | EventOf<"cost", CostPayload>
+  | EventOf<"error", ErrorPayload>;
+
+interface EventOf<T extends string, P> {
+  seq: number;
+  session_id: string;
+  ts: string;
+  type: T;
+  payload: P;
+}
+
+/** Ein Event, dessen Typ das Dashboard (noch) nicht kennt. */
+export interface UnknownEvent {
+  seq: number;
+  session_id: string;
+  ts: string;
+  type: string;
+  payload: unknown;
+}
+
 /** Fehler einer API-Antwort mit HTTP-Status und Meldung des Daemons. */
 export class ApiError extends Error {
   readonly status: number;
@@ -128,7 +246,32 @@ export const api = {
   workspace: (id: string) => request<Workspace>("GET", `/api/workspaces/${encodeURIComponent(id)}`),
   deleteWorkspace: (id: string) => request<void>("DELETE", `/api/workspaces/${encodeURIComponent(id)}`),
   diff: (id: string) => request<Diff>("GET", `/api/workspaces/${encodeURIComponent(id)}/diff`),
+  adapters: () => request<Adapters>("GET", "/api/adapters"),
+  startAgent: (req: StartAgentRequest) => request<Session>("POST", "/api/agents", req),
+  sessions: (filter: { project_id?: string; workspace_id?: string; active?: boolean; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (filter.project_id) q.set("project_id", filter.project_id);
+    if (filter.workspace_id) q.set("workspace_id", filter.workspace_id);
+    if (filter.active) q.set("active", "true");
+    if (filter.limit) q.set("limit", String(filter.limit));
+    const qs = q.toString();
+    return request<Session[]>("GET", `/api/sessions${qs ? `?${qs}` : ""}`);
+  },
+  session: (id: string) => request<Session>("GET", `/api/sessions/${encodeURIComponent(id)}`),
+  sendInput: (id: string, text: string) => request<Session>("POST", `/api/sessions/${encodeURIComponent(id)}/input`, { text }),
+  stopSession: (id: string) => request<Session>("POST", `/api/sessions/${encodeURIComponent(id)}/stop`),
 };
+
+/** Sessions in diesen Zuständen haben einen Prozess (oder bekommen gleich einen). */
+export function isActive(status: SessionStatus): boolean {
+  return status === "starting" || status === "running" || status === "idle";
+}
+
+/** URL eines WebSockets auf dem Daemon (gleicher Host, daher gleiche Cookies und Origin). */
+export function wsURL(path: string): string {
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}${path}`;
+}
 
 /** Workspaces in diesen Zuständen ändern sich gleich – öfter abfragen. */
 export function isBusy(status: WorkspaceStatus): boolean {

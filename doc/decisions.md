@@ -84,3 +84,19 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
   selbst installiert und angemeldet hat. ADE baut keine eigenen Abo-Login-Flows.
 - **Konsequenzen:** Vor jedem Release die aktuellen Nutzungsbedingungen der unterstützten
   Anbieter prüfen.
+
+## ADR-011: Claude Code als Prozess mit stream-json-Ein- und -Ausgabe
+
+- **Kontext:** Für eine Timeline braucht ADE strukturierte Events; Folgeanweisungen sollen ohne
+  Neustart möglich sein, und nach einem Daemon-Neustart soll sich eine Session fortsetzen lassen.
+- **Entscheidung:** Der `claude`-Adapter startet `claude -p --input-format stream-json
+  --output-format stream-json --verbose` mit Pipes (kein PTY). Anweisungen gehen als JSON-Zeilen
+  über stdin; der Prozess bleibt zwischen Durchgängen am Leben (Status `idle`). Die `session_id`
+  aus der Ausgabe wird gespeichert; nach Prozessende setzt `--resume <id>` die Unterhaltung fort.
+  Beendet sich der Daemon, gelten Sessions als `interrupted` und werden nicht weiter ausgeführt.
+- **Konsequenzen:** Eine Folgeanweisung während eines Durchgangs wird danach bearbeitet. Kein
+  Terminal-Stream für Claude-Sessions; wer interaktiv arbeiten will, öffnet ein `pty`-Terminal im
+  selben Workspace. Berechtigungen laufen bis M7 über `--permission-mode` (Standard im Dashboard:
+  `acceptEdits`); Werkzeuge, die eine Bestätigung bräuchten, lehnt die CLI im Print-Modus ab.
+  Das stream-json-Format ist nicht formal spezifiziert: Der Parser ignoriert unbekannte Zeilen,
+  Tests nutzen aufgezeichnete Ausgaben (`internal/agent/adapter/claude/testdata`).

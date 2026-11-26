@@ -206,3 +206,90 @@ details.panel pre.log { margin-top: 0.75rem; }
   .facts dt { margin-top: 0.4rem; }
 }
 h1.mono { font-size: 1.35rem; }
+
+/* --- Agenten (M2) --- */
+.sectionhead.first { margin-top: 0; }
+.running { margin-bottom: 2rem; }
+td.wrap { white-space: normal; max-width: 28rem; }
+.actions { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
+.startwrap { flex-basis: 100%; }
+
+select, textarea {
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+textarea { resize: vertical; width: 100%; line-height: 1.45; }
+select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.startform { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.75rem 1rem; margin: 0; }
+.startform .wide { grid-column: 1 / -1; }
+.startform .field { display: flex; flex-direction: column; gap: 0.3rem; }
+.startform label { font-weight: 600; font-size: 0.9rem; }
+.startform .hint { margin: 0; }
+.startform .actions { margin-top: 0.25rem; }
+
+.sessiontitle { font-size: 1.3rem; word-break: break-word; flex: 1; min-width: 16rem; }
+.streamstate { display: flex; align-items: center; gap: 0.35rem; font-size: 0.9rem; }
+
+.timeline { list-style: none; padding: 0; margin: 0 0 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.tl-status > span:first-of-type { flex: 0 1 auto; }
+.timeline time { color: var(--muted); font-size: 0.78rem; margin-left: auto; white-space: nowrap; }
+.tl-msg { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem 0.9rem; }
+.tl-msg.user { background: var(--info-bg); border-color: transparent; }
+.tl-who { display: flex; gap: 0.5rem; font-size: 0.8rem; font-weight: 600; color: var(--muted); margin-bottom: 0.2rem; }
+.tl-text { white-space: pre-wrap; word-break: break-word; }
+.tl-thinking { color: var(--muted); font-size: 0.9rem; padding: 0 0.9rem; }
+.tl-thinking summary { cursor: pointer; }
+.tl-status { display: flex; gap: 0.3rem; align-items: baseline; font-size: 0.85rem; color: var(--muted); padding: 0.1rem 0.9rem; }
+.tl-status.failed, .tl-status.interrupted { color: var(--warn); }
+.tl-cost { font-size: 0.82rem; color: var(--muted); padding: 0.1rem 0.9rem; border-left: 2px solid var(--border); }
+.tl-error pre { margin: 0; padding: 0.6rem 0.9rem; background: var(--bad-bg); color: var(--bad); border-radius: 8px; white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; }
+
+.tl-tool { background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+.tl-tool.nested { margin-left: 1.5rem; }
+.tl-tool summary { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.8rem; cursor: pointer; min-width: 0; }
+.tl-tool summary strong { white-space: nowrap; }
+.tl-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); min-width: 0; flex: 1; }
+.tl-icon { width: 1.2rem; text-align: center; font-weight: 700; color: var(--ok); }
+.tl-tool.running .tl-icon { color: var(--busy); }
+.tl-tool.error .tl-icon { color: var(--bad); }
+.tl-tooldetail { border-top: 1px solid var(--border); padding: 0.5rem 0.8rem 0.7rem; }
+.tl-label { font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 0.3rem 0; }
+pre.tl-output {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  background: var(--code-bg);
+  border-radius: 6px;
+  font-family: ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 24rem;
+  overflow: auto;
+}
+
+.inputbox {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  padding: 0.75rem 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+.inputbox textarea { flex: 1; min-width: 14rem; }
+.inputbox .notice { flex-basis: 100%; margin: 0; }
+.inputhint { padding: 0.75rem 0; border-top: 1px solid var(--border); }
+
+.terminal { border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: #1a1d23; }
+.termbar { display: flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.8rem; font-size: 0.8rem; color: #9aa3b2; background: #23272f; }
+.termbox { height: min(70vh, 40rem); padding: 0.4rem; }
+@media (prefers-color-scheme: dark) {
+  .terminal { background: #0b0d11; }
+}

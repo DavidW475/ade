@@ -93,27 +93,54 @@ Single-Page-App (React + Vite + TypeScript), per `go:embed` ins Binary eingebett
 
 ### 2.3 Agent-Adapter
 
-Ein Adapter kennt eine konkrete Agent-CLI und liefert normalisierte Events.
+Ein Adapter kennt eine konkrete Agent-CLI und liefert normalisierte Events
+(`internal/agent/adapter`). Adapter sind zustandslos; Prozesse startet und überwacht der
+Agent-Manager (`internal/agent`).
 
 ```go
 type Adapter interface {
     Name() string
-    // Command baut den Prozessaufruf für eine Aufgabe.
-    Command(spec SessionSpec) (Cmd, error)
-    // Parse liest stdout/PTY-Ausgabe und erzeugt ADE-Events.
-    Parse(r io.Reader, emit func(Event)) error
-    // Send schickt eine Folgeanweisung (falls unterstützt).
-    Send(input string) error
+    // Capabilities: Terminal (läuft im PTY, kein Parsing), Input (Folgeanweisungen),
+    // Resume (Fortsetzen nach Prozessende).
+    Capabilities() Capabilities
+    // Command baut den Prozessaufruf (Programm, Argumente, Umgebung, erste Eingabe für stdin).
+    Command(spec Spec) (*Cmd, error)
+    // Parse liest stdout bis EOF und meldet Events, die Resume-ID der CLI und Durchgangsende.
+    Parse(r io.Reader, sink Sink) error
+    // EncodeInput übersetzt eine Folgeanweisung in Bytes für stdin.
+    EncodeInput(text string) ([]byte, error)
+}
+
+type Sink interface {
+    Emit(typ string, payload any)
+    SetResumeID(id string)
+    TurnDone() // Agent wartet auf die nächste Anweisung → Status "idle"
 }
 ```
 
+Der Manager startet den Prozess im Workspace-Verzeichnis mit **kontrollierter Umgebung**: nur
+eine Allowlist der Daemon-Umgebung (`HOME`, `PATH`, `LANG`, `LC_*`, WSL-Variablen …) plus
+`ADE_SESSION_ID`, `ADE_WORKSPACE_ID`, `ADE_WORKSPACE_PATH` und adapterspezifische Variablen
+(z. B. `ANTHROPIC_API_KEY` aus der Konfiguration). Tokens wie `GH_TOKEN` oder `SSH_AUTH_SOCK`
+erbt ein Agent nicht. Strukturierte Adapter laufen mit Pipes, Terminal-Adapter mit PTY
+(`creack/pty`); beide in eigener Prozessgruppe, Stoppen = SIGTERM, nach 5 s SIGKILL.
+
 | Adapter | Aufruf (beim Implementieren gegen aktuelle CLI-Doku prüfen) | Events |
 |---|---|---|
-| `claude` | `claude -p --output-format stream-json --verbose …` | strukturiert (Text, Tool-Calls, Kosten) |
+| `claude` | `claude -p --input-format stream-json --output-format stream-json --verbose [--model] [--permission-mode] [--resume]` | strukturiert (Text, Tool-Calls, Kosten); Folgeanweisungen über stdin, Fortsetzen mit `--resume` |
 | `codex` | `codex exec --json …` | strukturiert |
 | `pty` | beliebiger Befehl im Terminal (interaktiv) | nur Terminal-Stream, kein Parsing |
 
 Der `pty`-Adapter ist der Fallback: Jede CLI lässt sich so interaktiv bedienen, nur ohne Timeline.
+Seine Ausgabe puffert der Daemon (letzte 256 KiB im Speicher für neu verbundene Clients, alles
+bis 32 MiB in `<data_dir>/sessions/<id>.log`), damit sie nach Neuverbinden und Neustart sichtbar bleibt.
+
+**Session-Status:** `starting` (wartet ggf. auf das Workspace-Setup) → `running` ⇄ `idle`
+(wartet auf Anweisung) → `done` | `failed` | `stopped` | `interrupted`. Pro Workspace läuft
+höchstens ein Agent; Terminals daneben sind erlaubt. Wird der Daemon beendet oder stürzt er ab,
+gelten laufende Sessions als `interrupted`; beim nächsten Start beendet der Daemon verwaiste
+Prozesse (erkannt über `ADE_SESSION_ID` in `/proc/<pid>/environ`). Sessions mit Resume-ID lassen
+sich mit einer neuen Anweisung fortsetzen.
 
 ### 2.4 Browser-IDE
 
@@ -207,8 +234,18 @@ Alle Adapter erzeugen dasselbe Format; die UI kennt nur dieses.
 }
 ```
 
-`type` ∈ `status | message | thinking | tool_call | tool_result | approval_request |
-approval_decision | cost | egress | error | pty` (Liste wächst mit den Meilensteinen).
+`type` ∈ `status | message | thinking | tool_call | tool_result | cost | error` (M2), später
+`approval_request | approval_decision | egress | …`. Payloads und Pflichtfelder beschreibt das
+JSON-Schema [`internal/agent/adapter/event.schema.json`](../internal/agent/adapter/event.schema.json);
+die Go-Typen stehen in `internal/agent/adapter/events.go`. Clients zeigen unbekannte Typen generisch an.
+
+- `seq` ist pro Session lückenlos ab 1. Events werden live verteilt und gebündelt geschrieben
+  (spätestens nach 100 ms oder 256 Events, eine Transaktion).
+- `WS /ws/sessions/{id}/events?since=<seq>` liefert erst alle gespeicherten Events mit größerer
+  `seq`, dann live. Kommt ein Client nicht hinterher, schließt der Daemon mit Code 4000; der
+  Client verbindet sich mit der letzten `seq` neu.
+- `WS /ws/sessions/{id}/pty`: Binärnachrichten sind Terminal-Daten (beide Richtungen),
+  Textnachrichten Steuerbefehle (`{"type":"resize","cols":…,"rows":…}`, vom Daemon `{"type":"exit"}`).
 
 ## 4. Wichtige Abläufe
 
@@ -265,8 +302,11 @@ Merges und Pushes.
 | `GET/POST` | `/api/projects/{id}/workspaces` | Workspaces |
 | `GET` | `/api/workspaces/{id}/diff` | Diff gegen Basis |
 | `POST` | `/api/workspaces/{id}/merge` \| `/pr` \| `/discard` | Übernahme |
-| `POST` | `/api/agents` | Agent-Session starten |
-| `POST` | `/api/sessions/{id}/input` \| `/stop` | Folgeanweisung / Stop |
+| `GET` | `/api/adapters` | Verfügbare Adapter und ihre Fähigkeiten |
+| `POST` | `/api/agents` | Agent-Session starten (`project_id`, optional `workspace_id`, `adapter`, `task`, `command`, `model`, `permission_mode`) |
+| `GET` | `/api/sessions[?project_id&workspace_id&active=true]`, `/api/sessions/{id}` | Sessions |
+| `GET` | `/api/sessions/{id}/events?since=<seq>` | Gespeicherte Events (JSON, für CLI/Tests) |
+| `POST` | `/api/sessions/{id}/input` \| `/stop` | Folgeanweisung bzw. Fortsetzen / Stop |
 | `WS` | `/ws/sessions/{id}/events` | Event-Stream (mit `?since=<seq>` für Replay) |
 | `WS` | `/ws/sessions/{id}/pty` | Terminal |
 | `GET/POST` | `/api/approvals[/{id}]` | Freigaben |
