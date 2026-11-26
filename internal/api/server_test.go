@@ -68,7 +68,7 @@ func TestHostGuard(t *testing.T) {
 		"LOCALHOST:7000":         http.StatusOK,
 		"127.0.0.1:7000":         http.StatusOK,
 		"[::1]:7000":             http.StatusOK,
-		"ws-42.localhost:7000":   http.StatusOK,
+		"ws-42.localhost:7000":   http.StatusNotFound,  // erlaubt, geht ans Gateway (hier ohne IDE)
 		"localhost":              http.StatusForbidden, // Port fehlt
 		"localhost:8080":         http.StatusForbidden,
 		"evil.example:7000":      http.StatusForbidden,
@@ -158,10 +158,10 @@ func TestLoginFlow(t *testing.T) {
 		t.Fatalf("LoginPath = %q", tr.LoginPath)
 	}
 
-	// Anmeldung über eine IDE-Subdomain ist nicht erlaubt.
+	// Anmeldung über eine IDE-Subdomain ist nicht erlaubt (die Anfrage geht ans Gateway).
 	w = do(s, "GET", tr.LoginPath, func(r *http.Request) { r.Host = "ws-1.localhost:7000" })
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("Login über Subdomain: Code = %d", w.Code)
+	if w.Code == http.StatusSeeOther || len(w.Result().Cookies()) != 0 {
+		t.Fatalf("Login über Subdomain: Code = %d, Cookies = %v", w.Code, w.Result().Cookies())
 	}
 
 	w = do(s, "GET", tr.LoginPath, nil)

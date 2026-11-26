@@ -20,3 +20,10 @@ providers:
 defaults:
   adapter: claude
   sandbox: true
+
+# Browser-IDE (openvscode-server, Erweiterungen aus Open VSX).
+ide:
+  # Eigener openvscode-server; leer = ADE lädt die getestete Version bei Bedarf herunter.
+  binary: ""
+  # Ohne offenen IDE-Tab wird die IDE nach dieser Zeit gestoppt (mindestens 1m).
+  idle_timeout: 15m

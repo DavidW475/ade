@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -29,6 +30,20 @@ type Config struct {
 	Providers map[string]Provider `yaml:"providers"`
 	// Defaults sind Voreinstellungen für neue Agent-Sessions.
 	Defaults Defaults `yaml:"defaults"`
+	// IDE konfiguriert die Browser-IDE (openvscode-server).
+	IDE IDE `yaml:"ide"`
+}
+
+// DefaultIDEIdleTimeout ist die Zeit ohne offenen IDE-Tab, nach der ADE eine IDE stoppt.
+const DefaultIDEIdleTimeout = 15 * time.Minute
+
+// IDE konfiguriert die Browser-IDE.
+type IDE struct {
+	// Binary ist der Pfad zu einem eigenen openvscode-server. Leer heißt: ADE lädt die
+	// festgelegte Version bei Bedarf herunter und prüft ihre Prüfsumme.
+	Binary string `yaml:"binary"`
+	// IdleTimeout ist die Zeit ohne Verbindung, nach der eine IDE gestoppt wird.
+	IdleTimeout time.Duration `yaml:"idle_timeout"`
 }
 
 // Provider beschreibt den Zugang zu einem Modell-Anbieter.
@@ -93,6 +108,7 @@ func Default() (*Config, error) {
 		WorkspacesDir: filepath.Join(home, ".ade", "workspaces"),
 		Providers:     map[string]Provider{},
 		Defaults:      Defaults{Adapter: "claude", Sandbox: true},
+		IDE:           IDE{IdleTimeout: DefaultIDEIdleTimeout},
 	}, nil
 }
 
@@ -119,7 +135,7 @@ func Load(path string) (*Config, error) {
 	if cfg.Providers == nil {
 		cfg.Providers = map[string]Provider{}
 	}
-	for _, p := range []*string{&cfg.DataDir, &cfg.WorkspacesDir} {
+	for _, p := range []*string{&cfg.DataDir, &cfg.WorkspacesDir, &cfg.IDE.Binary} {
 		if *p, err = expandHome(*p); err != nil {
 			return nil, err
 		}
@@ -139,6 +155,9 @@ func (c *Config) LockPath() string { return filepath.Join(c.DataDir, "daemon.loc
 
 // SecretPath ist der Pfad des Daemon-Secrets, mit dem sich die CLI beim Daemon ausweist.
 func (c *Config) SecretPath() string { return filepath.Join(c.DataDir, "daemon.secret") }
+
+// IDEDir enthält die heruntergeladene IDE, ihre Erweiterungen und die Daten je Workspace.
+func (c *Config) IDEDir() string { return filepath.Join(c.DataDir, "ide") }
 
 // LogPath ist der Pfad des Daemon-Logs, wenn der Daemon über `ade start` gestartet wurde.
 func (c *Config) LogPath() string { return filepath.Join(c.DataDir, "daemon.log") }
@@ -172,6 +191,12 @@ func (c *Config) validate() error {
 	}
 	if c.WorkspacesDir == "" || !filepath.IsAbs(c.WorkspacesDir) {
 		return fmt.Errorf("workspaces_dir %q: absoluter Pfad erforderlich", c.WorkspacesDir)
+	}
+	if c.IDE.Binary != "" && !filepath.IsAbs(c.IDE.Binary) {
+		return fmt.Errorf("ide.binary %q: absoluter Pfad erforderlich", c.IDE.Binary)
+	}
+	if c.IDE.IdleTimeout < time.Minute {
+		return fmt.Errorf("ide.idle_timeout %s: mindestens 1m", c.IDE.IdleTimeout)
 	}
 	return nil
 }

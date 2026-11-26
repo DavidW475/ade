@@ -24,6 +24,19 @@ const (
 	EnvWorkspacePath = "ADE_WORKSPACE_PATH"
 )
 
+// FilterEnv liefert die Variablen aus base (KEY=VALUE), die ADE an Prozesse in einem
+// Workspace weitergibt (passEnv und LC_*). Die Browser-IDE nutzt dieselbe Liste.
+func FilterEnv(base []string) []string {
+	var out []string
+	for _, kv := range base {
+		k, _, ok := strings.Cut(kv, "=")
+		if ok && (slices.Contains(passEnv, k) || strings.HasPrefix(k, "LC_")) {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
 // buildEnv baut die kontrollierte Umgebung eines Agent-Prozesses aus base (KEY=VALUE),
 // den ADE-Variablen und den Variablen des Adapters (extra überschreibt alles davor).
 func buildEnv(base []string, terminal bool, sessionID, workspaceID, workdir string, extra []string) []string {
@@ -35,14 +48,9 @@ func buildEnv(base []string, terminal bool, sessionID, workspaceID, workdir stri
 		}
 		vars[k] = v
 	}
-	for _, kv := range base {
-		k, v, ok := strings.Cut(kv, "=")
-		if !ok {
-			continue
-		}
-		if slices.Contains(passEnv, k) || strings.HasPrefix(k, "LC_") {
-			set(k, v)
-		}
+	for _, kv := range FilterEnv(base) {
+		k, v, _ := strings.Cut(kv, "=")
+		set(k, v)
 	}
 	if terminal {
 		set("TERM", "xterm-256color")

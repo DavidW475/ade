@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/DavidW475/ade/internal/agent"
+	"github.com/DavidW475/ade/internal/gateway"
+	"github.com/DavidW475/ade/internal/ide"
 	"github.com/DavidW475/ade/internal/project"
 	"github.com/DavidW475/ade/internal/workspace"
 )
@@ -35,6 +37,8 @@ type Options struct {
 	Agents *agent.Manager
 	// DefaultAdapter ist der globale Standard-Adapter (für das Dashboard).
 	DefaultAdapter string
+	// IDE ist optional; ohne sie fehlen die IDE-Routen und das Gateway (ws-<id>.localhost).
+	IDE *ide.Manager
 }
 
 // Server ist der HTTP-Handler des Daemons.
@@ -57,6 +61,7 @@ func New(opts Options) *Server {
 	mux.HandleFunc("POST /api/auth/logout", s.requireAuth(s.handleLogout))
 	s.routesProjects(mux)
 	s.routesAgents(mux)
+	s.routesIDE(mux)
 	unknown := func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "unbekannter API-Pfad")
 	}
@@ -65,14 +70,41 @@ func New(opts Options) *Server {
 	mux.HandleFunc("GET /auth/login", s.handleLogin)
 	mux.Handle("/", staticHandler())
 
-	s.handler = securityHeaders(hostGuard(opts.Port, originGuard(opts.Port, mux)))
+	dashboard := securityHeaders(noStoreAPI(mux))
+	var ides http.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "Browser-IDE ist nicht aktiviert", http.StatusNotFound)
+	})
+	if opts.IDE != nil {
+		ides = gateway.New(gateway.Options{
+			Auth:         opts.Auth,
+			IDEs:         opts.IDE,
+			DashboardURL: "http://localhost:" + opts.Port + "/",
+			Logger:       opts.Logger,
+		})
+	}
+	// IDE-Subdomains gehen ans Gateway – ohne die Dashboard-CSP, die VS Code brechen würde.
+	byHost := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _ := splitHost(r.Host)
+		if dashboardHost(host) {
+			dashboard.ServeHTTP(w, r)
+			return
+		}
+		ides.ServeHTTP(w, r)
+	})
+	s.handler = hostGuard(opts.Port, originGuard(opts.Port, byHost))
 	return s
 }
 
+func noStoreAPI(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ws/") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ws/") {
-		w.Header().Set("Cache-Control", "no-store")
-	}
 	s.opts.Logger.Debug("Anfrage", "method", r.Method, "host", r.Host, "path", r.URL.Path, "remote", r.RemoteAddr)
 	s.handler.ServeHTTP(w, r)
 }

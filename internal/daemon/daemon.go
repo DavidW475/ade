@@ -17,7 +17,9 @@ import (
 	"github.com/DavidW475/ade/internal/agent/adapter/claude"
 	"github.com/DavidW475/ade/internal/agent/adapter/pty"
 	"github.com/DavidW475/ade/internal/api"
+	"github.com/DavidW475/ade/internal/apperr"
 	"github.com/DavidW475/ade/internal/config"
+	"github.com/DavidW475/ade/internal/ide"
 	"github.com/DavidW475/ade/internal/project"
 	"github.com/DavidW475/ade/internal/store"
 	"github.com/DavidW475/ade/internal/workspace"
@@ -64,7 +66,32 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	}
 	// Läuft vor workspaces.Close (defer-Reihenfolge): erst Agenten beenden, dann Setups.
 	defer agents.Close()
-	workspaces.SetBeforeDelete(agents.BeforeWorkspaceDelete)
+
+	ides := ide.NewManager(ide.Options{
+		Dir:         cfg.IDEDir(),
+		Binary:      cfg.IDE.Binary,
+		IdleTimeout: cfg.IDE.IdleTimeout,
+		Logger:      log,
+		Workspaces: func(ctx context.Context, id string) (string, error) {
+			w, err := workspaces.Get(ctx, id)
+			if err != nil {
+				return "", err
+			}
+			if w.Status == store.WorkspaceCreating || w.Status == store.WorkspaceError {
+				return "", apperr.Conflict("Workspace %s hat kein Arbeitsverzeichnis (Status %s)", id, w.Status)
+			}
+			return w.Path, nil
+		},
+	})
+	ides.Recover()
+	defer ides.Close()
+
+	workspaces.SetBeforeDelete(func(ctx context.Context, id string) error {
+		if err := agents.BeforeWorkspaceDelete(ctx, id); err != nil {
+			return err
+		}
+		return ides.BeforeWorkspaceDelete(ctx, id)
+	})
 
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
@@ -88,6 +115,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 			Projects:   projects,
 			Workspaces: workspaces,
 			Agents:     agents,
+			IDE:        ides,
 			// Wie der Manager: ohne Konfiguration gilt claude.
 			DefaultAdapter: defaultAdapter(cfg),
 		}),

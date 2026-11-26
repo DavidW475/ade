@@ -98,9 +98,9 @@ flowchart LR
 - Open VSX als Extension-Quelle konfiguriert
 
 **Fertig, wenn:**
-- [ ] Klick auf „IDE öffnen“ zeigt den Workspace mit Dateibaum, Editor und Terminal
-- [ ] Änderungen des Agenten erscheinen live in der IDE
-- [ ] Die IDE ist ohne gültige ADE-Session nicht erreichbar
+- [x] Klick auf „IDE öffnen“ zeigt den Workspace mit Dateibaum, Editor und Terminal
+- [x] Änderungen des Agenten erscheinen live in der IDE
+- [x] Die IDE ist ohne gültige ADE-Session nicht erreichbar
 
 **Nicht dabei:** IDE im Container (kommt mit M5).
 
