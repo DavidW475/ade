@@ -97,6 +97,9 @@ type StartRequest struct {
 	Command        []string `json:"command,omitempty"`
 	Model          string   `json:"model,omitempty"`
 	PermissionMode string   `json:"permission_mode,omitempty"`
+	// Sandbox gilt für einen neuen Workspace (nil: defaults.sandbox). Bei einem bestehenden
+	// Workspace muss sie, falls gesetzt, zu ihm passen.
+	Sandbox *bool `json:"sandbox,omitempty"`
 }
 
 // Start legt eine Session an und startet den Prozess im Hintergrund, sobald das Setup des
@@ -145,13 +148,26 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 	if len(req.Task) > 100<<10 {
 		return nil, apperr.Invalid("Aufgabe ist zu lang (höchstens 100 KiB)")
 	}
+	sandboxed := m.opts.Workspaces.SandboxDefault()
+	if req.Sandbox != nil {
+		sandboxed = *req.Sandbox
+	}
+	if ws != nil {
+		if req.Sandbox != nil && *req.Sandbox != ws.Sandbox {
+			if ws.Sandbox {
+				return nil, apperr.Invalid("Workspace %s läuft in der Sandbox – für einen Agenten ohne Sandbox einen neuen Workspace anlegen", ws.ID)
+			}
+			return nil, apperr.Invalid("Workspace %s läuft ohne Sandbox – für die Sandbox einen neuen Workspace anlegen", ws.ID)
+		}
+		sandboxed = ws.Sandbox
+	}
 	// Vorab prüfen, ob sich der Aufruf bauen lässt (z. B. CLI installiert, Optionen gültig).
-	if _, err := a.Command(adapter.Spec{Workdir: "/", Task: req.Task, Command: req.Command, Model: req.Model, PermissionMode: req.PermissionMode}); err != nil {
+	if _, err := a.Command(adapter.Spec{Workdir: "/", Task: req.Task, Command: req.Command, Model: req.Model, PermissionMode: req.PermissionMode, Sandbox: sandboxed}); err != nil {
 		return nil, apperr.Invalid("%v", err)
 	}
 
 	if ws == nil {
-		created, err := m.opts.Workspaces.Create(ctx, p.ID, workspace.CreateOptions{})
+		created, err := m.opts.Workspaces.Create(ctx, p.ID, workspace.CreateOptions{Sandbox: &sandboxed})
 		if err != nil {
 			return nil, err
 		}
@@ -185,7 +201,7 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 	if extra.Prompt != "" {
 		prompt = extra.Prompt
 	}
-	spec := adapter.Spec{SessionID: sess.ID, Workdir: ws.Path, Task: prompt, Command: req.Command, Model: req.Model, PermissionMode: req.PermissionMode}
+	spec := adapter.Spec{SessionID: sess.ID, Workdir: ws.Path, Task: prompt, Command: req.Command, Model: req.Model, PermissionMode: req.PermissionMode, Sandbox: ws.Sandbox}
 	if err := m.launch(sess, a, ws, spec); err != nil {
 		return nil, err
 	}
@@ -336,7 +352,7 @@ func (m *Manager) Input(ctx context.Context, id, text string) (*View, error) {
 	}
 	m.emit(id, adapter.TypeStatus, adapter.Status{Status: store.SessionStarting, Reason: "wird fortgesetzt"})
 	m.emit(id, adapter.TypeMessage, adapter.Message{Role: "user", Text: text})
-	spec := adapter.Spec{SessionID: id, Workdir: ws.Path, Task: text, Model: sess.Model, PermissionMode: sess.PermissionMode, ResumeID: sess.ResumeID}
+	spec := adapter.Spec{SessionID: id, Workdir: ws.Path, Task: text, Model: sess.Model, PermissionMode: sess.PermissionMode, ResumeID: sess.ResumeID, Sandbox: ws.Sandbox}
 	if err := m.launch(sess, a, ws, spec); err != nil {
 		return nil, err
 	}

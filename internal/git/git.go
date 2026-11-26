@@ -34,6 +34,30 @@ type Cmd struct {
 	Args []string
 	// Env wird an die Umgebung angehängt (KEY=VALUE).
 	Env []string
+	// Runner führt den Aufruf anderswo aus (z. B. im Sandbox-Container); Dir gilt dann nicht.
+	Runner Runner
+}
+
+// Runner baut den Prozess für argv (argv[0] ist das Programm, z. B. git) mit den
+// zusätzlichen Variablen env an einem anderen Ort, etwa per docker exec im Container eines
+// Workspaces. Der Prozess läuft dort im Workspace-Verzeichnis.
+type Runner func(ctx context.Context, env, argv []string) *exec.Cmd
+
+// Worktree ist ein Workspace, in dem der Daemon git ausführt.
+type Worktree struct {
+	// Path ist das Verzeichnis auf dem Host.
+	Path string
+	// Runner ist gesetzt, wenn git nicht auf dem Host laufen darf (Sandbox, Issue #41):
+	// Die Repo-Konfiguration gehört dem Agenten; Filter oder fsmonitor aus ihr sollen nur
+	// im Container wirken.
+	Runner Runner
+}
+
+// Local liefert einen Worktree, in dem git auf dem Host läuft.
+func Local(path string) Worktree { return Worktree{Path: path} }
+
+func (w Worktree) cmd(env []string, args ...string) Cmd {
+	return Cmd{Dir: w.Path, Env: env, Args: args, Runner: w.Runner}
 }
 
 // baseEnv sorgt für reproduzierbare, nicht-interaktive Ausgaben.
@@ -46,9 +70,14 @@ var baseEnv = []string{
 
 // Run führt git aus und liefert stdout.
 func Run(ctx context.Context, c Cmd) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", c.Args...)
-	cmd.Dir = c.Dir
-	cmd.Env = append(append(os.Environ(), baseEnv...), c.Env...)
+	var cmd *exec.Cmd
+	if c.Runner != nil {
+		cmd = c.Runner(ctx, append(append([]string{}, baseEnv...), c.Env...), append([]string{"git"}, c.Args...))
+	} else {
+		cmd = exec.CommandContext(ctx, "git", c.Args...)
+		cmd.Dir = c.Dir
+		cmd.Env = append(append(os.Environ(), baseEnv...), c.Env...)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {

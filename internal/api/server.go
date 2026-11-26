@@ -13,6 +13,7 @@ import (
 	"github.com/DavidW475/ade/internal/gateway"
 	"github.com/DavidW475/ade/internal/ide"
 	"github.com/DavidW475/ade/internal/project"
+	"github.com/DavidW475/ade/internal/sandbox"
 	"github.com/DavidW475/ade/internal/workspace"
 )
 
@@ -39,6 +40,8 @@ type Options struct {
 	DefaultAdapter string
 	// IDE ist optional; ohne sie fehlen die IDE-Routen und das Gateway (ws-<id>.localhost).
 	IDE *ide.Manager
+	// Sandbox ist optional; ohne sie fehlen die Sandbox-Routen.
+	Sandbox *sandbox.Manager
 }
 
 // Server ist der HTTP-Handler des Daemons.
@@ -63,6 +66,7 @@ func New(opts Options) *Server {
 	s.routesAgents(mux)
 	s.routesReview(mux)
 	s.routesIDE(mux)
+	s.routesSandbox(mux)
 	unknown := func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "unbekannter API-Pfad")
 	}

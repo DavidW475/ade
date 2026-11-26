@@ -25,12 +25,13 @@ func (*Adapter) Name() string { return "pty" }
 // Capabilities implementiert adapter.Adapter.
 func (*Adapter) Capabilities() adapter.Capabilities { return adapter.Capabilities{Terminal: true} }
 
-// Command implementiert adapter.Adapter. Ohne Befehl startet die Login-Shell des Nutzers.
+// Command implementiert adapter.Adapter. Ohne Befehl startet die Login-Shell des Nutzers,
+// in der Sandbox bash.
 func (*Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 	argv := spec.Command
 	if len(argv) == 0 {
 		sh := os.Getenv("SHELL")
-		if sh == "" {
+		if sh == "" || spec.Sandbox {
 			sh = DefaultShell
 		}
 		argv = []string{sh}

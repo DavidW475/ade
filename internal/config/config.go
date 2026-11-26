@@ -32,6 +32,17 @@ type Config struct {
 	Defaults Defaults `yaml:"defaults"`
 	// IDE konfiguriert die Browser-IDE (openvscode-server).
 	IDE IDE `yaml:"ide"`
+	// Sandbox konfiguriert die Docker-Sandbox.
+	Sandbox Sandbox `yaml:"sandbox"`
+}
+
+// Sandbox konfiguriert die Docker-Sandbox (doc/sandbox.md).
+type Sandbox struct {
+	// Image ist das Standard-Image (leer: ghcr.io/davidw475/ade-agent-base passend zur
+	// ADE-Version). Projekte können in .ade/sandbox.yaml ein eigenes nennen.
+	Image string `yaml:"image"`
+	// Docker ist das docker-Binary (leer: docker im PATH).
+	Docker string `yaml:"docker"`
 }
 
 // DefaultIDEIdleTimeout ist die Zeit ohne offenen IDE-Tab, nach der ADE eine IDE stoppt.
@@ -135,7 +146,7 @@ func Load(path string) (*Config, error) {
 	if cfg.Providers == nil {
 		cfg.Providers = map[string]Provider{}
 	}
-	for _, p := range []*string{&cfg.DataDir, &cfg.WorkspacesDir, &cfg.IDE.Binary} {
+	for _, p := range []*string{&cfg.DataDir, &cfg.WorkspacesDir, &cfg.IDE.Binary, &cfg.Sandbox.Docker} {
 		if *p, err = expandHome(*p); err != nil {
 			return nil, err
 		}
@@ -194,6 +205,9 @@ func (c *Config) validate() error {
 	}
 	if c.IDE.Binary != "" && !filepath.IsAbs(c.IDE.Binary) {
 		return fmt.Errorf("ide.binary %q: absoluter Pfad erforderlich", c.IDE.Binary)
+	}
+	if strings.HasPrefix(c.Sandbox.Image, "-") || strings.ContainsAny(c.Sandbox.Image, " \t\n") {
+		return fmt.Errorf("sandbox.image %q: ungültiger Image-Name", c.Sandbox.Image)
 	}
 	if c.IDE.IdleTimeout < time.Minute {
 		return fmt.Errorf("ide.idle_timeout %s: mindestens 1m", c.IDE.IdleTimeout)

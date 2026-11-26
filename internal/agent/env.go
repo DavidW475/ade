@@ -76,3 +76,22 @@ func buildEnv(base []string, terminal bool, sessionID, workspaceID, workdir stri
 }
 
 func daemonEnv() []string { return os.Environ() }
+
+// sandboxEnv ist die Umgebung eines Agent-Prozesses im Container: nichts vom Host, nur
+// Terminal-Einstellungen, ADE-Variablen und die Variablen des Adapters. HOME, PATH und
+// LANG kommen aus dem Image.
+func sandboxEnv(terminal bool, sessionID, workspaceID string, extra []string) []string {
+	env := []string{"TERM=dumb", "NO_COLOR=1"}
+	if terminal {
+		env = []string{"TERM=xterm-256color", "COLORTERM=truecolor"}
+	}
+	env = append(env, EnvSessionID+"="+sessionID, EnvWorkspaceID+"="+workspaceID, EnvWorkspacePath+"=/workspace")
+	for _, kv := range extra {
+		k, _, ok := strings.Cut(kv, "=")
+		if !ok || k == "HOME" || k == "PATH" || k == EnvSessionID {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return env
+}

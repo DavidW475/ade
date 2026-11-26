@@ -9,7 +9,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/DavidW475/ade/internal/agent"
@@ -21,6 +23,7 @@ import (
 	"github.com/DavidW475/ade/internal/config"
 	"github.com/DavidW475/ade/internal/ide"
 	"github.com/DavidW475/ade/internal/project"
+	"github.com/DavidW475/ade/internal/sandbox"
 	"github.com/DavidW475/ade/internal/store"
 	"github.com/DavidW475/ade/internal/workspace"
 )
@@ -51,6 +54,22 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	}
 	defer workspaces.Close()
 
+	sb := newSandbox(cfg, version, log)
+	workspaces.SetSandbox(sb, cfg.Defaults.Sandbox)
+	// Abgleich vor dem ersten Agenten, damit er keinen frisch gestarteten Container stoppt.
+	rctx, rcancel := context.WithTimeout(ctx, 30*time.Second)
+	if err := sb.Recover(rctx, knownWorkspace(st)); err != nil {
+		log.Info("Sandbox-Abgleich übersprungen", "grund", err)
+	}
+	rcancel()
+	defer func() {
+		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := sb.StopAll(sctx); err != nil {
+			log.Debug("Sandbox-Container stoppen", "err", err)
+		}
+	}()
+
 	agents := agent.NewManager(agent.Options{
 		Store:          st,
 		Projects:       projects,
@@ -72,6 +91,16 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		Binary:      cfg.IDE.Binary,
 		IdleTimeout: cfg.IDE.IdleTimeout,
 		Logger:      log,
+		Sandbox: func(ctx context.Context, id string) (ide.Sandbox, error) {
+			w, err := workspaces.Get(ctx, id)
+			if err != nil || !w.Sandbox {
+				return nil, err
+			}
+			if err := workspaces.EnsureSandbox(ctx, id); err != nil {
+				return nil, err
+			}
+			return ideSandbox{sb: sb, ws: id}, nil
+		},
 		Workspaces: func(ctx context.Context, id string) (string, error) {
 			w, err := workspaces.Get(ctx, id)
 			if err != nil {
@@ -117,6 +146,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 			Workspaces: workspaces,
 			Agents:     agents,
 			IDE:        ides,
+			Sandbox:    sb,
 			// Wie der Manager: ohne Konfiguration gilt claude.
 			DefaultAdapter: defaultAdapter(cfg),
 		}),
@@ -196,4 +226,62 @@ func adapterEnv(cfg *config.Config, log *slog.Logger) func(string) []string {
 		}
 		return []string{k.env + "=" + v}
 	}
+}
+
+func newSandbox(cfg *config.Config, version string, log *slog.Logger) *sandbox.Manager {
+	image := cfg.Sandbox.Image
+	if image == "" {
+		image = sandbox.DefaultImage(version)
+	}
+	return sandbox.New(sandbox.Options{Docker: cfg.Sandbox.Docker, DataDir: cfg.DataDir, Image: image, Logger: log})
+}
+
+// knownWorkspace meldet, ob es einen Workspace gibt (für den Abgleich der Container).
+// Bei Datenbankfehlern gilt er als bekannt, damit nichts versehentlich gelöscht wird.
+func knownWorkspace(st *store.Store) func(string) bool {
+	return func(id string) bool {
+		_, err := st.GetWorkspace(context.Background(), id)
+		return !errors.Is(err, apperr.ErrNotFound)
+	}
+}
+
+// ideSandbox bindet den Sandbox-Manager an einen Workspace für die IDE.
+type ideSandbox struct {
+	sb *sandbox.Manager
+	ws string
+}
+
+func (s ideSandbox) Command(ctx context.Context, argv, env []string) *exec.Cmd {
+	return s.sb.Command(ctx, s.ws, sandbox.Exec{Argv: argv, Env: env})
+}
+
+func (s ideSandbox) Signal(ctx context.Context, marker string, sig syscall.Signal) error {
+	return s.sb.Signal(ctx, s.ws, marker, sig)
+}
+
+func (s ideSandbox) HostPort(ctx context.Context, port int) (int, error) {
+	return s.sb.HostPort(ctx, s.ws, port)
+}
+
+func (s ideSandbox) WriteFile(ctx context.Context, path string, data []byte) error {
+	return s.sb.WriteFile(ctx, s.ws, path, data)
+}
+
+// GC entfernt verwaiste Sandbox-Container, ohne dass ein Daemon läuft. Es hält dafür das
+// Lock des Datenverzeichnisses, damit nicht gleichzeitig ein Daemon startet.
+func GC(ctx context.Context, cfg *config.Config, version string, dryRun bool, log *slog.Logger) ([]sandbox.Container, error) {
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
+		return nil, err
+	}
+	lock, err := acquireLock(cfg.LockPath())
+	if err != nil {
+		return nil, err
+	}
+	defer lock.release()
+	st, err := store.Open(ctx, cfg.DBPath())
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = st.Close() }()
+	return newSandbox(cfg, version, log).GC(ctx, knownWorkspace(st), dryRun)
 }

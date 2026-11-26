@@ -104,7 +104,7 @@ func TestWorktreeDiff(t *testing.T) {
 	}
 
 	// Leer: keine Änderungen.
-	d, err := WorktreeDiff(ctx, repo, base, true)
+	d, err := WorktreeDiff(ctx, Local(repo), base, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestWorktreeDiff(t *testing.T) {
 
 	indexBefore, _ := os.ReadFile(filepath.Join(repo, ".git", "index"))
 
-	d, err = WorktreeDiff(ctx, repo, base, true)
+	d, err = WorktreeDiff(ctx, Local(repo), base, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestWorktreeDiff(t *testing.T) {
 	}
 
 	// Ohne Patches.
-	d, err = WorktreeDiff(ctx, repo, base, false)
+	d, err = WorktreeDiff(ctx, Local(repo), base, false)
 	if err != nil {
 		t.Fatal(err)
 	}

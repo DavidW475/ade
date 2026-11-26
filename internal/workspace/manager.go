@@ -19,6 +19,7 @@ import (
 	"github.com/DavidW475/ade/internal/apperr"
 	"github.com/DavidW475/ade/internal/git"
 	"github.com/DavidW475/ade/internal/project"
+	"github.com/DavidW475/ade/internal/sandbox"
 	"github.com/DavidW475/ade/internal/store"
 )
 
@@ -51,6 +52,10 @@ type Manager struct {
 	busyCheck func(ctx context.Context, id string) error
 	gh        string
 	locks     map[string]*wsLock
+
+	// sandbox ist nil, wenn der Daemon ohne Docker-Sandbox läuft.
+	sandbox        *sandbox.Manager
+	sandboxDefault bool
 }
 
 type setupRun struct {
@@ -107,10 +112,34 @@ func (m *Manager) Close() {
 	m.wg.Wait()
 }
 
+// SetSandbox aktiviert die Docker-Sandbox; def ist die Voreinstellung für neue Workspaces
+// (defaults.sandbox).
+func (m *Manager) SetSandbox(sb *sandbox.Manager, def bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sandbox, m.sandboxDefault = sb, def
+}
+
+// Sandbox liefert den Sandbox-Manager (nil ohne Sandbox).
+func (m *Manager) Sandbox() *sandbox.Manager {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sandbox
+}
+
+// SandboxDefault meldet die Voreinstellung für neue Workspaces.
+func (m *Manager) SandboxDefault() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sandboxDefault
+}
+
 // CreateOptions sind Optionen für einen neuen Workspace.
 type CreateOptions struct {
 	// BaseBranch überschreibt den Basis-Branch des Projekts.
 	BaseBranch string `json:"base_branch,omitempty"`
+	// Sandbox: Agent, Setup und IDE im Docker-Container (nil: defaults.sandbox).
+	Sandbox *bool `json:"sandbox,omitempty"`
 }
 
 // Create legt einen Workspace für das Projekt an: lokaler Clone, eigener Branch
@@ -135,6 +164,25 @@ func (m *Manager) Create(ctx context.Context, projectID string, opts CreateOptio
 		return nil, apperr.Invalid("Basis-Branch %q gibt es im Repository nicht", base)
 	}
 
+	useSandbox := m.SandboxDefault()
+	if opts.Sandbox != nil {
+		useSandbox = *opts.Sandbox
+	}
+	image := ""
+	if useSandbox {
+		sb := m.Sandbox()
+		if sb == nil {
+			return nil, apperr.Invalid("die Docker-Sandbox ist nicht aktiviert")
+		}
+		if p.SandboxError != "" {
+			return nil, apperr.Invalid("Sandbox-Konfiguration ungültig: %s", p.SandboxError)
+		}
+		if _, err := sb.Available(ctx); err != nil {
+			return nil, apperr.Invalid("%v – ohne Sandbox starten oder Docker einrichten", err)
+		}
+		image = sb.ImageFor(*p.Sandbox)
+	}
+
 	if err := os.MkdirAll(m.dir, 0o700); err != nil {
 		return nil, fmt.Errorf("Workspace-Verzeichnis anlegen: %w", err)
 	}
@@ -147,6 +195,9 @@ func (m *Manager) Create(ctx context.Context, projectID string, opts CreateOptio
 		BaseBranch: base,
 		BaseCommit: commit,
 		Status:     store.WorkspaceCreating,
+
+		Sandbox:      useSandbox,
+		SandboxImage: image,
 	}
 	if err := m.store.CreateWorkspace(ctx, w); err != nil {
 		return nil, err
@@ -159,7 +210,8 @@ func (m *Manager) Create(ctx context.Context, projectID string, opts CreateOptio
 	}
 
 	status := store.WorkspaceReady
-	if len(p.Config.Setup) > 0 {
+	if len(p.Config.Setup) > 0 || w.Sandbox {
+		// Bei der Sandbox gehört das Anlegen des Containers (ggf. mit Image-Download) zum Setup.
 		status = store.WorkspaceSetup
 	}
 	if err := m.store.UpdateWorkspace(ctx, id, store.WorkspaceUpdate{Status: &status}); err != nil {
@@ -168,6 +220,7 @@ func (m *Manager) Create(ctx context.Context, projectID string, opts CreateOptio
 	if status == store.WorkspaceSetup {
 		m.startSetup(w, p.Config.Setup)
 	}
+
 	m.log.Info("Workspace angelegt", "id", id, "projekt", p.Name, "branch", w.Branch, "basis", base)
 	return m.store.GetWorkspace(ctx, id)
 }
@@ -176,7 +229,9 @@ func (m *Manager) Create(ctx context.Context, projectID string, opts CreateOptio
 // Agent nicht dorthin pushen kann. Ergebnisse holt später der Daemon per fetch (ADR-005).
 //
 // Liegen Repo und Workspace-Verzeichnis auf verschiedenen Dateisystemen, scheitern die
-// Hardlinks von --local (EXDEV); dann kopiert git die Objekte (--no-hardlinks).
+// Hardlinks von --local (EXDEV); dann kopiert git die Objekte (--no-hardlinks). Sandbox-
+// Workspaces klonen immer ohne Hardlinks: Der Container könnte sonst Objektdateien
+// überschreiben, die sich Workspace und Haupt-Repo teilen.
 func clone(ctx context.Context, repo string, w *store.Workspace) error {
 	cloneArgs := func(hardlinks bool) []string {
 		args := []string{"clone", "--local", "--quiet"}
@@ -185,7 +240,7 @@ func clone(ctx context.Context, repo string, w *store.Workspace) error {
 		}
 		return append(args, "--branch", w.BaseBranch, "--", repo, w.Path)
 	}
-	hardlinks := git.SameDevice(repo, filepath.Dir(w.Path))
+	hardlinks := !w.Sandbox && git.SameDevice(repo, filepath.Dir(w.Path))
 	_, err := git.Run(ctx, git.Cmd{Args: cloneArgs(hardlinks)})
 	if err != nil && hardlinks && isCrossDevice(err) {
 		_ = removeAll(w.Path)
@@ -229,7 +284,17 @@ func (m *Manager) startSetup(w *store.Workspace, cmds []string) {
 			m.mu.Unlock()
 		}()
 
-		log, err := runSetup(ctx, w, cmds)
+		var log string
+		var err error
+		if w.Sandbox {
+			if err = m.EnsureSandbox(ctx, w.ID); err != nil {
+				err = fmt.Errorf("Sandbox-Container: %w", err)
+				log = err.Error() + "\n"
+			}
+		}
+		if err == nil {
+			log, err = m.runSetup(ctx, w, cmds)
+		}
 		u := store.WorkspaceUpdate{SetupLog: &log, Status: store.Ptr(store.WorkspaceReady), Error: store.Ptr("")}
 		if err != nil {
 			u.Status, u.Error = store.Ptr(store.WorkspaceSetupFailed), store.Ptr(err.Error())
@@ -242,20 +307,39 @@ func (m *Manager) startSetup(w *store.Workspace, cmds []string) {
 	}()
 }
 
-func runSetup(ctx context.Context, w *store.Workspace, cmds []string) (string, error) {
+// envSetup kennzeichnet Setup-Prozesse im Container (zum Beenden beim Abbruch).
+const envSetup = "ADE_SETUP"
+
+func (m *Manager) runSetup(ctx context.Context, w *store.Workspace, cmds []string) (string, error) {
 	var out tailBuffer
+	sb := m.Sandbox()
 	for i, c := range cmds {
 		_, _ = fmt.Fprintf(&out, "$ %s\n", c)
 		cctx, cancel := context.WithTimeout(ctx, SetupTimeout)
-		cmd := exec.CommandContext(cctx, "sh", "-c", c)
-		cmd.Dir = w.Path
-		cmd.Env = append(os.Environ(), "ADE_WORKSPACE_ID="+w.ID, "ADE_WORKSPACE_PATH="+w.Path, "CI=1")
+		var cmd *exec.Cmd
+		stop := func() bool { return false }
+		if w.Sandbox {
+			marker := envSetup + "=" + w.ID
+			// Im Container: Setup-Befehle kommen aus dem Repo und gelten als nicht vertrauenswürdig.
+			cmd = sb.Command(cctx, w.ID, sandbox.Exec{
+				Argv: []string{"sh", "-c", c},
+				Env:  []string{"ADE_WORKSPACE_ID=" + w.ID, "ADE_WORKSPACE_PATH=" + sandbox.Workdir, "CI=1", marker},
+			})
+			stop = context.AfterFunc(cctx, func() {
+				_ = sb.Signal(context.Background(), w.ID, marker, syscall.SIGKILL)
+			})
+		} else {
+			cmd = exec.CommandContext(cctx, "sh", "-c", c)
+			cmd.Dir = w.Path
+			cmd.Env = append(os.Environ(), "ADE_WORKSPACE_ID="+w.ID, "ADE_WORKSPACE_PATH="+w.Path, "CI=1")
+		}
 		cmd.Stdout, cmd.Stderr = &out, &out
 		// Eigene Prozessgruppe: Beim Abbruch werden auch Kindprozesse beendet.
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 		cmd.WaitDelay = 5 * time.Second
 		err := cmd.Run()
+		stop()
 		timedOut := errors.Is(cctx.Err(), context.DeadlineExceeded)
 		cancel()
 		switch {
@@ -319,7 +403,15 @@ func (m *Manager) view(ctx context.Context, w *store.Workspace) *View {
 	if !hasWorktree(w) {
 		return v
 	}
-	d, err := git.WorktreeDiff(ctx, w.Path, w.BaseCommit, false)
+	wt, err := m.worktree(ctx, w, false)
+	if err != nil {
+		v.DiffError = err.Error()
+		return v
+	}
+	if wt == nil {
+		return v // Sandbox gestoppt: nicht nur für die Übersicht starten
+	}
+	d, err := git.WorktreeDiff(ctx, *wt, w.BaseCommit, false)
 	if err != nil {
 		v.DiffError = err.Error()
 		return v
@@ -346,7 +438,76 @@ func (m *Manager) Diff(ctx context.Context, id string, withPatch bool) (*git.Dif
 	if !hasWorktree(w) {
 		return nil, apperr.Conflict("Workspace %s hat keinen Arbeitsbaum (Status %s)", id, w.Status)
 	}
-	return git.WorktreeDiff(ctx, w.Path, w.BaseCommit, withPatch)
+	wt, err := m.worktree(ctx, w, true)
+	if err != nil {
+		return nil, err
+	}
+	return git.WorktreeDiff(ctx, *wt, w.BaseCommit, withPatch)
+}
+
+// sandboxSpec baut die Container-Beschreibung eines Workspaces aus der aktuellen
+// Projekt-Konfiguration (sandbox.yaml im Haupt-Repo, nie aus dem Workspace).
+func (m *Manager) sandboxSpec(ctx context.Context, w *store.Workspace) (sandbox.Spec, error) {
+	p, err := m.projects.Get(ctx, w.ProjectID)
+	if err != nil {
+		return sandbox.Spec{}, err
+	}
+	cfg := *p.Sandbox
+	if w.SandboxImage != "" {
+		cfg.Image = w.SandboxImage
+	}
+	var env []string
+	// Git-Identität des Nutzers, damit Commits des Agenten im Container einen Autor haben.
+	for _, kv := range [][2]string{{"user.name", "NAME"}, {"user.email", "EMAIL"}} {
+		if v, _ := git.Output(ctx, p.RepoPath, "config", kv[0]); v != "" && !strings.ContainsAny(v, "\n\x00") {
+			env = append(env, "GIT_AUTHOR_"+kv[1]+"="+v, "GIT_COMMITTER_"+kv[1]+"="+v)
+		}
+	}
+	return sandbox.Spec{Workspace: w.ID, Path: w.Path, Config: cfg, Env: env}, nil
+}
+
+// EnsureSandbox legt den Container eines Sandbox-Workspaces an bzw. startet ihn.
+func (m *Manager) EnsureSandbox(ctx context.Context, id string) error {
+	w, err := m.store.GetWorkspace(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !w.Sandbox {
+		return nil
+	}
+	sb := m.Sandbox()
+	if sb == nil {
+		return apperr.Conflict("Workspace %s läuft in der Sandbox, aber Docker ist nicht aktiviert", id)
+	}
+	spec, err := m.sandboxSpec(ctx, w)
+	if err != nil {
+		return err
+	}
+	return sb.Ensure(ctx, spec)
+}
+
+// worktree liefert den Ort, an dem der Daemon git im Workspace ausführt: bei Sandbox-
+// Workspaces im Container (Issue #41). Mit start=false liefert er nil, wenn der Container
+// nicht läuft.
+func (m *Manager) worktree(ctx context.Context, w *store.Workspace, start bool) (*git.Worktree, error) {
+	if !w.Sandbox {
+		wt := git.Local(w.Path)
+		return &wt, nil
+	}
+	sb := m.Sandbox()
+	if sb == nil {
+		return nil, apperr.Conflict("Workspace %s läuft in der Sandbox, aber Docker ist nicht aktiviert", w.ID)
+	}
+	if start {
+		if err := m.EnsureSandbox(ctx, w.ID); err != nil {
+			return nil, err
+		}
+	} else if c, err := sb.Get(ctx, w.ID); err != nil || c == nil || !c.Running {
+		return nil, err
+	}
+	return &git.Worktree{Path: w.Path, Runner: func(ctx context.Context, env, argv []string) *exec.Cmd {
+		return sb.Command(ctx, w.ID, sandbox.Exec{Argv: argv, Env: env})
+	}}, nil
 }
 
 // Delete („Verwerfen“) bricht ein laufendes Setup ab, löscht den Branch ade/<id> im
@@ -385,6 +546,13 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 				return fmt.Errorf("Branch %s im Projekt-Repo löschen: %w", w.Branch, err)
 			}
 			m.log.Warn("Projekt-Repo nicht erreichbar, Branch bleibt", "id", id, "repo", p.RepoPath, "err", err)
+		}
+	}
+	if w.Sandbox {
+		if sb := m.Sandbox(); sb != nil {
+			if err := sb.Remove(ctx, id); err != nil {
+				return fmt.Errorf("Sandbox-Container entfernen: %w", err)
+			}
 		}
 	}
 	if err := removeAll(w.Path); err != nil {
