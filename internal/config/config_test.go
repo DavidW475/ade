@@ -137,3 +137,31 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestResolve(t *testing.T) {
+	t.Setenv("ADE_TEST_KEY", "sk-123")
+	t.Setenv("ADE_TEST_EMPTY", "")
+
+	if v, err := Resolve("env:ADE_TEST_KEY"); err != nil || v != "sk-123" {
+		t.Errorf("env: = %q, %v", v, err)
+	}
+	if v, err := Resolve("klartext"); err != nil || v != "klartext" {
+		t.Errorf("Klartext = %q, %v", v, err)
+	}
+	for _, ref := range []string{"env:ADE_TEST_EMPTY", "env:ADE_TEST_GIBTS_NICHT", "env:"} {
+		if _, err := Resolve(ref); err == nil {
+			t.Errorf("%s: Fehler erwartet", ref)
+		}
+	}
+	p := Provider{APIKey: "env:ADE_TEST_KEY"}
+	if v, err := p.ResolveAPIKey(); err != nil || v != "sk-123" {
+		t.Errorf("ResolveAPIKey = %q, %v", v, err)
+	}
+}
+
+func TestExampleConfigLoads(t *testing.T) {
+	setHome(t)
+	if _, err := Load(filepath.Join("..", "..", "examples", "config.yaml")); err != nil {
+		t.Fatalf("examples/config.yaml: %v", err)
+	}
+}

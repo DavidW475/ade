@@ -39,10 +39,10 @@ flowchart LR
 - GitHub Actions: Lint, Test, Build; `LICENSE` (Apache-2.0), `README.md`, `CONTRIBUTING.md`
 
 **Fertig, wenn:**
-- [ ] `make build` erzeugt ein einzelnes Binary mit eingebettetem Frontend
-- [ ] `ade start` öffnet das Dashboard im Windows-Browser
-- [ ] Anfragen mit fremdem `Host`-Header werden abgelehnt
-- [ ] CI ist grün
+- [x] `make build` erzeugt ein einzelnes Binary mit eingebettetem Frontend
+- [x] `ade start` öffnet das Dashboard im Windows-Browser
+- [x] Anfragen mit fremdem `Host`-Header werden abgelehnt
+- [x] CI ist grün
 
 **Nicht dabei:** Agenten, Docker.
 

@@ -1,0 +1,22 @@
+# Globale ADE-Konfiguration: ~/.config/ade/config.yaml (oder $ADE_CONFIG).
+# Alle Schlüssel sind optional; fehlende Werte nehmen die hier gezeigten Defaults.
+
+# Adresse des Daemons. Nur Loopback-Adressen sind erlaubt.
+listen: 127.0.0.1:7000
+
+# Datenbank, Daemon-Secret, Lock und Log.
+data_dir: ~/.local/share/ade
+
+# Workspace-Clones. Muss im Linux-Dateisystem liegen, nicht unter /mnt/c.
+workspaces_dir: ~/.ade/workspaces
+
+# API-Keys immer als Referenz angeben, nie im Klartext.
+providers:
+  anthropic:
+    api_key: env:ANTHROPIC_API_KEY
+  # openai:
+  #   api_key: env:OPENAI_API_KEY
+
+defaults:
+  adapter: claude
+  sandbox: true

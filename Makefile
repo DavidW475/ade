@@ -2,6 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN     := bin/ade
 DIST    := internal/api/dist
+GOLANGCI_LINT ?= golangci-lint
 
 .PHONY: all build web go test lint fmt dev clean
 
@@ -28,9 +29,10 @@ test: web/node_modules
 	go test -race ./...
 	cd web && npm run typecheck
 
-## lint: golangci-lint
-lint:
-	golangci-lint run ./...
+## lint: golangci-lint und ESLint
+lint: web/node_modules
+	$(GOLANGCI_LINT) run ./...
+	cd web && npm run lint
 
 ## fmt: Go-Code formatieren
 fmt:

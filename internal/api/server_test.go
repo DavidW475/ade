@@ -69,12 +69,13 @@ func TestHostGuard(t *testing.T) {
 		"127.0.0.1:7000":         http.StatusOK,
 		"[::1]:7000":             http.StatusOK,
 		"ws-42.localhost:7000":   http.StatusOK,
-		"localhost":              http.StatusOK,
-		"evil.example:7000":      http.StatusMisdirectedRequest,
-		"localhost.evil.example": http.StatusMisdirectedRequest,
-		"evillocalhost:7000":     http.StatusMisdirectedRequest,
-		"192.168.1.10:7000":      http.StatusMisdirectedRequest,
-		"":                       http.StatusMisdirectedRequest,
+		"localhost":              http.StatusForbidden, // Port fehlt
+		"localhost:8080":         http.StatusForbidden,
+		"evil.example:7000":      http.StatusForbidden,
+		"localhost.evil.example": http.StatusForbidden,
+		"evillocalhost:7000":     http.StatusForbidden,
+		"192.168.1.10:7000":      http.StatusForbidden,
+		"":                       http.StatusForbidden,
 	}
 	for host, want := range cases {
 		w := do(s, "GET", "/api/health", func(r *http.Request) { r.Host = host })

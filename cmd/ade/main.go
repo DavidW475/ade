@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -45,6 +47,29 @@ func main() {
 	}
 }
 
+// versionString liefert Version, Commit und Go-Version, z. B.
+// "ade v0.1.0 (commit 5933db6, go1.25.4 linux/amd64)".
+func versionString() string {
+	commit, modified := "unbekannt", false
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				commit = s.Value
+				if len(commit) > 12 {
+					commit = commit[:12]
+				}
+			case "vcs.modified":
+				modified = s.Value == "true"
+			}
+		}
+	}
+	if modified {
+		commit += "-dirty"
+	}
+	return fmt.Sprintf("ade %s (commit %s, %s %s/%s)", version, commit, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+}
+
 type usageError struct{ msg string }
 
 func (e usageError) Error() string { return e.msg }
@@ -68,7 +93,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	case "serve":
 		return cmdServe(rest, stderr)
 	case "version", "--version":
-		_, _ = fmt.Fprintln(stdout, "ade", version)
+		_, _ = fmt.Fprintln(stdout, versionString())
 		return nil
 	case "help", "-h", "--help":
 		_, _ = fmt.Fprint(stdout, usage)

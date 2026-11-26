@@ -35,12 +35,13 @@ func splitHost(hostport string) (host, port string) {
 	return strings.Trim(hostport, "[]"), ""
 }
 
-// hostGuard lehnt Anfragen ab, deren Host-Header nicht localhost ist.
-func hostGuard(next http.Handler) http.Handler {
+// hostGuard lehnt Anfragen ab, deren Host-Header nicht localhost mit dem Port des
+// Daemons ist.
+func hostGuard(port string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, _ := splitHost(r.Host)
-		if !allowedHost(host) {
-			http.Error(w, "unzulässiger Host-Header", http.StatusMisdirectedRequest)
+		host, p := splitHost(r.Host)
+		if !allowedHost(host) || p != port {
+			http.Error(w, "unzulässiger Host-Header", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
