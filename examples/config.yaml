@@ -19,7 +19,15 @@ providers:
 
 defaults:
   adapter: claude
+  # Neue Workspaces in der Docker-Sandbox anlegen (im Dashboard pro Start umschaltbar).
   sandbox: true
+
+# Docker-Sandbox (doc/sandbox.md).
+sandbox:
+  # Standard-Image; leer = ghcr.io/davidw475/ade-agent-base passend zur ADE-Version.
+  image: ""
+  # docker-Binary; leer = docker im PATH.
+  docker: ""
 
 # Browser-IDE (openvscode-server, Erweiterungen aus Open VSX).
 ide:

@@ -3,6 +3,11 @@
 Ziel: Ein Agent darf in seinem Workspace **alles** tun – aber **nur** dort, und ins Netz
 **nur dorthin**, wo die Policy es erlaubt. Er kann weder Secrets lesen noch etwas veröffentlichen.
 
+> **Stand M5:** Container pro Workspace mit allen Einstellungen aus Abschnitt 2, Lebenszyklus
+> aus Abschnitt 5, `.ade/sandbox.yaml` mit `image` und `resources`. Internes Netz, Egress-Proxy
+> und Secret-Injection (Abschnitte 1, 3, 4) folgen mit M6; bis dahin hat der Container normales
+> Netz und ein konfigurierter API-Key wird als Umgebungsvariable übergeben. Umsetzung: ADR-014.
+
 ## 1. Aufbau pro Workspace
 
 ```mermaid
@@ -31,12 +36,13 @@ flowchart LR
 | Einstellung | Wert |
 |---|---|
 | Image | `ghcr.io/davidw475/ade-agent-base:<version>` (oder Projekt-Image aus `.ade/sandbox.yaml`) |
-| User | non-root (`ade`, UID passend zum WSL-User für saubere Dateirechte) |
+| User | non-root: UID/GID des Daemons (`--user`); fehlt sie im Image, legt ADE einen passwd-Eintrag an |
 | Mounts | nur `~/.ade/workspaces/<id>` → `/workspace` (rw); optional Caches (npm, go) als Volumes |
 | Capabilities | `--cap-drop ALL`, `--security-opt no-new-privileges` |
 | Ressourcen | `--memory`, `--cpus`, `--pids-limit` aus Policy |
 | Verboten | Docker-Socket, Host-Netz, privilegierter Modus, Mount des Haupt-Repos |
-| Prozesse | `openvscode-server` (Port 3000, Token), Agent-CLI über `docker exec` mit PTY |
+| Prozesse | `sleep infinity` unter `--init`; `openvscode-server` (Port 3000, Token, auf `127.0.0.1` veröffentlicht), Agent-CLI, Setup-Befehle und git des Daemons über `docker exec` |
+| Workspace-Clone | ohne Hardlinks (keine geteilten Objektdateien mit dem Haupt-Repo) |
 
 Basis-Image enthält: Debian slim, git, curl, Node.js LTS, Python 3, ripgrep, gängige
 Agent-CLIs, openvscode-server, `ade`-Hook-Binary. Projekte können ein eigenes Image ableiten
@@ -68,6 +74,7 @@ da der Proxy für ihn auflöst.
 ### Policy-Format (`.ade/sandbox.yaml`)
 
 ```yaml
+# M5: image und resources; egress ab M6
 image: ghcr.io/davidw475/ade-agent-base:0.1
 resources:
   memory: 4g
@@ -120,11 +127,15 @@ zeigt dann einen Hinweis. ADE selbst implementiert keine Abo-Logins von Anbieter
 
 | Ereignis | Aktion |
 |---|---|
-| Workspace mit Sandbox angelegt | Netz + Proxy + Agent-Container erstellen, IDE starten |
-| Session startet | `docker exec -it agent-ws-<id> <adapter-cmd>` |
-| Workspace pausiert | Container stoppen (Dateien bleiben im Workspace-Verzeichnis) |
-| Workspace verworfen/übernommen | Container, Netz und Workspace-Verzeichnis löschen |
-| Daemon-Neustart | Container per Label `ade.workspace=<id>` wiederfinden und abgleichen |
+| Workspace mit Sandbox angelegt | Container `ade-ws-<id>` erstellen und starten (ggf. Image laden), Setup-Befehle darin (M6: plus Netz und Proxy) |
+| Session startet | `docker exec -it ade-ws-<id> <adapter-cmd>` (startet den Container bei Bedarf) |
+| Session stoppt | SIGTERM an alle Prozesse mit `ADE_SESSION_ID=<id>` im Container, nach Timeout SIGKILL |
+| IDE öffnen | `docker exec ade-ws-<id> openvscode-server …`, Gateway → veröffentlichter Port |
+| Daemon wird beendet | Container stoppen (Dateien bleiben im Workspace-Verzeichnis) |
+| Workspace verworfen | Container und Workspace-Verzeichnis löschen |
+| Daemon-Start | Container per Label finden: verwaiste entfernen, übrige stoppen; Start bei Bedarf |
 
-Alle Docker-Objekte tragen Labels (`ade.managed=true`, `ade.workspace=<id>`), damit `ade gc`
-verwaiste Ressourcen sicher aufräumen kann.
+Alle Docker-Objekte tragen Labels (`ade.managed=true`, `ade.workspace=<id>`,
+`ade.data_dir=<Datenverzeichnis>`), damit `ade gc` verwaiste Ressourcen sicher aufräumen kann –
+auch die einer ADE-Instanz, deren Datenverzeichnis nicht mehr existiert, aber nie die einer
+anderen laufenden Instanz.

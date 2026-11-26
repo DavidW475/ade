@@ -329,8 +329,11 @@ Merges und Pushes.
 | `GET/POST` | `/api/workspaces/{id}/pull-request` | PR-Entwurf / Push und `gh pr create` |
 | `POST` | `/api/workspaces/{id}/feedback` | Feedback-Session starten |
 | `DELETE` | `/api/workspaces/{id}` | Verwerfen |
+| `GET` | `/api/sandbox` | Docker erreichbar?, Standard-Image, Voreinstellung |
+| `POST` | `/api/sandbox/gc[?dry_run=1]` | Verwaiste Sandbox-Container entfernen (`ade gc`) |
+| `GET` | `/api/workspaces/{id}/sandbox` | Container eines Workspaces (Status, Image) |
 | `GET` | `/api/adapters` | Verfügbare Adapter und ihre Fähigkeiten |
-| `POST` | `/api/agents` | Agent-Session starten (`project_id`, optional `workspace_id`, `adapter`, `task`, `command`, `model`, `permission_mode`) |
+| `POST` | `/api/agents` | Agent-Session starten (`project_id`, optional `workspace_id`, `adapter`, `task`, `command`, `model`, `permission_mode`, `sandbox`) |
 | `GET` | `/api/sessions[?project_id&workspace_id&active=true]`, `/api/sessions/{id}` | Sessions |
 | `GET` | `/api/sessions/{id}/events?since=<seq>` | Gespeicherte Events (JSON, für CLI/Tests) |
 | `POST` | `/api/sessions/{id}/input` \| `/stop` | Folgeanweisung bzw. Fortsetzen / Stop |
@@ -400,7 +403,7 @@ ide:
 | HTTP/WebSocket | `net/http` (Go ≥ 1.22 Routing), `github.com/coder/websocket` |
 | PTY | `github.com/creack/pty` |
 | Datenbank | SQLite via `modernc.org/sqlite` (kein cgo) |
-| Docker | offizieller Go-Client (`github.com/docker/docker/client` bzw. Nachfolger `github.com/moby/moby/client`) |
+| Docker | Docker-CLI (ADR-014) |
 | Konfiguration | YAML (`gopkg.in/yaml.v3` o. ä.) |
 | Frontend | React + Vite + TypeScript, xterm.js, Monaco (Diff), TanStack Query |
 | IDE | openvscode-server (MIT) |
@@ -419,7 +422,7 @@ ade/
 │   ├── workspace/           # Clone, Diff, Merge, PR
 │   ├── agent/
 │   │   └── adapter/         # claude/, codex/, pty/
-│   ├── sandbox/             # Docker-Container & -Netze
+│   ├── sandbox/             # Docker-Container (Docker-CLI), sandbox.yaml, GC
 │   ├── egress/              # Proxy + Policy
 │   ├── ide/                 # openvscode-server
 │   ├── approval/

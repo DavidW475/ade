@@ -4,9 +4,10 @@ Eine Leitstelle für KI-Agenten, gebaut für **WSL2**: Agenten starten und beoba
 **Docker-Sandboxen** hinter einem **Egress-Proxy** arbeiten lassen, ihre Workspaces in einer
 **VS-Code-kompatiblen Browser-IDE** ansehen und Ergebnisse prüfen und freigeben, alles im Browser.
 
-> **Status:** v0.1 – Agenten lokal arbeiten lassen, Ergebnis im Browser prüfen und übernehmen
-> (Mergen, Pull Request, Feedback, Verwerfen). **Noch ohne Sandbox:** Agenten laufen mit deinen
-> Rechten, nur in vertrauenswürdigen Repositories verwenden. Der Plan steht in [`doc/`](doc/README.md),
+> **Status:** v0.1 plus Docker-Sandbox (M5) – Agenten arbeiten auf Wunsch isoliert im Container,
+> das Ergebnis wird im Browser geprüft und übernommen (Mergen, Pull Request, Feedback, Verwerfen).
+> **Noch ohne Netzwerk-Einschränkung:** Der Container hat bis M6 normales Netz, und ein API-Key aus
+> der Konfiguration ist darin lesbar. Der Plan steht in [`doc/`](doc/README.md),
 > der Fortschritt in den [Meilensteinen](https://github.com/DavidW475/ade/milestones).
 
 ## Idee
@@ -18,7 +19,8 @@ ade start  →  http://localhost:7000
 - **Dashboard:** Projekte, laufende Agenten, Kosten, offene Freigaben
 - **Workspaces:** jeder Agent arbeitet in einer eigenen Kopie auf einem eigenen Branch
 - **Browser-IDE:** ein Klick öffnet den Workspace in openvscode-server
-- **Sandbox:** Docker-Container mit erzwungener Netz-Allowlist; API-Keys bleiben außerhalb (ab M5)
+- **Sandbox:** Docker-Container pro Workspace, sieht nur seinen Workspace (M5); erzwungene
+  Netz-Allowlist und API-Keys außerhalb des Containers folgen mit M6
 - **Review:** Diff ansehen, mergen, PR erstellen, Feedback geben oder verwerfen
 - **Software-Fabriken:** Planer, Entwickler, Reviewer und Tester als Pipeline, mit unterschiedlichen Modellen (ab M9)
 
@@ -29,6 +31,9 @@ ade start  →  http://localhost:7000
 - **Git ≥ 2.38** (`git --version`; für `git merge-tree --write-tree`)
 - **[Claude Code](https://docs.claude.com/claude-code)**, installiert und angemeldet – für den
   Adapter `claude`. Alternativ `providers.anthropic.api_key` in der Konfiguration.
+- **Docker Engine** in der WSL (oder Docker Desktop mit WSL-Integration) – für die Sandbox.
+  Ohne Docker laufen Agenten nur lokal (Schalter „Sandbox“ aus). Das Image
+  `ghcr.io/davidw475/ade-agent-base` lädt Docker beim ersten Sandbox-Workspace herunter (~1,5 GB).
 - **[GitHub CLI](https://cli.github.com/)** (`gh`), angemeldet mit `gh auth login` – nur für
   „PR erstellen“. Gepusht wird mit deinen normalen Git-Zugangsdaten.
 - Repositories am besten im WSL-Dateisystem (z. B. `~/git/…`), nicht unter `/mnt/c`.
@@ -57,7 +62,9 @@ ade project add ~/git/mein-repo    # Repository registrieren (geht auch im Dashb
 ```
 
 1. Im Dashboard das Projekt öffnen und **Agent starten**: Aufgabe eintragen, Adapter `claude`.
-   ADE legt einen Workspace an (lokaler Clone, Branch `ade/<id>`) und startet den Agenten darin.
+   ADE legt einen Workspace an (lokaler Clone, Branch `ade/<id>`) und startet den Agenten darin –
+   mit **Sandbox** (Standard, wenn Docker läuft) in einem eigenen Container, der nur diesen
+   Workspace sieht. Claude Code braucht dort einen API-Key (`providers.anthropic.api_key`).
 2. Dem Agenten in der Timeline zusehen; bei Bedarf **IDE öffnen** oder Folgeanweisungen geben.
 3. Ist der Agent fertig, committet ADE seine Änderungen und holt den Branch `ade/<id>` in dein
    Repository. Im Workspace zeigt die **Diff-Ansicht** alle Änderungen.
@@ -69,7 +76,10 @@ ade project add ~/git/mein-repo    # Repository registrieren (geht auch im Dashb
 
 `ade start --no-browser` gibt die Anmelde-URL aus, statt den Browser zu öffnen.
 
-Konfiguration: `~/.config/ade/config.yaml` und pro Repo `.ade/project.yaml` (beide optional,
+`ade gc` entfernt verwaiste Sandbox-Container (`--dry-run` zeigt sie nur an).
+
+Konfiguration: `~/.config/ade/config.yaml` und pro Repo `.ade/project.yaml` und
+`.ade/sandbox.yaml` (alle optional,
 Beispiele in [`examples/`](examples/)). Daten liegen in `~/.local/share/ade/`, Workspaces in
 `~/.ade/workspaces/`.
 

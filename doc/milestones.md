@@ -135,9 +135,9 @@ flowchart LR
 - Labels + `ade gc`; Abgleich nach Daemon-Neustart
 
 **Fertig, wenn:**
-- [ ] Agent-Start mit Sandbox: Agent und IDE laufen im Container, Ergebnis landet im Workspace
-- [ ] Der Container sieht weder das Haupt-Repo noch `$HOME` des Nutzers
-- [ ] `ade gc` entfernt verwaiste Container
+- [x] Agent-Start mit Sandbox: Agent und IDE laufen im Container, Ergebnis landet im Workspace
+- [x] Der Container sieht weder das Haupt-Repo noch `$HOME` des Nutzers
+- [x] `ade gc` entfernt verwaiste Container
 
 **Nicht dabei:** Netzwerk-Einschränkung (Container hat in M5 noch normales Netz – im UI kennzeichnen).
 

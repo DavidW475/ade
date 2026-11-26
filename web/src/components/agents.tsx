@@ -4,6 +4,8 @@ import { Link, useNavigate } from "react-router";
 import { api, type Session, type StartAgentRequest } from "../api";
 import { errorMessage, formatTime, formatUSD } from "../format";
 import { sessionTitle } from "../sessions";
+import { sandboxDefault, useSandboxInfo } from "../sandbox";
+import { SandboxBadge, SandboxToggle } from "./sandbox";
 import { Notice, SessionStatusBadge } from "./ui";
 
 export function SessionTable({ sessions, showWorkspace = true }: { sessions: Session[]; showWorkspace?: boolean }) {
@@ -76,6 +78,15 @@ export function StartAgentForm({
   const [model, setModel] = useState("");
   const [permission, setPermission] = useState("acceptEdits");
   const [ws, setWs] = useState(workspaceId ?? "");
+  const sandboxInfo = useSandboxInfo();
+  const [sandboxChoice, setSandbox] = useState<boolean | null>(null);
+  const sandbox = sandboxChoice ?? sandboxDefault(sandboxInfo.data);
+  // Ein bestehender Workspace hat seinen Modus schon; nur neue Workspaces nehmen den Schalter.
+  const existing = useQuery({
+    queryKey: ["workspace", ws],
+    queryFn: () => api.workspace(ws),
+    enabled: !!ws,
+  });
 
   const chosen = adapter || defaultAdapter || adapters.data?.default || "claude";
   const info = adapters.data?.adapters.find((a) => a.name === chosen);
@@ -85,6 +96,7 @@ export function StartAgentForm({
     mutationFn: () => {
       const req: StartAgentRequest = { project_id: projectId, adapter: chosen };
       if (ws) req.workspace_id = ws;
+      else req.sandbox = sandbox && !!sandboxInfo.data?.available;
       if (terminal) {
         if (command.trim()) req.command = ["sh", "-c", command.trim()];
       } else {
@@ -135,6 +147,19 @@ export function StartAgentForm({
         </div>
       )}
 
+      <div className="field wide">
+        {ws ? (
+          existing.data && (
+            <p className="hint">
+              <SandboxBadge workspace={existing.data} />{" "}
+              {existing.data.sandbox ? "Läuft im Container dieses Workspaces." : "Dieser Workspace läuft ohne Sandbox."}
+            </p>
+          )
+        ) : (
+          <SandboxToggle id="sa-sandbox" checked={sandbox} onChange={setSandbox} info={sandboxInfo.data} />
+        )}
+      </div>
+
       {terminal ? (
         <div className="field wide">
           <label htmlFor="sa-cmd">Befehl</label>
@@ -146,7 +171,7 @@ export function StartAgentForm({
             onChange={(e) => setCommand(e.target.value)}
             spellCheck={false}
           />
-          <p className="hint">Läuft interaktiv im Workspace-Verzeichnis, ohne Timeline.</p>
+          <p className="hint">Läuft interaktiv im Workspace-Verzeichnis (in der Sandbox: bash im Container), ohne Timeline.</p>
         </div>
       ) : (
         <>
@@ -182,9 +207,9 @@ export function StartAgentForm({
           )}
           {chosen === "claude" && (
             <p className="hint wide">
-              Ohne Sandbox (kommt mit M5) läuft der Agent mit deinen Rechten im Workspace-Verzeichnis. <code>acceptEdits</code> erlaubt
-              Dateiänderungen; Befehle, die eine Bestätigung bräuchten, werden abgelehnt. <code>bypassPermissions</code> nur bei
-              vertrauenswürdigen Repositories.
+              <code>acceptEdits</code> erlaubt Dateiänderungen; Befehle, die eine Bestätigung bräuchten, werden abgelehnt.{" "}
+              <code>bypassPermissions</code> ohne Sandbox nur bei vertrauenswürdigen Repositories. In der Sandbox braucht Claude Code einen
+              API-Key in der Konfiguration (<code>providers.anthropic</code>); er ist bis M6 im Container lesbar.
             </p>
           )}
         </>

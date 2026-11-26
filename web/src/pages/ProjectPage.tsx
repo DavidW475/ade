@@ -3,6 +3,8 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, isBusy, type Workspace } from "../api";
 import { SessionTable, StartAgent } from "../components/agents";
+import { SandboxBadge, SandboxToggle } from "../components/sandbox";
+import { sandboxDefault, useSandboxInfo } from "../sandbox";
 import { useSessions } from "../sessions";
 import { LineStats, Notice, WorkspaceStatusBadge } from "../components/ui";
 import { errorMessage, formatTime, shortCommit } from "../format";
@@ -130,7 +132,7 @@ function WorkspaceTable({ workspaces, projectId }: { workspaces: Workspace[]; pr
                 </Link>
               </td>
               <td>
-                <WorkspaceStatusBadge status={w.status} />
+                <WorkspaceStatusBadge status={w.status} /> <SandboxBadge workspace={w} />
               </td>
               <td className="mono muted">
                 {w.base_branch} @ {shortCommit(w.base_commit)}
@@ -164,8 +166,12 @@ function WorkspaceTable({ workspaces, projectId }: { workspaces: Workspace[]; pr
 function CreateWorkspace({ projectId, defaultBranch, disabled }: { projectId: string; defaultBranch: string; disabled: boolean }) {
   const qc = useQueryClient();
   const [branch, setBranch] = useState("");
+  const sandboxInfo = useSandboxInfo();
+  const [sandboxChoice, setSandbox] = useState<boolean | null>(null);
+  const sandbox = sandboxChoice ?? sandboxDefault(sandboxInfo.data);
   const create = useMutation({
-    mutationFn: () => api.createWorkspace(projectId, branch.trim() || undefined),
+    mutationFn: () =>
+      api.createWorkspace(projectId, { base_branch: branch.trim() || undefined, sandbox: sandbox && !!sandboxInfo.data?.available }),
     onSuccess: () => {
       setBranch("");
       void qc.invalidateQueries({ queryKey: ["workspaces", projectId] });
@@ -189,6 +195,7 @@ function CreateWorkspace({ projectId, defaultBranch, disabled }: { projectId: st
         <button type="submit" className="primary" disabled={disabled || create.isPending}>
           {create.isPending ? "Lege an …" : "Workspace anlegen"}
         </button>
+        <SandboxToggle id="cw-sandbox" checked={sandbox} onChange={setSandbox} info={sandboxInfo.data} />
       </form>
       {create.isError && <Notice tone="bad">{errorMessage(create.error)}</Notice>}
     </div>

@@ -6,6 +6,31 @@ Abschnitt der jeweiligen Version als Release-Notizen.
 
 ## [Unveröffentlicht]
 
+### Neu
+
+- **Docker-Sandbox** (M5): Workspaces lassen sich mit Sandbox anlegen (Schalter beim Agent-Start
+  und beim Anlegen, Standard `defaults.sandbox`). Ein Container pro Workspace sieht nur das
+  Workspace-Verzeichnis (`/workspace`), läuft mit deiner UID, ohne Capabilities und mit Grenzen
+  für Speicher, CPU und Prozesse. Agent-Sessions, Terminals, Setup-Befehle, die Browser-IDE und
+  die git-Befehle des Daemons im Workspace laufen darin.
+- `.ade/sandbox.yaml` (Image, Ressourcen) und `sandbox.image` in der globalen Konfiguration.
+- Image `ghcr.io/davidw475/ade-agent-base` (Debian, git, Node.js, Python, ripgrep, Claude Code,
+  openvscode-server); `make image` baut es lokal.
+- `ade gc` entfernt verwaiste Sandbox-Container; der Daemon gleicht Container beim Start ab.
+
+### Sicherheit
+
+- Ein Agent kann in der Repo-Konfiguration seines Workspaces keine Befehle mehr hinterlegen, die
+  der Daemon auf dem Host ausführt (Filter, fsmonitor): Bei Sandbox-Workspaces laufen WIP-Commit,
+  Diff und Datei-Inhalte im Container (#41).
+- Sandbox-Workspaces klonen ohne Hardlinks, damit der Container keine Objektdateien des
+  Haupt-Repos verändern kann.
+
+### Bekannt
+
+- Bis M6 hat der Container normales Netz, und ein API-Key aus der Konfiguration ist im Container
+  lesbar. Das Dashboard weist darauf hin.
+
 ## [0.1.0] – 2026-11-26
 
 Erste benutzbare Version: Agenten lokal unter WSL2 arbeiten lassen, ihr Ergebnis prüfen und

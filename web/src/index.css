@@ -373,3 +373,10 @@ dialog.modal::backdrop { background: rgb(15 17 21 / 0.45); }
   .diffview { grid-template-columns: 1fr; grid-template-rows: minmax(8rem, 30%) 1fr; margin-left: 0; width: 100%; height: 85vh; }
   .difffiles { border-right: none; border-bottom: 1px solid var(--border); }
 }
+
+/* Sandbox-Schalter */
+.sandboxtoggle { display: flex; flex-direction: column; gap: 0.2rem; }
+.sandboxtoggle label { display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 600; cursor: pointer; }
+.sandboxtoggle .hint { margin: 0; }
+.inline-form .sandboxtoggle { flex-basis: 100%; }
+.sandboxtoggle input[type="checkbox"] { width: auto; min-width: 0; flex: none; margin: 0; }

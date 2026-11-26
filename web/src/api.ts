@@ -24,6 +24,9 @@ export interface Project {
   config: ProjectConfig;
   config_error?: string;
   warnings?: string[];
+  /** Wirksame .ade/sandbox.yaml (mit Voreinstellungen). */
+  sandbox?: { image?: string; resources: { memory: string; cpus: number; pids: number } };
+  sandbox_error?: string;
 }
 
 export type WorkspaceStatus = "creating" | "setup" | "ready" | "setup_failed" | "error";
@@ -48,6 +51,39 @@ export interface Workspace {
   merge_commit?: string;
   merged_at?: string;
   pr_url?: string;
+  /** Agent, Setup und IDE laufen im Docker-Container des Workspaces. */
+  sandbox: boolean;
+  sandbox_image?: string;
+}
+
+/** GET /api/sandbox */
+export interface SandboxInfo {
+  available: boolean;
+  error?: string;
+  docker_version?: string;
+  image: string;
+  /** Voreinstellung für neue Workspaces (defaults.sandbox). */
+  default: boolean;
+  /** Netzwerk-Isolation; bis M6 "open" (normales Netz). */
+  network: "open";
+}
+
+export interface SandboxContainer {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  running: boolean;
+  created: string;
+}
+
+/** GET /api/workspaces/{id}/sandbox */
+export interface WorkspaceSandbox {
+  sandbox: boolean;
+  image?: string;
+  container?: SandboxContainer;
+  error?: string;
+  network?: "open";
 }
 
 /** Eine Seite einer Datei im Diff-Editor (Basis-Commit bzw. Workspace). */
@@ -158,6 +194,8 @@ export interface StartAgentRequest {
   command?: string[];
   model?: string;
   permission_mode?: string;
+  /** Nur für einen neuen Workspace; ohne Angabe gilt defaults.sandbox. */
+  sandbox?: boolean;
 }
 
 // Event-Payloads (internal/agent/adapter/events.go, Schema in event.schema.json).
@@ -304,12 +342,10 @@ export const api = {
     request<void>("DELETE", `/api/projects/${encodeURIComponent(id)}${force ? "?force=true" : ""}`),
   workspaces: (projectId: string) =>
     request<Workspace[]>("GET", `/api/projects/${encodeURIComponent(projectId)}/workspaces`),
-  createWorkspace: (projectId: string, baseBranch?: string) =>
-    request<Workspace>(
-      "POST",
-      `/api/projects/${encodeURIComponent(projectId)}/workspaces`,
-      baseBranch ? { base_branch: baseBranch } : {},
-    ),
+  createWorkspace: (projectId: string, opts: { base_branch?: string; sandbox?: boolean } = {}) =>
+    request<Workspace>("POST", `/api/projects/${encodeURIComponent(projectId)}/workspaces`, opts),
+  sandbox: () => request<SandboxInfo>("GET", "/api/sandbox"),
+  workspaceSandbox: (id: string) => request<WorkspaceSandbox>("GET", `/api/workspaces/${encodeURIComponent(id)}/sandbox`),
   workspace: (id: string) => request<Workspace>("GET", `/api/workspaces/${encodeURIComponent(id)}`),
   deleteWorkspace: (id: string) => request<void>("DELETE", `/api/workspaces/${encodeURIComponent(id)}`),
   diff: (id: string, patch = true) =>

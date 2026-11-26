@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router";
 import { api, isBusy } from "../api";
 import { SessionTable, StartAgent } from "../components/agents";
 import { IdeButton } from "../components/ide";
+import { SandboxFacts, SandboxNotice } from "../components/sandbox";
 import { DiffView, ReviewPanel } from "../components/review";
 import { useSessions } from "../sessions";
 import { LineStats, Notice, WorkspaceStatusBadge } from "../components/ui";
@@ -58,9 +59,11 @@ export function WorkspacePage() {
         <dd className="mono">
           {w.base_branch} @ {shortCommit(w.base_commit)}
         </dd>
+        <SandboxFacts workspace={w} />
         <dt>Angelegt</dt>
         <dd>{formatTime(w.created_at)}</dd>
       </dl>
+      <SandboxNotice workspace={w} />
 
       {w.error && (
         <Notice tone={w.status === "setup_failed" ? "warn" : "bad"} title="Fehler">
