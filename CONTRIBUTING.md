@@ -14,7 +14,7 @@ Danke für dein Interesse! ADE ist in einer frühen Phase; der Plan steht in [`d
 ```sh
 make build   # Frontend bauen (web/ → internal/api/dist) und bin/ade erzeugen
 make test    # Go-Tests mit Race-Detector + TypeScript-Typprüfung
-make lint    # golangci-lint
+make lint    # golangci-lint und ESLint
 ```
 
 `go build` und `go test` funktionieren auch ohne Frontend-Build; dann zeigt das Dashboard
@@ -42,6 +42,12 @@ workspaces_dir: /tmp/ade-dev/workspaces
 YAML
 go run ./cmd/ade serve --config /tmp/ade-dev.yaml --debug
 ```
+
+## Issues und Pull Requests
+
+Der Ablauf (Branch pro Meilenstein, `Closes #N` pro erledigtem Issue im PR, Prüfen nach dem
+Merge) ist in [AGENTS.md](AGENTS.md#arbeitsablauf-meilensteine-issues-und-prs) beschrieben und
+gilt für Menschen genauso.
 
 ## Konventionen
 

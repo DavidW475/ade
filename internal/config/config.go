@@ -37,6 +37,27 @@ type Provider struct {
 	APIKey string `yaml:"api_key"`
 }
 
+// ResolveAPIKey löst die API-Key-Referenz auf (siehe Resolve).
+func (p Provider) ResolveAPIKey() (string, error) { return Resolve(p.APIKey) }
+
+// Resolve löst einen Konfigurationswert auf. Werte der Form "env:VAR" werden durch den Inhalt
+// der Umgebungsvariable VAR ersetzt; eine leere oder fehlende Variable ist ein Fehler.
+// Andere Werte werden unverändert zurückgegeben.
+func Resolve(v string) (string, error) {
+	name, ok := strings.CutPrefix(v, "env:")
+	if !ok {
+		return v, nil
+	}
+	if name == "" {
+		return "", errors.New(`Referenz "env:" ohne Variablennamen`)
+	}
+	val := os.Getenv(name)
+	if val == "" {
+		return "", fmt.Errorf("Umgebungsvariable %s ist nicht gesetzt", name)
+	}
+	return val, nil
+}
+
 // Defaults sind Voreinstellungen für neue Agent-Sessions.
 type Defaults struct {
 	Adapter string `yaml:"adapter"`
@@ -111,6 +132,10 @@ func Load(path string) (*Config, error) {
 
 // DBPath ist der Pfad der SQLite-Datenbank.
 func (c *Config) DBPath() string { return filepath.Join(c.DataDir, "ade.db") }
+
+// LockPath ist der Pfad der Lock-Datei, die einen zweiten Daemon auf demselben
+// Datenverzeichnis verhindert. Sie enthält die PID des laufenden Daemons.
+func (c *Config) LockPath() string { return filepath.Join(c.DataDir, "daemon.lock") }
 
 // SecretPath ist der Pfad des Daemon-Secrets, mit dem sich die CLI beim Daemon ausweist.
 func (c *Config) SecretPath() string { return filepath.Join(c.DataDir, "daemon.secret") }

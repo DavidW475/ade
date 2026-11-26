@@ -12,7 +12,7 @@ func TestRunVersionAndHelp(t *testing.T) {
 	if err := run([]string{"version"}, &out, &errOut); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(out.String(), "ade ") {
+	if !strings.HasPrefix(out.String(), "ade ") || !strings.Contains(out.String(), "commit ") {
 		t.Errorf("version = %q", out.String())
 	}
 

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -77,10 +78,18 @@ func TestRunServesAndCleansUp(t *testing.T) {
 		t.Fatalf("Login: HTTP %d", resp.StatusCode)
 	}
 
-	// Ein zweiter Daemon auf demselben Port darf das Secret nicht überschreiben.
+	if pid := readPID(cfg.LockPath()); pid != os.Getpid() {
+		t.Errorf("PID in Lock-Datei = %d, want %d", pid, os.Getpid())
+	}
+
+	// Ein zweiter Daemon auf demselben Datenverzeichnis – auch auf anderem Port – startet
+	// nicht und überschreibt das Secret nicht.
 	before, _ := os.ReadFile(cfg.SecretPath())
-	if err := Run(ctx, cfg, "test", slog.New(slog.NewTextHandler(io.Discard, nil))); err == nil {
-		t.Fatal("zweiter Daemon auf belegtem Port gestartet")
+	other := *cfg
+	other.Listen = testConfig(t).Listen
+	err = Run(ctx, &other, "test", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if !errors.Is(err, ErrAlreadyRunning) {
+		t.Fatalf("zweiter Daemon: err = %v, want ErrAlreadyRunning", err)
 	}
 	after, _ := os.ReadFile(cfg.SecretPath())
 	if string(before) != string(after) {
@@ -99,6 +108,13 @@ func TestRunServesAndCleansUp(t *testing.T) {
 	if _, err := os.Stat(cfg.SecretPath()); !os.IsNotExist(err) {
 		t.Errorf("Secret nach Shutdown noch vorhanden: %v", err)
 	}
+
+	// Nach dem Beenden ist die Sperre frei.
+	l, err := acquireLock(cfg.LockPath())
+	if err != nil {
+		t.Fatalf("Lock nach Shutdown: %v", err)
+	}
+	l.release()
 }
 
 func TestHealthNotRunning(t *testing.T) {

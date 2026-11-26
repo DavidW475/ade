@@ -50,7 +50,7 @@ func New(opts Options) *Server {
 	mux.HandleFunc("GET /auth/login", s.handleLogin)
 	mux.Handle("/", staticHandler())
 
-	s.handler = securityHeaders(hostGuard(originGuard(opts.Port, mux)))
+	s.handler = securityHeaders(hostGuard(opts.Port, originGuard(opts.Port, mux)))
 	return s
 }
 

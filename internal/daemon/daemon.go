@@ -23,14 +23,19 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		return fmt.Errorf("Datenverzeichnis anlegen: %w", err)
 	}
 
+	// Ein Daemon pro Datenverzeichnis – auch wenn ein zweiter auf einem anderen Port liefe.
+	lock, err := acquireLock(cfg.LockPath())
+	if err != nil {
+		return err
+	}
+	defer lock.release()
+
 	st, err := store.Open(ctx, cfg.DBPath())
 	if err != nil {
 		return err
 	}
 	defer func() { _ = st.Close() }()
 
-	// Erst lauschen, dann das Secret schreiben: Läuft schon ein Daemon, schlägt Listen fehl
-	// und dessen Secret bleibt gültig.
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return fmt.Errorf("auf %s lauschen: %w", cfg.Listen, err)
