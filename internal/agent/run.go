@@ -38,6 +38,9 @@ type run struct {
 	sandbox     bool // Prozess läuft per docker exec im Container des Workspaces
 	done        chan struct{}
 	cancel      context.CancelFunc // bricht das Warten vor dem Start ab
+	// statusMu reiht Statuswechsel in Datenbank und Events ein: Meldet der Agent schon „fertig“,
+	// bevor der Start „läuft“ gespeichert hat, darf „läuft“ das nicht überschreiben.
+	statusMu sync.Mutex
 
 	mu         sync.Mutex
 	status     string
@@ -205,10 +208,17 @@ func (r *run) execute(ctx context.Context, a adapter.Adapter, ws *store.Workspac
 	r.mu.Unlock()
 
 	pid := cmd.Process.Pid
-	if err := m.opts.Store.UpdateSession(context.Background(), r.id, store.SessionUpdate{Status: store.Ptr(store.SessionRunning), PID: &pid}); err != nil {
+	r.statusMu.Lock()
+	r.mu.Lock()
+	cur := r.status // ein schneller Agent kann schon idle gemeldet haben
+	r.mu.Unlock()
+	if err := m.opts.Store.UpdateSession(context.Background(), r.id, store.SessionUpdate{Status: &cur, PID: &pid}); err != nil {
 		m.log.Error("Session-Status speichern", "session", r.id, "err", err)
 	}
-	m.emit(r.id, adapter.TypeStatus, adapter.Status{Status: store.SessionRunning})
+	if cur == store.SessionRunning {
+		m.emit(r.id, adapter.TypeStatus, adapter.Status{Status: store.SessionRunning})
+	}
+	r.statusMu.Unlock()
 
 	if len(c.Input) > 0 {
 		if err := r.write(c.Input); err != nil {
@@ -443,9 +453,11 @@ func (r *run) resize(cols, rows uint16) error {
 
 // setStatus ändert den Zwischenstatus (running/idle) eines laufenden Prozesses.
 func (r *run) setStatus(status, reason string) {
+	r.statusMu.Lock()
 	r.mu.Lock()
 	if r.status == status || r.proc == nil || r.stopAs != "" {
 		r.mu.Unlock()
+		r.statusMu.Unlock()
 		return
 	}
 	r.status = status
@@ -454,6 +466,7 @@ func (r *run) setStatus(status, reason string) {
 		r.m.log.Error("Session-Status speichern", "session", r.id, "err", err)
 	}
 	r.m.emit(r.id, adapter.TypeStatus, adapter.Status{Status: status, Reason: reason})
+	r.statusMu.Unlock()
 	if status == store.SessionIdle {
 		// Der Agent ist mit seiner Runde fertig: Stand sichern. Der Lauf hält den WaitGroup-
 		// Zähler, Add ist daher hier erlaubt.

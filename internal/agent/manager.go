@@ -255,11 +255,13 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 		prompt = extra.Prompt
 	}
 	spec := adapter.Spec{SessionID: sess.ID, Workdir: ws.Path, Task: prompt, Command: req.Command, Model: modelID, PermissionMode: req.PermissionMode, Sandbox: ws.Sandbox}
+	// Stand beim Anlegen zurückgeben: Der Prozess kann den Status sofort ändern.
+	created := *sess
 	if err := m.launch(sess, a, ws, spec); err != nil {
 		return nil, err
 	}
 	m.log.Info("Session gestartet", "id", sess.ID, "workspace", ws.ID, "adapter", name)
-	return m.opts.Store.GetSession(ctx, sess.ID)
+	return &created, nil
 }
 
 // resolveModel löst einen Modell-Alias für den Adapter name auf. Namen, die kein Alias sind,
