@@ -398,3 +398,31 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
 - **Konsequenzen:** Ein Release kann kurz ohne zugehöriges Image veröffentlicht sein, bis der
   Image-Job fertig ist. Signaturen mit eigenem Schlüssel (cosign) gibt es nicht; die Attestierung
   hängt an GitHubs Sigstore-Instanz und der Identität des Workflows.
+
+## ADR-023: Rootless Docker und Podman hinter derselben Docker-CLI
+
+- **Kontext:** Die Sandbox ruft die Docker-CLI auf (ADR-014) und startet Prozesse mit der UID des
+  Nutzers. Unter rootless Docker landet diese UID auf dem Host im subuid-Bereich: Dateien, die der
+  Agent anlegt, gehören einer fremden UID, und das nur für den Nutzer lesbare Proxy-Binary ist im
+  Container nicht ausführbar. Podman versteht fast dieselbe CLI, aber nicht jede Docker-Option.
+  Ressourcen-Grenzen verwirft Docker ohne delegierte cgroup-Controller teils nur mit Warnung (#94).
+- **Entscheidung:**
+  1. Kein eigenes Backend je Laufzeit: ADE bleibt bei der Docker-CLI-Syntax; `sandbox.docker` darf
+     auch `podman` sein. Die Laufzeit erkennt ADE aus `info --format '{{json .}}'` (Podman-JSON hat
+     `host`, rootless Docker meldet `name=rootless` in `SecurityOptions`).
+  2. UID-Abbildung je Laufzeit für Agent-, Lese- und Proxy-Container und `docker exec`: rootful
+     unverändert `--user UID:GID`; rootless Docker `--user 0:0` (root im User-Namespace = Nutzer
+     auf dem Host, ohne Capabilities); rootless Podman `--user UID:GID --userns keep-id`.
+  3. Unter rootless Docker setzt ADE `IS_SANDBOX=1`, damit Claude Code `bypassPermissions` als root
+     zulässt – der Container ist die Sandbox.
+  4. Fehlt ein cgroup-Controller (`memory`, `cpu`, `pids`), bricht `Ensure` vor dem Anlegen eines
+     Containers mit klarer Meldung ab. Grenzen stillschweigend wegzulassen wäre eine schwächere
+     Sandbox, als die Konfiguration verspricht.
+  5. Docker-spezifische Optionen nur, wo sie gelten: `enable_icc=false` für `ade-egress` nur unter
+     Docker. Netze liest ADE per `network inspect` (JSON), weil sich die `ls`-Formate unterscheiden.
+  6. Ein CI-Job führt die Sandbox-Integrationstests zusätzlich unter rootless Docker und rootless
+     Podman aus (im systemd-User-Manager des Runners, wie auf einem Desktop).
+- **Konsequenzen:** Unter Podman können sich die Proxys in `ade-egress` gegenseitig erreichen; ein
+  Agent erreicht trotzdem nur seinen eigenen Proxy, der interne Ziele ablehnt. Unter rootless
+  Docker laufen Agent-CLIs als root im Container. Bestehende Container müssen nicht neu angelegt
+  werden: `docker exec --user` folgt der erkannten Laufzeit.

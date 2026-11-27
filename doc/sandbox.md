@@ -4,7 +4,8 @@ Ziel: Ein Agent darf in seinem Workspace **alles** tun – aber **nur** dort, un
 **nur dorthin**, wo die Policy es erlaubt. Er kann weder Secrets lesen noch etwas veröffentlichen.
 
 > **Stand M7:** Alles in diesem Dokument ist umgesetzt, außer TLS-Interception (später).
-> Umsetzung: ADR-014 (Container), ADR-015 (Netz, Proxy, Secrets), ADR-016 (Freigaben).
+> Umsetzung: ADR-014 (Container), ADR-015 (Netz, Proxy, Secrets), ADR-016 (Freigaben),
+> ADR-023 (rootless Docker und Podman, Abschnitt 6).
 
 ## 1. Aufbau pro Workspace
 
@@ -30,7 +31,7 @@ flowchart LR
 - `HTTP_PROXY`/`HTTPS_PROXY` im Agent-Container sind nur Bequemlichkeit – **erzwungen** wird die
   Isolation durch das interne Netz. Ein Programm, das den Proxy ignoriert, erreicht schlicht nichts.
 - **`ade-egress`** ist ein gemeinsames Netz aller Proxys ohne Verkehr zwischen den Containern
-  (`enable_icc=false`).
+  (`enable_icc=false`; unter Podman nicht verfügbar, siehe [Abschnitt 6](#6-container-laufzeiten)).
 - Docker veröffentlicht keine Ports von Containern, die nur in internen Netzen hängen. Der Daemon
   erreicht deshalb Steuer-API (`:8081`) und IDE (`:3000`) über veröffentlichte Ports des
   **Proxy-Containers** auf `127.0.0.1`; der Proxy leitet die IDE per TCP an `agent:3000` weiter.
@@ -43,7 +44,7 @@ flowchart LR
 | Einstellung | Wert |
 |---|---|
 | Image | `ghcr.io/davidw475/ade-agent-base:<version>` (oder Projekt-Image aus `.ade/sandbox.yaml`) |
-| User | non-root: UID/GID des Daemons (`--user`); fehlt sie im Image, legt ADE einen passwd-Eintrag an |
+| User | UID/GID des Daemons (`--user`); fehlt sie im Image, legt ADE einen passwd-Eintrag an. Unter rootless Docker root im Container (= Nutzer auf dem Host), unter Podman `--userns keep-id` ([Abschnitt 6](#6-container-laufzeiten)) |
 | Mounts | nur `~/.ade/workspaces/<id>` → `/workspace` (rw); optional Caches (npm, go) als Volumes |
 | Capabilities | `--cap-drop ALL`, `--security-opt no-new-privileges` |
 | Ressourcen | `--memory`, `--cpus`, `--pids-limit` aus Policy |
@@ -215,3 +216,75 @@ Alle Docker-Objekte tragen Labels (`ade.managed=true`, `ade.workspace=<id>`,
 `ade.data_dir=<Datenverzeichnis>`), damit `ade gc` verwaiste Ressourcen sicher aufräumen kann –
 auch die einer ADE-Instanz, deren Datenverzeichnis nicht mehr existiert, aber nie die einer
 anderen laufenden Instanz.
+
+## 6. Container-Laufzeiten
+
+ADE ruft immer die Docker-CLI-Syntax auf (`sandbox.docker` in `config.yaml`, Standard `docker`).
+Dahinter kann Docker oder Podman stehen; ADE erkennt die Laufzeit beim Start der Sandbox über
+`<docker> info --format '{{json .}}'` und zeigt sie im Log („Container-Laufzeit erkannt“).
+
+| Laufzeit | Einstellung | UID im Container | Dateien im Workspace gehören |
+|---|---|---|---|
+| Docker (rootful) | `docker` | UID des Nutzers (`--user`) | dem Nutzer |
+| Docker rootless | `docker` mit rootless-Kontext bzw. `DOCKER_HOST` | `0` – root im User-Namespace ist der Nutzer auf dem Host | dem Nutzer |
+| Podman (rootless) | `podman` (oder der `docker`-Shim aus `podman-docker`) | UID des Nutzers, `--userns keep-id` | dem Nutzer |
+| Podman (rootful) | `podman` als root | wie Docker rootful | dem Nutzer |
+
+Unter rootless Docker bekäme jede andere UID als 0 auf dem Host eine fremde UID aus dem
+subuid-Bereich – der Nutzer könnte die Dateien seines Workspaces nicht mehr ändern. Root im
+Container hat dort ohne Capabilities (`--cap-drop ALL`, `no-new-privileges`) keine Rechte über die
+des Nutzers hinaus. Weil Claude Code `bypassPermissions` als root nur in einer Sandbox erlaubt,
+setzt ADE in diesem Fall `IS_SANDBOX=1`.
+
+### Einrichtung
+
+**Podman (rootless):**
+
+```sh
+sudo apt install podman            # Ubuntu/Debian; Netz-Backend netavark (Standard ab Podman 4)
+podman info --format '{{.Host.NetworkBackend}} {{.Host.CgroupControllers}}'
+```
+
+```yaml
+# ~/.config/ade/config.yaml
+sandbox:
+  docker: podman
+```
+
+**Docker rootless:** nach der [Docker-Anleitung](https://docs.docker.com/engine/security/rootless/)
+einrichten (`dockerd-rootless-setuptool.sh install`). ADE übernimmt `DOCKER_HOST` bzw. den aktiven
+Docker-Kontext aus der Umgebung des Daemons; läuft ADE als Dienst (`ade install-service`), gehört
+`DOCKER_HOST` in die Umgebung beim Installieren des Dienstes oder der Kontext per `docker context use rootless`.
+
+**Ressourcen-Grenzen:** Agent- und Proxy-Container haben immer Grenzen für Speicher, CPU und
+Prozesse. Rootless setzt das die cgroup-Controller `memory`, `cpu` und `pids` voraus, die systemd
+an den Nutzer delegieren muss (cgroups v2). Fehlt einer, bricht ADE den Start der Sandbox mit einer
+Meldung ab, statt die Grenzen stillschweigend wegzulassen. Prüfen und delegieren:
+
+```sh
+cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers
+sudo mkdir -p /etc/systemd/system/user@.service.d
+printf '[Service]\nDelegate=cpu cpuset io memory pids\n' | sudo tee /etc/systemd/system/user@.service.d/delegate.conf
+sudo systemctl daemon-reload   # danach neu anmelden (unter WSL: wsl --shutdown)
+```
+
+Unter WSL2 braucht das `systemd=true` in `/etc/wsl.conf` (ohnehin Voraussetzung für den Dienst).
+
+### Unterschiede und Einschränkungen
+
+| Thema | Docker | Podman |
+|---|---|---|
+| Internes Netz (`--internal`) | ja | ja (netavark) |
+| Kein Verkehr zwischen Proxys in `ade-egress` | `enable_icc=false` | nicht verfügbar – Proxys sehen sich gegenseitig. Ein Agent erreicht trotzdem nur seinen eigenen Proxy, und der lehnt interne Ziele ab |
+| Externe Namen im internen Netz nicht auflösbar (`--dns 192.0.2.1`) | ja | ja |
+| `--cap-drop ALL`, `no-new-privileges`, `--read-only` | ja | ja |
+| Ressourcen-Grenzen | rootful immer, rootless mit delegierten Controllern | wie Docker rootless |
+| Ports auf `127.0.0.1` veröffentlichen | ja (rootless über rootlesskit) | ja (pasta bzw. slirp4netns) |
+
+Weitere bekannte Einschränkungen:
+
+- Unter rootless Docker laufen Agent-CLIs als root im Container. Werkzeuge, die root ablehnen oder
+  sich anders verhalten (z. B. `npm` mit `unsafe-perm`), verhalten sich wie in einem rootful
+  Container als root.
+- Podman mit dem alten Netz-Backend CNI wird nicht unterstützt (kein DNS in internen Netzen).
+- Die CI prüft die Sandbox-Integrationstests unter Docker, rootless Docker und rootless Podman.

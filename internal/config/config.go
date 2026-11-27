@@ -78,7 +78,8 @@ type Sandbox struct {
 	// Image ist das Standard-Image (leer: ghcr.io/davidw475/ade-agent-base passend zur
 	// ADE-Version). Projekte können in .ade/sandbox.yaml ein eigenes nennen.
 	Image string `yaml:"image"`
-	// Docker ist das docker-Binary (leer: docker im PATH).
+	// Docker ist das docker-Binary (leer: docker im PATH), auch podman (die Laufzeit erkennt
+	// ADE selbst, doc/sandbox.md#6-container-laufzeiten).
 	Docker string `yaml:"docker"`
 }
 

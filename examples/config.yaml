@@ -44,7 +44,8 @@ defaults:
 sandbox:
   # Standard-Image; leer = ghcr.io/davidw475/ade-agent-base passend zur ADE-Version.
   image: ""
-  # docker-Binary; leer = docker im PATH.
+  # docker-Binary; leer = docker im PATH. Auch rootless Docker oder "podman"
+  # (doc/sandbox.md#6-container-laufzeiten).
   docker: ""
 
 # Browser-IDE (openvscode-server, Erweiterungen aus Open VSX).
