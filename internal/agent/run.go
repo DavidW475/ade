@@ -107,7 +107,10 @@ func (r *run) execute(ctx context.Context, a adapter.Adapter, ws *store.Workspac
 	}
 
 	var extra []string
-	if m.opts.AdapterEnv != nil {
+	switch {
+	case r.sandbox && m.opts.SandboxEnv != nil:
+		extra = m.opts.SandboxEnv(a.Name())
+	case !r.sandbox && m.opts.AdapterEnv != nil:
 		extra = m.opts.AdapterEnv(a.Name())
 	}
 	if r.sandbox {

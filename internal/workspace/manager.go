@@ -459,6 +459,11 @@ func (m *Manager) sandboxSpec(ctx context.Context, w *store.Workspace) (sandbox.
 	if err != nil {
 		return sandbox.Spec{}, err
 	}
+	if p.SandboxError != "" {
+		// Nicht stillschweigend auf die Voreinstellung zurückfallen: Sie könnte mehr erlauben
+		// als die beabsichtigte Policy. Laufende Proxys behalten die letzte gültige.
+		return sandbox.Spec{}, apperr.Invalid("Sandbox-Konfiguration ungültig: %s", p.SandboxError)
+	}
 	cfg := *p.Sandbox
 	if w.SandboxImage != "" {
 		cfg.Image = w.SandboxImage
@@ -471,6 +476,19 @@ func (m *Manager) sandboxSpec(ctx context.Context, w *store.Workspace) (sandbox.
 		}
 	}
 	return sandbox.Spec{Workspace: w.ID, Path: w.Path, Config: cfg, Env: env}, nil
+}
+
+// SandboxSpec liefert die aktuelle Container-Beschreibung eines Sandbox-Workspaces (Quelle
+// für den Hot-Reload der Netzwerk-Policy).
+func (m *Manager) SandboxSpec(ctx context.Context, id string) (sandbox.Spec, error) {
+	w, err := m.store.GetWorkspace(ctx, id)
+	if err != nil {
+		return sandbox.Spec{}, err
+	}
+	if !w.Sandbox {
+		return sandbox.Spec{}, apperr.Invalid("Workspace %s läuft ohne Sandbox", id)
+	}
+	return m.sandboxSpec(ctx, w)
 }
 
 // EnsureSandbox legt den Container eines Sandbox-Workspaces an bzw. startet ihn.

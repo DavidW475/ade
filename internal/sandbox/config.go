@@ -50,9 +50,8 @@ type Config struct {
 	// Image überschreibt das Standard-Image (z. B. ein vom Basis-Image abgeleitetes).
 	Image     string    `yaml:"image" json:"image,omitempty"`
 	Resources Resources `yaml:"resources" json:"resources"`
-	// Egress kommt mit M6; bis dahin wird ein Eintrag abgelehnt, damit niemand eine
-	// Netzwerk-Einschränkung annimmt, die es noch nicht gibt.
-	Egress any `yaml:"egress" json:"-"`
+	// Egress sind die Netzwerk-Regeln (nil in der Datei: Voreinstellung, siehe DefaultPresets).
+	Egress *Egress `yaml:"egress" json:"egress"`
 }
 
 // ConfigError ist eine ungültige sandbox.yaml.
@@ -97,6 +96,11 @@ func withDefaults(c *Config) *Config {
 	if c.Resources.PIDs == 0 {
 		c.Resources.PIDs = DefaultPIDs
 	}
+	if c.Egress == nil {
+		c.Egress = defaultEgress()
+	} else if c.Egress.OnBlocked == "" {
+		c.Egress.OnBlocked = OnBlockedDeny
+	}
 	return c
 }
 
@@ -107,7 +111,9 @@ var (
 
 func (c *Config) validate() string {
 	if c.Egress != nil {
-		return "egress: Netzwerk-Regeln kommen mit M6 und werden noch nicht unterstützt – der Container hat bis dahin normales Netz"
+		if msg := c.Egress.validate(); msg != "" {
+			return msg
+		}
 	}
 	c.Image = strings.TrimSpace(c.Image)
 	if c.Image != "" && (len(c.Image) > 255 || !imageRE.MatchString(c.Image)) {

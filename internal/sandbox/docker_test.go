@@ -1,60 +1,67 @@
 package sandbox_test
 
 // Integrationstests gegen einen echten Docker-Daemon. Sie laufen nur mit ADE_TEST_DOCKER=1
-// (CI setzt das). ADE_TEST_IMAGE wählt ein Image mit git und sh; ohne Angabe baut der Test
-// ein kleines Debian-Image mit git.
+// (CI setzt das). ADE_TEST_IMAGE wählt ein Image mit git, curl, getent und busybox; ohne
+// Angabe baut der Test ein kleines Debian-Image damit. Für den Egress-Proxy baut der Test
+// das ade-Binary (statisch). Die Netzwerk-Tests brauchen Internet.
 
 import (
 	"context"
+	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/DavidW475/ade/internal/git"
+	"github.com/DavidW475/ade/internal/proxy"
 	"github.com/DavidW475/ade/internal/sandbox"
+	"github.com/DavidW475/ade/internal/sandbox/sandboxtest"
 )
 
-const testImageDockerfile = `FROM debian:trixie-slim
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
-`
+func testImage(t *testing.T) string { return sandboxtest.Image(t) }
 
-func testImage(t *testing.T) string {
-	t.Helper()
-	if os.Getenv("ADE_TEST_DOCKER") != "1" {
-		t.Skip("Docker-Tests nur mit ADE_TEST_DOCKER=1")
-	}
-	if img := os.Getenv("ADE_TEST_IMAGE"); img != "" {
-		return img
-	}
-	const tag = "ade-test-git:1"
-	if exec.Command("docker", "image", "inspect", tag).Run() == nil {
-		return tag
-	}
-	cmd := exec.Command("docker", "build", "-t", tag, "-")
-	cmd.Stdin = strings.NewReader(testImageDockerfile)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("Test-Image bauen: %v\n%s", err, out)
-	}
-	return tag
-}
+func proxyBinary(t *testing.T) string { return sandboxtest.ProxyBinary(t) }
 
 type env struct {
 	m    *sandbox.Manager
 	ws   string
 	path string
+	spec sandbox.Spec
+
+	mu     sync.Mutex
+	egress []proxy.Event
 }
 
-func setup(t *testing.T) *env {
+func (e *env) events() []proxy.Event {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]proxy.Event(nil), e.egress...)
+}
+
+func setup(t *testing.T, cfg ...sandbox.Config) *env {
 	t.Helper()
 	img := testImage(t)
 	dataDir := t.TempDir()
-	m := sandbox.New(sandbox.Options{DataDir: dataDir, Image: img, Logger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))})
+	e := &env{}
+	m := sandbox.New(sandbox.Options{
+		DataDir: dataDir, Image: img, ProxyBinary: proxyBinary(t),
+		Logger:  slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		Secrets: func() map[string]string { return map[string]string{"anthropic": testSecret} },
+		OnEgress: func(_ string, evs []proxy.Event) {
+			e.mu.Lock()
+			e.egress = append(e.egress, evs...)
+			e.mu.Unlock()
+		},
+	})
+	t.Cleanup(m.Close)
 	ws := "t" + strings.ToLower(strings.ReplaceAll(t.Name(), "/", ""))
 	if len(ws) > 30 {
 		ws = ws[:30]
@@ -65,12 +72,20 @@ func setup(t *testing.T) *env {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	if err := m.Ensure(ctx, sandbox.Spec{Workspace: ws, Path: path, Config: sandbox.Config{Resources: sandbox.Resources{Memory: "512m", CPUs: 1, PIDs: 128}}}); err != nil {
+	c := sandbox.Config{Resources: sandbox.Resources{Memory: "512m", CPUs: 1, PIDs: 128}}
+	if len(cfg) > 0 {
+		c = cfg[0]
+	}
+	spec := sandbox.Spec{Workspace: ws, Path: path, Config: c}
+	if err := m.Ensure(ctx, spec); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = m.Remove(context.Background(), ws) })
-	return &env{m: m, ws: ws, path: path}
+	e.m, e.ws, e.path, e.spec = m, ws, path, spec
+	return e
 }
+
+const testSecret = "sk-ant-test-darf-nie-im-container-stehen"
 
 func (e *env) exec(t *testing.T, script string) string {
 	t.Helper()
@@ -223,10 +238,182 @@ func TestGCAndRecover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(removed) != 1 || removed[0].Workspace != e.ws {
+	// Agent- und Proxy-Container.
+	if len(removed) != 2 || removed[0].Workspace != e.ws || removed[1].Workspace != e.ws {
 		t.Fatalf("entfernt: %+v", removed)
 	}
 	if c, _ := e.m.Get(ctx, e.ws); c != nil {
 		t.Fatal("verwaister Container existiert noch")
+	}
+	if exec.Command("docker", "network", "inspect", sandbox.NetworkName(e.ws)).Run() == nil {
+		t.Fatal("Netz des verwaisten Workspaces existiert noch")
+	}
+}
+
+// curl im Container: liefert den HTTP-Status (000 bei Verbindungsfehler).
+func (e *env) curl(t *testing.T, args ...string) string {
+	t.Helper()
+	argv := append([]string{"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "15"}, args...)
+	out, _ := e.m.Command(context.Background(), e.ws, sandbox.Exec{Argv: argv}).Output()
+	return strings.TrimSpace(string(out))
+}
+
+// M6: Nur freigegebene Ziele sind erreichbar, und nur über den Proxy.
+func TestEgressPolicy(t *testing.T) {
+	cfg, err := sandbox.ParseConfig([]byte("resources:\n  memory: 512m\n  cpus: 1\n  pids: 128\negress:\n  presets: [npm]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := setup(t, *cfg)
+	ctx := context.Background()
+
+	if got := e.curl(t, "https://registry.npmjs.org/"); got != "200" {
+		t.Errorf("registry.npmjs.org (Preset npm): %s", got)
+	}
+	// Geblockt: CONNECT wird mit 403 abgelehnt, curl meldet 403 bzw. 000.
+	if got := e.curl(t, "https://example.com/"); got == "200" {
+		t.Errorf("example.com erreichbar: %s", got)
+	}
+	if got := e.curl(t, "http://example.com/"); got != "403" {
+		t.Errorf("http://example.com: %s, erwartet 403", got)
+	}
+	// Ein Programm, das den Proxy ignoriert, kommt nirgendwo hin – auch nicht per IP.
+	for _, target := range []string{"https://registry.npmjs.org/", "https://1.1.1.1/"} {
+		if got := e.curl(t, "--noproxy", "*", target); got != "000" {
+			t.Errorf("ohne Proxy %s: %s", target, got)
+		}
+	}
+	// DNS: externe Namen lösen nicht auf, der Proxy schon.
+	if out, err := e.m.Command(ctx, e.ws, sandbox.Exec{Argv: []string{"getent", "hosts", "example.com"}}).CombinedOutput(); err == nil {
+		t.Errorf("externer Name aufgelöst: %s", out)
+	}
+	if got := e.exec(t, "getent hosts proxy | wc -l"); got != "1" {
+		t.Errorf("proxy nicht auflösbar")
+	}
+	// Die Steuer-API des Proxys ist ohne Token zu.
+	if got := e.curl(t, "--noproxy", "*", "http://proxy:8081/healthz"); got != "401" {
+		t.Errorf("Steuer-API ohne Token: %s", got)
+	}
+
+	// Events kommen beim Daemon an.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var allowed, blocked bool
+		for _, ev := range e.events() {
+			allowed = allowed || ev.Allowed && ev.Host == "registry.npmjs.org"
+			blocked = blocked || !ev.Allowed && ev.Host == "example.com"
+		}
+		if allowed && blocked {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Events: %+v", e.events())
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	// Hot-Reload: eine geänderte Policy wirkt ohne Neustart.
+	next, err := sandbox.ParseConfig([]byte("egress:\n  presets: [npm]\n  allow: [example.com]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.m.SetSpecSource(func(context.Context, string) (sandbox.Spec, error) {
+		s := e.spec
+		s.Config = *next
+		return s, nil
+	})
+	e.m.ReloadPolicies(ctx)
+	if got := e.curl(t, "https://example.com/"); got != "200" {
+		t.Errorf("example.com nach Hot-Reload: %s", got)
+	}
+}
+
+// M6: Der API-Key steht weder in der Konfiguration noch in der Umgebung der Container.
+func TestSecretsStayOutOfContainers(t *testing.T) {
+	e := setup(t)
+	for _, name := range []string{sandbox.ContainerName(e.ws), sandbox.ProxyName(e.ws)} {
+		out, err := exec.Command("docker", "container", "inspect", name).CombinedOutput()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(out), testSecret) {
+			t.Errorf("Key in docker inspect %s", name)
+		}
+	}
+	if out := e.exec(t, "env; cat /proc/1/environ 2>/dev/null; grep -rs '"+testSecret+"' /home /workspace /tmp || true"); strings.Contains(out, testSecret) {
+		t.Error("Key im Agent-Container lesbar")
+	}
+}
+
+// M6: Die IDE ist über die Weiterleitung des Proxys erreichbar.
+func TestIDEForward(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	e.exec(t, "echo ide-ok > /workspace/index.html")
+	cmd := e.m.Command(ctx, e.ws, sandbox.Exec{Argv: []string{"busybox", "httpd", "-f", "-p", "3000", "-h", "/workspace"}, Env: []string{"ADE_IDE_OWNER=test"}})
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = e.m.Signal(ctx, e.ws, "ADE_IDE_OWNER=test", syscall.SIGKILL)
+		_ = cmd.Wait()
+	}()
+	port, err := e.m.IDEHostPort(ctx, e.ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/index.html")
+		if err == nil {
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if strings.TrimSpace(string(body)) == "ide-ok" {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("IDE-Weiterleitung: %v", err)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// Container aus M5 (normales Netz, ohne Proxy) werden beim nächsten Start neu angelegt.
+func TestRecreatesM5Container(t *testing.T) {
+	img := testImage(t)
+	e := setup(t)
+	ctx := context.Background()
+	if err := e.m.Remove(ctx, e.ws); err != nil {
+		t.Fatal(err)
+	}
+	// So sah ein Container aus M5 aus.
+	c, _ := e.m.Get(ctx, e.ws)
+	if c != nil {
+		t.Fatal("Container nach Remove noch da")
+	}
+	dataDir := ""
+	for _, kv := range e.m.ProxyCreateArgs(e.ws) {
+		if v, ok := strings.CutPrefix(kv, sandbox.LabelDataDir+"="); ok {
+			dataDir = v
+		}
+	}
+	out, err := exec.Command("docker", "container", "create", "--name", sandbox.ContainerName(e.ws),
+		"--label", sandbox.LabelManaged+"=true", "--label", sandbox.LabelWorkspace+"="+e.ws, "--label", sandbox.LabelDataDir+"="+dataDir,
+		"--entrypoint", "sleep", img, "infinity").CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if c, err := e.m.Get(ctx, e.ws); err != nil || c == nil || c.Net != "" {
+		t.Fatalf("M5-Container: %+v %v", c, err)
+	}
+	if err := e.m.Ensure(ctx, e.spec); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := e.m.Get(ctx, e.ws); err != nil || c == nil || c.Net != sandbox.NetVersion || !c.Running {
+		t.Fatalf("nach Ensure: %+v %v", c, err)
+	}
+	if got := e.curl(t, "--noproxy", "*", "https://1.1.1.1/"); got != "000" {
+		t.Errorf("neu angelegter Container hat Netz: %s", got)
 	}
 }

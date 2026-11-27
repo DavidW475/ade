@@ -39,8 +39,12 @@ type Options struct {
 	Logger  *slog.Logger
 	// DefaultAdapter gilt, wenn weder die Anfrage noch project.yaml einen nennen.
 	DefaultAdapter string
-	// AdapterEnv liefert zusätzliche Umgebungsvariablen für einen Adapter (z. B. API-Keys).
+	// AdapterEnv liefert zusätzliche Umgebungsvariablen für einen Adapter ohne Sandbox
+	// (z. B. API-Keys).
 	AdapterEnv func(adapter string) []string
+	// SandboxEnv liefert sie für einen Adapter in der Sandbox: nie echte Keys, sondern
+	// Basis-URLs auf den Egress-Proxy, der die Keys einfügt (doc/sandbox.md#4-secrets).
+	SandboxEnv func(adapter string) []string
 	// FlushInterval und StopTimeout überschreiben die Standardwerte (Tests).
 	FlushInterval time.Duration
 	StopTimeout   time.Duration

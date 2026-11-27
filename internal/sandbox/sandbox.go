@@ -3,8 +3,9 @@
 // aufräumen. ADE ruft dafür die Docker-CLI auf (ADR-014), so wie git über internal/git.
 //
 // Ein Container sieht nur das Workspace-Verzeichnis (/workspace), läuft mit der UID des
-// Nutzers, ohne Capabilities und mit Ressourcen-Grenzen. Netzwerk-Einschränkung und
-// Secret-Injection kommen mit M6; bis dahin hat der Container normales Netz.
+// Nutzers, ohne Capabilities und mit Ressourcen-Grenzen. Er hängt in einem internen Netz
+// ohne Route nach draußen; der einzige Weg ins Internet ist der Egress-Proxy des Workspaces
+// in einem eigenen Container (network.go).
 package sandbox
 
 import (
@@ -14,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"slices"
@@ -22,6 +24,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/DavidW475/ade/internal/proxy"
 )
 
 // Pfade und Ports im Container.
@@ -39,6 +43,18 @@ const (
 	LabelWorkspace = "ade.workspace"
 	// LabelDataDir trennt mehrere ADE-Instanzen (z. B. Entwicklungs-Daemon) auf einem Docker.
 	LabelDataDir = "ade.data_dir"
+	// LabelRole unterscheidet Agent- und Proxy-Container.
+	LabelRole = "ade.role"
+	// LabelNet ist die Version des Netz-Aufbaus (NetVersion).
+	LabelNet = "ade.net"
+	// LabelBinary ist das gemountete ade-Binary eines Proxy-Containers.
+	LabelBinary = "ade.binary"
+)
+
+// Rollen der Container eines Workspaces.
+const (
+	RoleAgent = "agent"
+	RoleProxy = "proxy"
 )
 
 // DetachKeys ersetzt Docker's Ctrl-P Ctrl-Q, damit die Tasten im Terminal ankommen.
@@ -57,7 +73,18 @@ type Options struct {
 	Image string
 	// UID und GID für Prozesse im Container (Standard: die des Daemons).
 	UID, GID int
-	Logger   *slog.Logger
+	// ProxyBinary ist das ade-Binary auf dem Host, das im Proxy-Container läuft (statisch
+	// gebaut, wird nur lesend gemountet).
+	ProxyBinary string
+	// ProxyImage ist das Image des Proxy-Containers (Standard: Image).
+	ProxyImage string
+	// Secrets liefert die API-Keys je Anbieter für die Secret-Injection des Proxys.
+	Secrets func() map[string]string
+	// OnEgress erhält die Egress-Events der Proxys.
+	OnEgress func(workspace string, events []proxy.Event)
+	// ReloadInterval ist der Abstand, in dem geänderte Policies an die Proxys gehen.
+	ReloadInterval time.Duration
+	Logger         *slog.Logger
 }
 
 // Manager verwaltet die Container aller Workspaces.
@@ -69,6 +96,13 @@ type Manager struct {
 	locks  map[string]*sync.Mutex
 	avail  *availability
 	ensure map[string]time.Time // zuletzt als laufend gesehen
+	links  map[string]*proxyLink
+	source SpecSource
+
+	http     *http.Client
+	bg       context.Context
+	bgCancel context.CancelFunc
+	bgOnce   sync.Once
 }
 
 type availability struct {
@@ -91,7 +125,37 @@ func New(opts Options) *Manager {
 	if opts.Image == "" {
 		opts.Image = DefaultImage("")
 	}
-	return &Manager{opts: opts, log: opts.Logger, locks: map[string]*sync.Mutex{}, ensure: map[string]time.Time{}}
+	if opts.ProxyImage == "" {
+		opts.ProxyImage = opts.Image
+	}
+	if opts.ReloadInterval <= 0 {
+		opts.ReloadInterval = 3 * time.Second
+	}
+	m := &Manager{
+		opts: opts, log: opts.Logger, locks: map[string]*sync.Mutex{}, ensure: map[string]time.Time{},
+		links: map[string]*proxyLink{},
+		// Nur 127.0.0.1, nie über einen Proxy aus der Umgebung des Daemons.
+		http: &http.Client{Transport: &http.Transport{Proxy: nil, MaxIdleConnsPerHost: 4}},
+	}
+	m.bg, m.bgCancel = context.WithCancel(context.Background())
+	return m
+}
+
+// Close beendet Hintergrundarbeit (Event-Abholung, Hot-Reload). Container bleiben, wie sie sind.
+func (m *Manager) Close() {
+	m.bgCancel()
+	m.mu.Lock()
+	links := m.links
+	m.links = map[string]*proxyLink{}
+	m.mu.Unlock()
+	for _, l := range links {
+		l.cancel()
+		<-l.done
+	}
+}
+
+func (m *Manager) startReload() {
+	m.bgOnce.Do(func() { go m.reloadLoop() })
 }
 
 // Image liefert das Standard-Image.
@@ -216,6 +280,11 @@ type Container struct {
 	State     string    `json:"state"`
 	Running   bool      `json:"running"`
 	Created   time.Time `json:"created"`
+	Role      string    `json:"role,omitempty"`
+	// Net ist die Version des Netz-Aufbaus (leer: Container aus M5 mit normalem Netz).
+	Net    string `json:"net,omitempty"`
+	Binary string `json:"-"`
+	token  string
 	// Mounts sind die Ziele aller Mounts (für Tests und Diagnose).
 	Mounts []Mount `json:"mounts,omitempty"`
 }
@@ -239,6 +308,7 @@ type inspectJSON struct {
 	Config struct {
 		Image  string
 		Labels map[string]string
+		Env    []string
 	}
 	Mounts []struct {
 		Type        string
@@ -270,6 +340,15 @@ func (m *Manager) inspect(ctx context.Context, refs ...string) ([]Container, err
 			ID: r.ID, Name: strings.TrimPrefix(r.Name, "/"), Image: r.Config.Image, State: r.State.Status,
 			Running: r.State.Running, Created: r.Created,
 			Workspace: r.Config.Labels[LabelWorkspace], DataDir: r.Config.Labels[LabelDataDir],
+			Role: r.Config.Labels[LabelRole], Net: r.Config.Labels[LabelNet], Binary: r.Config.Labels[LabelBinary],
+		}
+		if c.Role == "" {
+			c.Role = RoleAgent // Container aus M5
+		}
+		for _, kv := range r.Config.Env {
+			if v, ok := strings.CutPrefix(kv, proxy.EnvToken+"="); ok {
+				c.token = v
+			}
 		}
 		for _, mt := range r.Mounts {
 			c.Mounts = append(c.Mounts, Mount{Type: mt.Type, Source: mt.Source, Destination: mt.Destination, RW: mt.RW})
@@ -286,7 +365,7 @@ func (m *Manager) Get(ctx context.Context, workspace string) (*Container, error)
 		return nil, err
 	}
 	c := cs[0]
-	if c.DataDir != m.opts.DataDir || c.Workspace != workspace {
+	if c.DataDir != m.opts.DataDir || c.Workspace != workspace || c.Role != RoleAgent {
 		return nil, fmt.Errorf("Container %s gehört nicht zu dieser ADE-Instanz", c.Name)
 	}
 	return &c, nil
@@ -313,20 +392,45 @@ func (m *Manager) lock(workspace string) func() {
 	return l.Unlock
 }
 
-// Ensure sorgt dafür, dass der Container des Workspaces existiert und läuft. Fehlt das
-// Image lokal, lädt Docker es herunter (das kann dauern).
+// Ensure sorgt dafür, dass Netz, Proxy und Container des Workspaces existieren und laufen,
+// und schickt die Policy an den Proxy. Fehlt ein Image lokal, lädt Docker es herunter (das
+// kann dauern). Container aus M5 (normales Netz) werden dabei neu angelegt.
 func (m *Manager) Ensure(ctx context.Context, s Spec) error {
 	unlock := m.lock(s.Workspace)
 	defer unlock()
+	m.startReload()
 	m.mu.Lock()
-	seen := m.ensure[s.Workspace]
+	seen, linked := m.ensure[s.Workspace], m.links[s.Workspace] != nil
 	m.mu.Unlock()
-	if time.Since(seen) < 2*time.Second {
+	if linked && time.Since(seen) < 2*time.Second {
 		return nil
 	}
 
 	c, err := m.Get(ctx, s.Workspace)
 	if err != nil {
+		return err
+	}
+	if c == nil {
+		if _, err := m.Available(ctx); err != nil {
+			return err
+		}
+	}
+	netCreated, err := m.ensureNetworks(ctx, s.Workspace)
+	if err != nil {
+		return err
+	}
+	if c != nil && (c.Net != NetVersion || netCreated) {
+		m.log.Info("Sandbox-Container wird für das abgeschottete Netz neu angelegt", "workspace", s.Workspace)
+		m.unlinkLocked(s.Workspace)
+		if _, err := m.run(ctx, nil, "container", "rm", "--force", "--", c.ID); err != nil {
+			return fmt.Errorf("alten Container entfernen: %w", err)
+		}
+		c = nil
+	}
+	if _, err := m.ensureProxy(ctx, s.Workspace, netCreated); err != nil {
+		return err
+	}
+	if err := m.connectProxy(ctx, s.Workspace, m.policyFor(s.Config)); err != nil {
 		return err
 	}
 	created := false
@@ -366,9 +470,16 @@ func (m *Manager) CreateArgs(s Spec) []string {
 		"--security-opt", "no-new-privileges",
 		"--init",
 		"--mount", "type=bind,source=" + s.Path + ",target=" + Workdir,
+		"--label", LabelRole + "=" + RoleAgent,
+		"--label", LabelNet + "=" + NetVersion,
+		"--network", NetworkName(s.Workspace),
+		"--network-alias", AgentAlias,
+		"--dns", noDNS,
 		"--workdir", Workdir,
 		"--env", "HOME=" + Home,
-		"--publish", "127.0.0.1::" + strconv.Itoa(IDEPort),
+	}
+	for _, kv := range proxyEnv() {
+		args = append(args, "--env", kv)
 	}
 	if r.Memory != "" {
 		args = append(args, "--memory", r.Memory)
@@ -388,9 +499,6 @@ func (m *Manager) CreateArgs(s Spec) []string {
 func (m *Manager) create(ctx context.Context, s Spec) error {
 	if strings.ContainsAny(s.Path, ",\n") || !strings.HasPrefix(s.Path, "/") {
 		return fmt.Errorf("Workspace-Pfad %q ist für einen Mount ungeeignet", s.Path)
-	}
-	if _, err := m.Available(ctx); err != nil {
-		return err
 	}
 	m.log.Info("Sandbox-Container wird angelegt", "workspace", s.Workspace, "image", m.ImageFor(s.Config))
 	if _, err := m.run(ctx, nil, m.CreateArgs(s)...); err != nil {
@@ -497,9 +605,9 @@ func (m *Manager) WriteFile(ctx context.Context, workspace, path string, data []
 	return err
 }
 
-// HostPort liefert den Port auf 127.0.0.1, auf den Docker port des Containers abbildet.
-func (m *Manager) HostPort(ctx context.Context, workspace string, port int) (int, error) {
-	out, err := m.run(ctx, nil, "container", "port", ContainerName(workspace), strconv.Itoa(port)+"/tcp")
+// hostPort liefert den Port auf 127.0.0.1, auf den Docker port des Containers name abbildet.
+func (m *Manager) hostPort(ctx context.Context, name string, port int) (int, error) {
+	out, err := m.run(ctx, nil, "container", "port", name, strconv.Itoa(port)+"/tcp")
 	if err != nil {
 		return 0, err
 	}
@@ -516,12 +624,18 @@ func (m *Manager) HostPort(ctx context.Context, workspace string, port int) (int
 	return 0, fmt.Errorf("Port %d des Containers ist nicht auf 127.0.0.1 veröffentlicht", port)
 }
 
-// Stop stoppt den Container eines Workspaces (die Dateien bleiben im Workspace).
+// Stop stoppt Container und Proxy eines Workspaces (die Dateien bleiben im Workspace).
 func (m *Manager) Stop(ctx context.Context, workspace string) error {
 	unlock := m.lock(workspace)
 	defer unlock()
+	m.unlinkLocked(workspace)
+	return m.stop(ctx, ContainerName(workspace), ProxyName(workspace))
+}
+
+// unlinkLocked vergisst den Zustand eines Workspaces (Aufrufer hält dessen Lock).
+func (m *Manager) unlinkLocked(workspace string) {
 	m.forget(workspace)
-	return m.stop(ctx, ContainerName(workspace))
+	m.unlink(workspace)
 }
 
 func (m *Manager) stop(ctx context.Context, refs ...string) error {
@@ -529,6 +643,9 @@ func (m *Manager) stop(ctx context.Context, refs ...string) error {
 		return nil
 	}
 	_, err := m.run(ctx, nil, append([]string{"container", "stop", "--time", strconv.Itoa(int(StopTimeout.Seconds())), "--"}, refs...)...)
+	if err != nil && isNoSuch(err) {
+		return nil // z. B. Workspace aus M5 ohne Proxy
+	}
 	return err
 }
 
@@ -538,19 +655,38 @@ func (m *Manager) forget(workspace string) {
 	m.mu.Unlock()
 }
 
-// Remove entfernt den Container eines Workspaces (falls vorhanden).
+// Remove entfernt Container, Proxy und Netz eines Workspaces (soweit vorhanden).
 func (m *Manager) Remove(ctx context.Context, workspace string) error {
 	unlock := m.lock(workspace)
 	defer unlock()
-	m.forget(workspace)
+	m.unlinkLocked(workspace)
 	c, err := m.Get(ctx, workspace)
-	if err != nil || c == nil {
+	if err != nil {
 		return err
 	}
-	if _, err := m.run(ctx, nil, "container", "rm", "--force", "--volumes", "--", c.ID); err != nil {
-		return fmt.Errorf("Container entfernen: %w", err)
+	p, err := m.getProxy(ctx, workspace)
+	if err != nil {
+		return err
 	}
-	m.log.Info("Sandbox-Container entfernt", "workspace", workspace)
+	var ids []string
+	for _, x := range []*Container{c, p} {
+		if x != nil {
+			ids = append(ids, x.ID)
+		}
+	}
+	if len(ids) > 0 {
+		if _, err := m.run(ctx, nil, append([]string{"container", "rm", "--force", "--volumes", "--"}, ids...)...); err != nil {
+			return fmt.Errorf("Container entfernen: %w", err)
+		}
+		m.log.Info("Sandbox-Container entfernt", "workspace", workspace)
+	}
+	nets, err := m.orphanNetworks(ctx, func(ws string) bool { return ws != workspace })
+	if err != nil {
+		return err
+	}
+	if err := m.removeNetworks(ctx, nets...); err != nil {
+		return fmt.Errorf("Netz entfernen: %w", err)
+	}
 	return nil
 }
 
@@ -579,20 +715,31 @@ func (m *Manager) Orphans(ctx context.Context, known func(workspace string) bool
 	return out, nil
 }
 
-// GC entfernt verwaiste Container (siehe Orphans). Mit dryRun wird nur aufgelistet.
+// GC entfernt verwaiste Container (Agent und Proxy, siehe Orphans) und danach verwaiste
+// Workspace-Netze. Mit dryRun wird nur aufgelistet.
 func (m *Manager) GC(ctx context.Context, known func(workspace string) bool, dryRun bool) ([]Container, error) {
 	orphans, err := m.Orphans(ctx, known)
-	if err != nil || dryRun || len(orphans) == 0 {
+	if err != nil || dryRun {
 		return orphans, err
 	}
-	ids := make([]string, len(orphans))
-	for i, c := range orphans {
-		ids[i] = c.ID
+	if len(orphans) > 0 {
+		ids := make([]string, len(orphans))
+		for i, c := range orphans {
+			ids[i] = c.ID
+			m.unlink(c.Workspace)
+		}
+		if _, err := m.run(ctx, nil, append([]string{"container", "rm", "--force", "--volumes", "--"}, ids...)...); err != nil {
+			return nil, fmt.Errorf("Container entfernen: %w", err)
+		}
+		m.log.Info("verwaiste Sandbox-Container entfernt", "anzahl", len(orphans))
 	}
-	if _, err := m.run(ctx, nil, append([]string{"container", "rm", "--force", "--volumes", "--"}, ids...)...); err != nil {
-		return nil, fmt.Errorf("Container entfernen: %w", err)
+	nets, err := m.orphanNetworks(ctx, known)
+	if err != nil {
+		return orphans, err
 	}
-	m.log.Info("verwaiste Sandbox-Container entfernt", "anzahl", len(orphans))
+	if err := m.removeNetworks(ctx, nets...); err != nil {
+		return orphans, fmt.Errorf("Netze entfernen: %w", err)
+	}
 	return orphans, nil
 }
 
@@ -620,6 +767,7 @@ func (m *Manager) StopAll(ctx context.Context) error {
 		if c.DataDir == m.opts.DataDir && c.Running {
 			running = append(running, c.ID)
 			m.forget(c.Workspace)
+			m.unlink(c.Workspace)
 		}
 	}
 	if len(running) > 0 {

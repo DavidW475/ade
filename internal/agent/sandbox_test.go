@@ -4,12 +4,12 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/DavidW475/ade/internal/sandbox"
+	"github.com/DavidW475/ade/internal/sandbox/sandboxtest"
 	"github.com/DavidW475/ade/internal/store"
 )
 
@@ -18,22 +18,9 @@ import (
 
 func sandboxSetup(t *testing.T, projectYAML string) *env {
 	t.Helper()
-	if os.Getenv("ADE_TEST_DOCKER") != "1" {
-		t.Skip("Docker-Tests nur mit ADE_TEST_DOCKER=1")
-	}
-	img := os.Getenv("ADE_TEST_IMAGE")
-	if img == "" {
-		img = "ade-test-git:1" // baut internal/sandbox/docker_test.go
-		if exec.Command("docker", "image", "inspect", img).Run() != nil {
-			cmd := exec.Command("docker", "build", "-t", img, "-")
-			cmd.Stdin = strings.NewReader("FROM debian:trixie-slim\nRUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*\n")
-			if out, err := cmd.CombinedOutput(); err != nil {
-				t.Fatalf("Test-Image: %v\n%s", err, out)
-			}
-		}
-	}
+	img := sandboxtest.Image(t)
 	e := setup(t, projectYAML)
-	sb := sandbox.New(sandbox.Options{DataDir: e.dataDir, Image: img, Logger: slog.Default()})
+	sb := sandbox.New(sandbox.Options{DataDir: e.dataDir, Image: img, ProxyBinary: sandboxtest.ProxyBinary(t), Logger: slog.Default()})
 	e.ws.SetSandbox(sb, true)
 	t.Cleanup(func() {
 		_, _ = sb.GC(context.Background(), func(string) bool { return false }, false)
@@ -43,7 +30,10 @@ func sandboxSetup(t *testing.T, projectYAML string) *env {
 
 func TestSandboxAgentSession(t *testing.T) {
 	e := sandboxSetup(t, "setup:\n  - echo setup-im-container > setup.txt; id -u >> setup.txt\n")
-	e.fake.Argv = []string{"sh", "-c", `echo "$ADE_SESSION_ID $(pwd) $HOME" > arbeit.txt; test -e /etc/hostname && hostname >> arbeit.txt; exec cat`}
+	e.fake.Argv = []string{"sh", "-c", `echo "$ADE_SESSION_ID $(pwd) $HOME" > arbeit.txt; test -e /etc/hostname && hostname >> arbeit.txt; echo "env:${SBX:-} ${HOSTKEY:-}" >> arbeit.txt; exec cat`}
+	// Echte Keys (AdapterEnv) bleiben draußen; in der Sandbox gilt SandboxEnv (M6).
+	e.m.opts.AdapterEnv = func(string) []string { return []string{"HOSTKEY=geheim"} }
+	e.m.opts.SandboxEnv = func(string) []string { return []string{"SBX=proxy"} }
 	s := e.start(StartRequest{Task: "im Container arbeiten"})
 	w, err := e.ws.Get(e.ctx, s.WorkspaceID)
 	if err != nil {
@@ -74,6 +64,9 @@ func TestSandboxAgentSession(t *testing.T) {
 	}
 	if got := string(data); !strings.Contains(got, s.ID+" /workspace /home/ade") || !strings.Contains(got, "ws-"+w.ID) {
 		t.Errorf("arbeit.txt = %q (erwartet: Session, /workspace, Container-Hostname)", got)
+	}
+	if got := string(data); !strings.Contains(got, "env:proxy ") || strings.Contains(got, "geheim") {
+		t.Errorf("arbeit.txt = %q (erwartet SandboxEnv ohne AdapterEnv)", got)
 	}
 	setupOut, _ := os.ReadFile(w.Path + "/setup.txt")
 	if !strings.Contains(string(setupOut), "setup-im-container") {
