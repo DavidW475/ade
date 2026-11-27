@@ -1,0 +1,52 @@
+name: Release-Snapshot
+
+# Probelauf des Releases ohne Veröffentlichung, wenn sich die Release-Konfiguration ändert:
+# GoReleaser-Snapshot (Archive, Prüfsummen, SBOMs), danach install.sh gegen dieses dist/.
+on:
+  pull_request:
+    paths:
+      - .goreleaser.yaml
+      - .github/workflows/release.yml
+      - .github/workflows/release-snapshot.yml
+      - install.sh
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: GoReleaser-Snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: anchore/sbom-action/download-syft@v0
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean
+      - name: Release-Dateien vorhanden
+        run: |
+          ls -l dist
+          for f in ade_linux_amd64.tar.gz ade_linux_arm64.tar.gz checksums.txt \
+                   ade_linux_amd64.tar.gz.sbom.json ade_linux_arm64.tar.gz.sbom.json; do
+            test -s "dist/$f" || { echo "::error::dist/$f fehlt"; exit 1; }
+          done
+          grep -q ' ade_linux_amd64.tar.gz$' dist/checksums.txt
+      - name: install.sh gegen den Snapshot
+        run: |
+          dir="$(mktemp -d)"
+          ADE_BASE_URL="file://$PWD/dist" ADE_INSTALL_DIR="$dir" sh install.sh
+          "$dir/ade" version | tee "$RUNNER_TEMP/version.txt"
+          # Snapshot-Versionen tragen "-SNAPSHOT-" und das "v" wie beim Release.
+          grep -Eq '^ade v[0-9]+\.[0-9]+\.[0-9]+-SNAPSHOT-' "$RUNNER_TEMP/version.txt"

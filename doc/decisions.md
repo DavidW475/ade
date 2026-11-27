@@ -376,3 +376,25 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
   laufen (es überschreibt die Unit und startet neu). Ein SSH-Agent der Shell steht dem Dienst
   nicht zur Verfügung; Pushes brauchen Zugangsdaten, die ohne Agent funktionieren (z. B. `gh auth
   setup-git`).
+
+## ADR-022: Binary und Images im selben Release-Lauf, gleiche Version, Attestierung
+
+- **Kontext:** Das Binary nutzt standardmäßig `ade-agent-base:<version>`. Der Image-Workflow lief
+  nur bei Änderungen unter `images/` (der `paths`-Filter gilt auch für Tags), ein Release ohne
+  Image-Änderung hätte also ein Image-Tag referenziert, das es nicht gibt. GoReleaser schrieb die
+  Version zudem ohne `v` ins Binary, `DefaultImage` erkannte sie nicht und fiel auf `:latest` zurück.
+- **Entscheidung:**
+  1. `release.yml` ruft `images.yml` als wiederverwendbaren Workflow (`workflow_call`) parallel zu
+     GoReleaser auf. Das Release wartet nicht auf die Images; ein Fehlschlag macht den Lauf rot und
+     lässt sich einzeln wiederholen.
+  2. Image-Tag `X.Y.Z` bzw. `X.Y.Z-rc.N` ohne `v`, Binary-Version mit `v` (wie `git describe`).
+     `DefaultImage` bildet `vX.Y.Z[-alpha|beta|rc.N]` auf dieses Tag ab; alles andere (Entwicklung,
+     Snapshots) nutzt `:latest`.
+  3. Binaries: SPDX-SBOM je Archiv (syft) und Build-Provenance über `checksums.txt`. Images:
+     BuildKit-SBOM und -Provenance plus GitHub-Attestierung in der Registry. Prüfen mit
+     `gh attestation verify`.
+  4. Ein Snapshot-Build mit `install.sh` gegen das lokale `dist/` läuft in PRs, die die
+     Release-Konfiguration ändern.
+- **Konsequenzen:** Ein Release kann kurz ohne zugehöriges Image veröffentlicht sein, bis der
+  Image-Job fertig ist. Signaturen mit eigenem Schlüssel (cosign) gibt es nicht; die Attestierung
+  hängt an GitHubs Sigstore-Instanz und der Identität des Workflows.

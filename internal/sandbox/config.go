@@ -26,8 +26,9 @@ const (
 // ImageRepo ist das Basis-Image aus images/agent-base.
 const ImageRepo = "ghcr.io/davidw475/ade-agent-base"
 
-// DefaultImage liefert das Basis-Image passend zur ADE-Version: Releases (v1.2.3) nutzen
-// das gleich versionierte Image, Entwicklungsstände :latest.
+// DefaultImage liefert das Basis-Image passend zur ADE-Version: Releases (v1.2.3) und
+// Vorabversionen (v1.2.3-rc.1) nutzen das gleich versionierte Image ohne "v", das der
+// Image-Workflow beim Tag baut; Entwicklungsstände und Snapshots :latest.
 func DefaultImage(version string) string {
 	if m := releaseRE.FindStringSubmatch(version); m != nil {
 		return ImageRepo + ":" + m[1]
@@ -35,7 +36,7 @@ func DefaultImage(version string) string {
 	return ImageRepo + ":latest"
 }
 
-var releaseRE = regexp.MustCompile(`^v(\d+\.\d+\.\d+)$`)
+var releaseRE = regexp.MustCompile(`^v(\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?)$`)
 
 // Resources begrenzt einen Container.
 type Resources struct {

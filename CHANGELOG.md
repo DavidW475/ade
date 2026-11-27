@@ -15,6 +15,10 @@ Abschnitt der jeweiligen Version als Release-Notizen.
 - **`ade install-service`** und **`ade uninstall-service`**: Daemon als systemd-User-Dienst unter
   WSL (`systemd=true`). Die Unit übernimmt den `PATH`, schreibt ins Daemon-Log und startet bei
   Fehlern neu; `ade start` nutzt den Dienst, wenn er für dieselbe Konfiguration installiert ist.
+- **Releases mit Attestierung** (M11): Jeder Tag baut Binaries und die Images `ade-agent-base`
+  und `ade-dev` mit gleicher Version (`:X.Y.Z`), mit SBOM und Build-Provenance
+  (`gh attestation verify …`). Ein Snapshot-Build samt `install.sh` läuft in der CI, wenn sich
+  die Release-Konfiguration ändert. Release-Ablauf in CONTRIBUTING.md.
 - **Fabrik-Vorlagen** (M10): `bugfix` (Fehler per Test reproduzieren, beheben, Tests grün),
   `review-only` (zwei Reviewer parallel, Zusammenfassung, kein PR) und `refactor` (schrittweise
   mit Test nach jedem Schritt); `feature` mit Review und Test parallel und Rücksprung bei
@@ -88,6 +92,8 @@ Abschnitt der jeweiligen Version als Release-Notizen.
 
 ### Behoben
 
+- Release-Binaries nutzen das gleich versionierte Sandbox-Image (`ade-agent-base:X.Y.Z`, auch für
+  Vorabversionen `-rc.N`) statt `:latest`; GoReleaser schreibt die Version jetzt mit `v` ins Binary.
 - `ade gc` und der Container-Abgleich scheitern nicht mehr, wenn ein Container zwischen
   Auflisten und Inspizieren verschwindet (#66).
 
