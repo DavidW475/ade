@@ -40,11 +40,18 @@ func newFixture(t *testing.T, timeout time.Duration, cfg *Config) *fixture {
 	must(st.CreateWorkspace(ctx, &store.Workspace{ID: "ws", ProjectID: "p1", Path: "/ws/ws", Branch: "ade/ws", BaseBranch: "main", Status: store.WorkspaceReady, Sandbox: true}))
 	must(st.CreateSession(ctx, &store.Session{ID: "sl", WorkspaceID: "wl", Adapter: "claude", Status: store.SessionRunning}))
 	must(st.CreateSession(ctx, &store.Session{ID: "ss", WorkspaceID: "ws", Adapter: "claude", Status: store.SessionRunning}))
+	must(st.CreateSession(ctx, &store.Session{ID: "sr", WorkspaceID: "wl", Adapter: "claude", Status: store.SessionRunning, ReadOnly: true}))
 	f := &fixture{st: st}
 	f.svc = New(Options{
 		Store: st, Timeout: timeout, Logger: slog.New(slog.DiscardHandler),
 		Rules:   func(context.Context, string) (*Config, error) { return cfg, nil },
 		OnGrant: func(context.Context) { f.grants.Add(1) },
+		Workdir: func(sess *store.Session) string {
+			if sess.ReadOnly {
+				return "/snap/" + sess.ID
+			}
+			return ""
+		},
 	})
 	t.Cleanup(f.svc.Close)
 	return f
@@ -147,6 +154,29 @@ func TestPreToolUseLocal(t *testing.T) {
 	if _, ok := f.svc.TokenSession(tok); ok {
 		t.Fatal("Token nach dem Widerruf gültig")
 	}
+}
+
+// Lokale Lese-Rollen arbeiten im Schnappschuss: Regeln wie „Lesen im Workspace“ gelten dort.
+func TestPreToolUseReadOnlySnapshot(t *testing.T) {
+	f := newFixture(t, time.Minute, nil)
+	ctx := context.Background()
+	if a := f.svc.PreToolUse(ctx, HookRequest{Call: hookCall("sr", "Read", map[string]string{"file_path": "/snap/sr/a.go"}), TokenSession: "sr"}); a.Decision != proxy.AnswerAllow {
+		t.Fatalf("Read im Schnappschuss: %+v", a)
+	}
+	done := make(chan proxy.Answer, 1)
+	go func() {
+		done <- f.svc.PreToolUse(ctx, HookRequest{Call: hookCall("sl", "Read", map[string]string{"file_path": "/snap/sr/a.go"}), TokenSession: "sl"})
+	}()
+	p := f.pending(t)
+	var d toolDetail
+	_ = json.Unmarshal(p.Detail, &d)
+	if p.SessionID != "sl" || d.Workdir != "/ws/wl" {
+		t.Fatalf("fremder Schnappschuss ohne Rückfrage gelesen oder falsches Verzeichnis: %+v %+v", p, d)
+	}
+	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionDeny, ""); err != nil {
+		t.Fatal(err)
+	}
+	<-done
 }
 
 func TestPreToolUseSandboxAndRules(t *testing.T) {

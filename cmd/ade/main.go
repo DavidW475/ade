@@ -33,6 +33,7 @@ Befehle:
   start     Daemon starten (falls nötig) und Dashboard im Browser öffnen
   serve     Daemon im Vordergrund ausführen
   project   Projekte verwalten (add, list, remove)
+  run       Run einer Software-Fabrik starten (ade run feature --task "…")
   gc        Verwaiste Sandbox-Container entfernen
   proxy     Egress-Proxy der Sandbox (startet der Daemon im Container)
   hook      Freigabe-Hook für Agent-CLIs (bindet der Daemon selbst ein)
@@ -98,6 +99,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return cmdServe(rest, stderr)
 	case "project":
 		return cmdProject(rest, stdout, stderr)
+	case "run":
+		return cmdRun(rest, stdout, stderr)
 	case "gc":
 		return cmdGC(rest, stdout, stderr)
 	case "proxy":

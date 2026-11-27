@@ -44,3 +44,24 @@ func TestServeRejectsInvalidConfig(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestRunCommandUsage(t *testing.T) {
+	cfg := t.TempDir() + "/config.yaml"
+	if err := os.WriteFile(cfg, []byte("listen: 127.0.0.1:1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"run", "--config", cfg},
+		{"run", "feature", "--sandbox", "--no-sandbox", "--config", cfg},
+		{"run", "feature", "zuviel", "--config", cfg},
+	} {
+		var out, errOut bytes.Buffer
+		if err := run(args, &out, &errOut); err == nil || exitCode(err) != 2 {
+			t.Errorf("%v: err = %v", args, err)
+		}
+	}
+	var out, errOut bytes.Buffer
+	if err := run([]string{"run", "feature", "--input", "ohne-gleich", "--config", cfg}, &out, &errOut); err == nil {
+		t.Error("--input ohne = angenommen")
+	}
+}

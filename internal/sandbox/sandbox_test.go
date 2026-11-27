@@ -101,6 +101,27 @@ func TestCreateArgs(t *testing.T) {
 	}
 }
 
+func TestReaderCreateArgs(t *testing.T) {
+	m := New(Options{DataDir: "/data", Image: "img:1", UID: 1234, GID: 5678})
+	joined := strings.Join(m.ReaderCreateArgs(Spec{Workspace: "abc", Path: "/ws/abc", Config: *withDefaults(&Config{})}), " ")
+	for _, want := range []string{
+		"--name ade-ws-abc-ro", "--label ade.role=reader", "--label ade.workspace=abc",
+		"--mount type=bind,source=/ws/abc,target=/workspace,readonly", "--network ade-ws-abc", "--network-alias reader",
+		"--cap-drop ALL", "--user 1234:5678",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("fehlt %q in %s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "--network-alias agent") || strings.Count(joined, "--mount") != 1 {
+		t.Errorf("Lese-Container: %s", joined)
+	}
+	args, _ := m.ExecArgs("abc", Exec{Argv: []string{"true"}, Reader: true})
+	if !slices.Contains(args, "ade-ws-abc-ro") || slices.Contains(args, "ade-ws-abc") {
+		t.Errorf("exec im Lese-Container: %v", args)
+	}
+}
+
 func TestExecArgsKeepsValuesOutOfArgv(t *testing.T) {
 	m := New(Options{DataDir: "/data", UID: 1000, GID: 1000})
 	args, env := m.ExecArgs("abc", Exec{Argv: []string{"claude", "-p"}, Env: []string{"ANTHROPIC_API_KEY=geheim", "PATH=/x"}, TTY: true})

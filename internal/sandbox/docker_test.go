@@ -146,6 +146,68 @@ func TestContainerIsolation(t *testing.T) {
 	}
 }
 
+// Lese-Rollen einer Fabrik (M9): /workspace nur lesend, gleiches Netz und gleicher Proxy.
+func TestReaderContainer(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	if err := os.WriteFile(filepath.Join(e.path, "plan.txt"), []byte("lesbar\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.m.EnsureReader(ctx, e.spec); err != nil {
+		t.Fatal(err)
+	}
+	c, err := e.m.GetReader(ctx, e.ws)
+	if err != nil || c == nil || !c.Running || c.Role != sandbox.RoleReader {
+		t.Fatalf("Lese-Container: %+v, %v", c, err)
+	}
+	for _, mt := range c.Mounts {
+		if mt.Destination == sandbox.Workdir && mt.RW {
+			t.Fatalf("/workspace ist beschreibbar gemountet: %+v", mt)
+		}
+	}
+	run := func(script string) (string, error) {
+		out, err := e.m.Command(ctx, e.ws, sandbox.Exec{Argv: []string{"sh", "-c", script}, Reader: true}).CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	if out, err := run("cat /workspace/plan.txt"); err != nil || out != "lesbar" {
+		t.Fatalf("Lesen: %q, %v", out, err)
+	}
+	for _, script := range []string{"echo x > /workspace/neu", "rm /workspace/plan.txt", "mkdir /workspace/d", "touch /workspace/plan.txt"} {
+		if out, err := run(script); err == nil {
+			t.Errorf("%s gelang im Lese-Container: %s", script, out)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(e.path, "neu")); err == nil {
+		t.Fatal("Datei aus dem Lese-Container im Workspace")
+	}
+	// Außerhalb von /workspace bleibt das Dateisystem des Containers beschreibbar (HOME der
+	// CLI im echten Image), der Proxy ist erreichbar.
+	if out, err := run("echo ok > /tmp/x && cat /tmp/x"); err != nil || out != "ok" {
+		t.Errorf("/tmp: %q, %v", out, err)
+	}
+	if out, err := run("getent hosts proxy >/dev/null && echo da"); err != nil || out != "da" {
+		t.Errorf("Proxy im Netz: %q, %v", out, err)
+	}
+	// Der Agent-Container schreibt weiter.
+	e.exec(t, "echo y > /workspace/vom-agenten")
+	if out, err := run("cat /workspace/vom-agenten"); err != nil || out != "y" {
+		t.Errorf("Änderung des Agenten im Lese-Container: %q, %v", out, err)
+	}
+	// Ein zweites EnsureReader nimmt den bestehenden Container; Remove entfernt ihn.
+	if err := e.m.EnsureReader(ctx, e.spec); err != nil {
+		t.Fatal(err)
+	}
+	if c2, _ := e.m.GetReader(ctx, e.ws); c2 == nil || c2.ID != c.ID {
+		t.Fatalf("Lese-Container neu angelegt: %+v", c2)
+	}
+	if err := e.m.Remove(ctx, e.ws); err != nil {
+		t.Fatal(err)
+	}
+	if c3, err := e.m.GetReader(ctx, e.ws); err != nil || c3 != nil {
+		t.Fatalf("Lese-Container nach Remove: %+v, %v", c3, err)
+	}
+}
+
 func TestSignalByMarker(t *testing.T) {
 	e := setup(t)
 	cmd := e.m.Command(context.Background(), e.ws, sandbox.Exec{Argv: []string{"sh", "-c", "sleep 300 & sleep 300; wait"}, Env: []string{"ADE_SESSION_ID=s1"}})

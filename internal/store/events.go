@@ -77,3 +77,29 @@ func (s *Store) MaxEventSeq(ctx context.Context, sessionID string) (int64, error
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM events WHERE session_id = ?`, sessionID).Scan(&n)
 	return n, err
 }
+
+// LastEvents liefert die letzten limit Events des Typs typ einer Session, neueste zuerst.
+func (s *Store) LastEvents(ctx context.Context, sessionID, typ string, limit int) ([]Event, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT seq, ts, type, payload FROM events WHERE session_id = ? AND type = ? ORDER BY seq DESC LIMIT ?`,
+		sessionID, typ, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := []Event{}
+	for rows.Next() {
+		e := Event{SessionID: sessionID}
+		var ts, payload string
+		if err := rows.Scan(&e.Seq, &ts, &e.Type, &payload); err != nil {
+			return nil, err
+		}
+		e.TS = parseTime(ts)
+		e.Payload = json.RawMessage(payload)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}

@@ -85,10 +85,28 @@ type Manager struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	mu      sync.Mutex
-	runs    map[string]*run // Sessions mit (wartendem oder laufendem) Prozess
-	hubs    map[string]*hub
-	closing bool
+	mu       sync.Mutex
+	runs     map[string]*run // Sessions mit (wartendem oder laufendem) Prozess
+	hubs     map[string]*hub
+	closing  bool
+	listener func(sessionID, status string)
+}
+
+// SetStatusListener setzt eine Funktion, die nach jedem Statuswechsel einer Session läuft
+// (z. B. der Fabrik-Runner). Sie läuft in einer eigenen Goroutine und darf blockieren.
+func (m *Manager) SetStatusListener(fn func(sessionID, status string)) {
+	m.mu.Lock()
+	m.listener = fn
+	m.mu.Unlock()
+}
+
+func (m *Manager) notify(id, status string) {
+	m.mu.Lock()
+	fn := m.listener
+	m.mu.Unlock()
+	if fn != nil {
+		go fn(id, status)
+	}
 }
 
 // NewManager erzeugt einen Manager.
@@ -146,12 +164,39 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) (*store.Session, 
 	return m.start(ctx, req, startExtra{})
 }
 
-// startExtra sind interne Startoptionen (z. B. für Feedback-Sessions).
+// RoleStart sind die Startoptionen einer Rolle einer Fabrik (StartRole).
+type RoleStart struct {
+	// Role ist der Name der Rolle (erscheint an der Session).
+	Role string
+	// Prompt ist die vollständige Anweisung (Rollen-Prompt, Aufgabe, Artefakte).
+	Prompt string
+	// ReadOnly: Die Rolle darf den Workspace nicht ändern. In der Sandbox läuft sie im
+	// Lese-Container (/workspace nur lesend), sonst in einem Schnappschuss des Workspaces.
+	ReadOnly bool
+}
+
+// StartRole startet eine Session für eine Rolle einer Fabrik im bestehenden Workspace
+// req.WorkspaceID.
+func (m *Manager) StartRole(ctx context.Context, req StartRequest, rs RoleStart) (*store.Session, error) {
+	if req.WorkspaceID == "" {
+		return nil, apperr.Invalid("workspace_id fehlt")
+	}
+	if len(rs.Prompt) > maxRolePrompt {
+		return nil, apperr.Invalid("Anweisung der Rolle %s ist zu lang (höchstens %d KiB)", rs.Role, maxRolePrompt>>10)
+	}
+	return m.start(ctx, req, startExtra(rs))
+}
+
+// maxRolePrompt begrenzt die Anweisung einer Rolle (Prompt, Aufgabe und Artefakte).
+const maxRolePrompt = 512 << 10
+
+// startExtra sind interne Startoptionen (z. B. für Feedback-Sessions und Rollen).
 type startExtra struct {
 	Role string
 	// Prompt ersetzt die Aufgabe als Anweisung an den Agenten; Task bleibt die Kurzfassung
 	// für Liste und Verlauf.
-	Prompt string
+	Prompt   string
+	ReadOnly bool
 }
 
 func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra) (*store.Session, error) {
@@ -211,7 +256,7 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 		sandboxed = ws.Sandbox
 	}
 	// Vorab prüfen, ob sich der Aufruf bauen lässt (z. B. CLI installiert, Optionen gültig).
-	if _, err := a.Command(adapter.Spec{Workdir: "/", Task: req.Task, Command: req.Command, Model: modelID, PermissionMode: req.PermissionMode, Sandbox: sandboxed}); err != nil {
+	if _, err := a.Command(adapter.Spec{Workdir: "/", Task: req.Task, Command: req.Command, Model: modelID, PermissionMode: req.PermissionMode, Sandbox: sandboxed, ReadOnly: extra.ReadOnly}); err != nil {
 		return nil, apperr.Invalid("%v", err)
 	}
 
@@ -239,6 +284,7 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 		Role:           extra.Role,
 		Status:         store.SessionStarting,
 		BudgetUSD:      budget,
+		ReadOnly:       extra.ReadOnly,
 	}
 	if modelID != req.Model {
 		sess.ModelID = modelID
@@ -254,7 +300,7 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 	if extra.Prompt != "" {
 		prompt = extra.Prompt
 	}
-	spec := adapter.Spec{SessionID: sess.ID, Workdir: ws.Path, Task: prompt, Command: req.Command, Model: modelID, PermissionMode: req.PermissionMode, Sandbox: ws.Sandbox}
+	spec := adapter.Spec{SessionID: sess.ID, Workdir: ws.Path, Task: prompt, Command: req.Command, Model: modelID, PermissionMode: req.PermissionMode, Sandbox: ws.Sandbox, ReadOnly: sess.ReadOnly}
 	// Stand beim Anlegen zurückgeben: Der Prozess kann den Status sofort ändern.
 	created := *sess
 	if err := m.launch(sess, a, ws, spec); err != nil {
@@ -428,7 +474,7 @@ func (m *Manager) Input(ctx context.Context, id, text string) (*View, error) {
 	if sess.ModelID != "" {
 		model = sess.ModelID
 	}
-	spec := adapter.Spec{SessionID: id, Workdir: ws.Path, Task: text, Model: model, PermissionMode: sess.PermissionMode, ResumeID: sess.ResumeID, Sandbox: ws.Sandbox}
+	spec := adapter.Spec{SessionID: id, Workdir: ws.Path, Task: text, Model: model, PermissionMode: sess.PermissionMode, ResumeID: sess.ResumeID, Sandbox: ws.Sandbox, ReadOnly: sess.ReadOnly}
 	if err := m.launch(sess, a, ws, spec); err != nil {
 		return nil, err
 	}
@@ -489,8 +535,46 @@ func (m *Manager) BeforeWorkspaceDelete(ctx context.Context, workspaceID string)
 	for _, s := range ss {
 		m.flushHub(s.ID)
 		_ = os.Remove(m.terminalLog(s.ID))
+		if s.ReadOnly {
+			m.removeSnapshot(s.ID)
+		}
 	}
 	return nil
+}
+
+// Dismiss beendet den Prozess einer Session mit dem Status „fertig“ (z. B. einen wartenden
+// Agenten, dessen Runde der Fabrik-Runner übernommen hat) und wartet auf sein Ende samt
+// Sicherung des Workspaces. Ohne Prozess passiert nichts.
+func (m *Manager) Dismiss(ctx context.Context, id string) error {
+	m.mu.Lock()
+	r := m.runs[id]
+	m.mu.Unlock()
+	if r == nil {
+		return nil
+	}
+	r.stop(store.SessionDone)
+	select {
+	case <-r.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// LastMessage liefert die letzte Antwort des Agenten einer Session (leer: keine).
+func (m *Manager) LastMessage(ctx context.Context, id string) (string, error) {
+	m.flushHub(id)
+	evs, err := m.opts.Store.LastEvents(ctx, id, adapter.TypeMessage, 200)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range evs {
+		var msg adapter.Message
+		if json.Unmarshal(e.Payload, &msg) == nil && msg.Role == "assistant" && strings.TrimSpace(msg.Text) != "" {
+			return msg.Text, nil
+		}
+	}
+	return "", nil
 }
 
 // Recover räumt nach einem Neustart oder Absturz des Daemons auf: Verwaiste Prozesse
@@ -656,6 +740,7 @@ func (m *Manager) finish(id, status, errMsg string, exit *int) {
 		m.log.Error("Session-Status speichern", "session", id, "err", err)
 	}
 	m.emit(id, adapter.TypeStatus, adapter.Status{Status: status, Reason: errMsg, ExitCode: exit})
+	m.notify(id, status)
 }
 
 func (m *Manager) terminalLog(id string) string {

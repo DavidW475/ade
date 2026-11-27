@@ -36,6 +36,7 @@ type run struct {
 	workspaceID string
 	caps        adapter.Capabilities
 	sandbox     bool // Prozess läuft per docker exec im Container des Workspaces
+	readOnly    bool // Lese-Rolle: Lese-Container bzw. Schnappschuss (snapshot.go)
 	done        chan struct{}
 	cancel      context.CancelFunc // bricht das Warten vor dem Start ab
 	// statusMu reiht Statuswechsel in Datenbank und Events ein: Meldet der Agent schon „fertig“,
@@ -71,7 +72,7 @@ type run struct {
 func (m *Manager) launch(sess *store.Session, a adapter.Adapter, ws *store.Workspace, spec adapter.Spec) error {
 	ctx, cancel := context.WithCancel(m.ctx)
 	r := &run{
-		m: m, id: sess.ID, workspaceID: ws.ID, caps: a.Capabilities(), sandbox: ws.Sandbox, done: make(chan struct{}), cancel: cancel,
+		m: m, id: sess.ID, workspaceID: ws.ID, caps: a.Capabilities(), sandbox: ws.Sandbox, readOnly: spec.ReadOnly, done: make(chan struct{}), cancel: cancel,
 		status: store.SessionStarting, resumeID: sess.ResumeID, sessionUSD: sess.CostUSD,
 		projectID: ws.ProjectID, adapter: a.Name(), model: spec.Model, turnBaseUSD: sess.CostUSD,
 		base:      adapter.Tokens{Input: sess.InputTokens, Output: sess.OutputTokens, CacheRead: sess.CacheReadTokens, CacheWrite: sess.CacheWriteTokens},
@@ -105,12 +106,20 @@ func (m *Manager) launch(sess *store.Session, a adapter.Adapter, ws *store.Works
 		m.mu.Lock()
 		delete(m.runs, r.id)
 		m.mu.Unlock()
+		if r.readOnly && !r.sandbox && status != store.SessionPaused && status != store.SessionInterrupted {
+			// Paused und unterbrochen lassen sich fortsetzen; die CLI findet ihre Unterhaltung
+			// dann im selben Verzeichnis wieder.
+			m.removeSnapshot(r.id)
+		}
 		m.finish(r.id, status, msg, exit)
 		if status == store.SessionPaused {
 			m.requestBudget(r)
 		}
 		// Vor done: Wer auf das Ende wartet (Feedback, Löschen), sieht den gesicherten Stand.
-		m.collect(ws.ID, r.id)
+		// Lese-Rollen ändern nichts.
+		if !r.readOnly {
+			m.collect(ws.ID, r.id)
+		}
 		close(r.done)
 		m.releaseHub(r.id)
 		m.log.Info("Session beendet", "id", r.id, "status", status, "grund", msg)
@@ -140,8 +149,16 @@ func (r *run) execute(ctx context.Context, a adapter.Adapter, ws *store.Workspac
 	case !r.sandbox && m.opts.AdapterEnv != nil:
 		extra = m.opts.AdapterEnv(a.Name())
 	}
-	if r.sandbox {
+	workdir := ws.Path
+	switch {
+	case r.sandbox:
 		spec.Workdir = sandbox.Workdir
+	case r.readOnly:
+		snap, err := m.prepareSnapshot(ctx, ws, r.id)
+		if err != nil {
+			return store.SessionFailed, err.Error(), nil
+		}
+		workdir, spec.Workdir = snap, snap
 	}
 	if m.opts.Access != nil {
 		access, metered := m.opts.Access(a.Name(), r.sandbox)
@@ -167,17 +184,22 @@ func (r *run) execute(ctx context.Context, a adapter.Adapter, ws *store.Workspac
 	}
 	var cmd *exec.Cmd
 	if r.sandbox {
-		if err := m.opts.Workspaces.EnsureSandbox(ctx, ws.ID); err != nil {
+		ensure := m.opts.Workspaces.EnsureSandbox
+		if r.readOnly {
+			ensure = m.opts.Workspaces.EnsureSandboxReader
+		}
+		if err := ensure(ctx, ws.ID); err != nil {
 			if ctx.Err() != nil {
 				return r.endStatus(store.SessionStopped), "vor dem Start abgebrochen", nil
 			}
 			return store.SessionFailed, fmt.Sprintf("Sandbox-Container: %v", err), nil
 		}
 		cmd = m.opts.Workspaces.Sandbox().Command(context.Background(), ws.ID, sandbox.Exec{
-			Argv:  append([]string{c.Path}, c.Args...),
-			Env:   sandboxEnv(r.caps.Terminal, r.id, ws.ID, append(extra, c.Env...)),
-			TTY:   r.caps.Terminal,
-			Stdin: true,
+			Argv:   append([]string{c.Path}, c.Args...),
+			Env:    sandboxEnv(r.caps.Terminal, r.id, ws.ID, append(extra, c.Env...)),
+			TTY:    r.caps.Terminal,
+			Stdin:  true,
+			Reader: r.readOnly,
 		})
 	} else {
 		path, err := exec.LookPath(c.Path)
@@ -185,8 +207,8 @@ func (r *run) execute(ctx context.Context, a adapter.Adapter, ws *store.Workspac
 			return store.SessionFailed, fmt.Sprintf("Programm %s nicht gefunden", c.Path), nil
 		}
 		cmd = exec.Command(path, c.Args...) //nolint:gosec // G204: Befehl kommt vom Adapter bzw. vom angemeldeten Nutzer
-		cmd.Dir = ws.Path
-		cmd.Env = buildEnv(daemonEnv(), r.caps.Terminal, r.id, ws.ID, ws.Path, append(extra, c.Env...))
+		cmd.Dir = workdir
+		cmd.Env = buildEnv(daemonEnv(), r.caps.Terminal, r.id, ws.ID, workdir, append(extra, c.Env...))
 	}
 
 	r.mu.Lock()
@@ -400,10 +422,14 @@ func (r *run) stop(as string) {
 		// Die Docker-CLI reicht Signale nicht an docker exec weiter: Prozesse im Container
 		// über ihre Session-ID beenden; die CLI endet mit ihnen.
 		sb, wsID, marker := r.m.opts.Workspaces.Sandbox(), r.workspaceID, EnvSessionID+"="+r.id
-		go func() { _ = sb.Signal(context.Background(), wsID, marker, syscall.SIGTERM) }()
+		signal := sb.Signal
+		if r.readOnly {
+			signal = sb.SignalReader
+		}
+		go func() { _ = signal(context.Background(), wsID, marker, syscall.SIGTERM) }()
 		if r.killTimer == nil {
 			r.killTimer = time.AfterFunc(r.m.opts.StopTimeout, func() {
-				_ = sb.Signal(context.Background(), wsID, marker, syscall.SIGKILL)
+				_ = signal(context.Background(), wsID, marker, syscall.SIGKILL)
 				_ = syscall.Kill(-pid, syscall.SIGKILL)
 			})
 		}
@@ -467,7 +493,8 @@ func (r *run) setStatus(status, reason string) {
 	}
 	r.m.emit(r.id, adapter.TypeStatus, adapter.Status{Status: status, Reason: reason})
 	r.statusMu.Unlock()
-	if status == store.SessionIdle {
+	r.m.notify(r.id, status)
+	if status == store.SessionIdle && !r.readOnly {
 		// Der Agent ist mit seiner Runde fertig: Stand sichern. Der Lauf hält den WaitGroup-
 		// Zähler, Add ist daher hier erlaubt.
 		r.m.wg.Add(1)
