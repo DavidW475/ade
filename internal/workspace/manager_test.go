@@ -214,6 +214,18 @@ func TestSetupFailure(t *testing.T) {
 	}
 }
 
+func TestSetupCommandNotFound(t *testing.T) {
+	e := setup(t, "setup:\n  - ade-gibt-es-nicht --version\n")
+	w, err := e.m.Create(context.Background(), e.project.ID, CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = waitStatus(t, e.m, w.ID, store.WorkspaceReady, store.WorkspaceSetupFailed)
+	if w.Status != store.WorkspaceSetupFailed || !strings.Contains(w.Error, "exit status 127") || !strings.Contains(w.Error, "Programm nicht gefunden") {
+		t.Fatalf("Workspace = %#v", w)
+	}
+}
+
 func TestDeleteCancelsSetup(t *testing.T) {
 	e := setup(t, "setup:\n  - sleep 30\n")
 	ctx := context.Background()
