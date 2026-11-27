@@ -10,6 +10,8 @@ import { LineStats, Notice, WorkspaceStatusBadge } from "../components/ui";
 import { errorMessage, formatTime, formatUSD, shortCommit } from "../format";
 import { MonthlyBudget, UsageAmount } from "../components/usage";
 import { useUsage } from "../hooks/useUsage";
+import { RunTable, StartRun } from "../components/runs";
+import { useRuns } from "../runs";
 
 export function ProjectPage() {
   const { id = "" } = useParams();
@@ -22,6 +24,7 @@ export function ProjectPage() {
   });
 
   const sessions = useSessions({ project_id: id, limit: 50 });
+  const runs = useRuns({ project_id: id, limit: 20 });
   const usage = useUsage(id);
 
   if (project.isPending) return <p className="muted">Lade Projekt …</p>;
@@ -88,6 +91,22 @@ export function ProjectPage() {
           <code>{p.config_error}</code>
           <p>Neue Workspaces lassen sich erst nach der Korrektur anlegen.</p>
         </Notice>
+      )}
+
+      <div className="sectionhead">
+        <h2>Fabrik-Runs</h2>
+        <StartRun projectId={p.id} disabled={!!p.config_error} />
+      </div>
+      {runs.data?.length ? (
+        <RunTable runs={runs.data} />
+      ) : (
+        <div className="empty">
+          <p>Noch keine Runs.</p>
+          <p className="muted">
+            Ein Run führt mehrere Rollen-Agenten nacheinander aus – mitgeliefert ist die Fabrik <code>feature</code>, eigene liegen in{" "}
+            <code>.ade/factories/</code>.
+          </p>
+        </div>
       )}
 
       <div className="sectionhead">
