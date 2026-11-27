@@ -25,6 +25,16 @@ Abschnitt der jeweiligen Version als Release-Notizen.
   Sandbox die API über `http://proxy:8080/p/anthropic` an; der Proxy fügt den Key ein.
 - Ansicht **Netzwerk** im Workspace: Policy, Ziele mit erlaubten und geblockten Anfragen, letzte
   Anfragen.
+- **Freigaben** (M7): Claude Code fragt vor jedem Werkzeug-Aufruf über den Hook
+  `ade hook pretooluse` bei ADE nach – lokal direkt beim Daemon, in der Sandbox über den
+  Egress-Proxy. Was die Regeln in `approvals` (`.ade/project.yaml`, getrennt für `sandbox` und
+  `local`) nicht erlauben oder sperren, wartet auf eine Entscheidung im Dashboard (Seite
+  **Freigaben** mit Badge, Browser-Benachrichtigung, Anzeige in der Session). Ohne Entscheidung
+  gilt die Anfrage nach `approvals.timeout` (Standard 10m) als abgelehnt.
+- `egress.on_blocked: ask`: Anfragen an nicht freigegebene Ziele warten auf eine Freigabe
+  („Einmal“, „Für diesen Workspace“, „Immer (Projekt)“, „Ablehnen“). Geblockte Hosts lassen sich
+  in der Netzwerk-Ansicht mit einem Klick dauerhaft erlauben; die Ausnahmen speichert der Daemon,
+  das Repo bleibt unverändert.
 
 ### Sicherheit
 
@@ -39,6 +49,9 @@ Abschnitt der jeweiligen Version als Release-Notizen.
 
 ### Geändert
 
+- Sandbox-Container bekommen das ade-Binary nur lesend für den Freigabe-Hook und werden dafür beim
+  nächsten Start einmal neu angelegt.
+- Der Berechtigungsmodus von Claude Code gilt nur noch, wenn der Freigabe-Hook nicht verfügbar ist.
 - Sandbox-Container aus M5 (normales Netz) legt ADE beim nächsten Start neu an; Dateien im
   Workspace bleiben, Änderungen außerhalb von `/workspace` gehen verloren.
 - Ungültige `.ade/sandbox.yaml`: Neue Sandbox-Container starten erst nach der Korrektur, laufende

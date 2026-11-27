@@ -170,8 +170,8 @@ flowchart LR
 - Regeln pro Projekt: welche Tools/Befehle ohne Rückfrage erlaubt sind (getrennt für Sandbox/lokal)
 
 **Fertig, wenn:**
-- [ ] Ein Agent wartet auf Freigabe, der Nutzer bestätigt im Browser, der Agent macht weiter
-- [ ] Eine geblockte Domain kann mit einem Klick dauerhaft erlaubt werden
+- [x] Ein Agent wartet auf Freigabe, der Nutzer bestätigt im Browser, der Agent macht weiter
+- [x] Eine geblockte Domain kann mit einem Klick dauerhaft erlaubt werden
 
 ---
 

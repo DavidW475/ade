@@ -127,7 +127,7 @@ erbt ein Agent nicht. Strukturierte Adapter laufen mit Pipes, Terminal-Adapter m
 
 | Adapter | Aufruf (beim Implementieren gegen aktuelle CLI-Doku prüfen) | Events |
 |---|---|---|
-| `claude` | `claude -p --input-format stream-json --output-format stream-json --verbose [--model] [--permission-mode] [--resume]` | strukturiert (Text, Tool-Calls, Kosten); Folgeanweisungen über stdin, Fortsetzen mit `--resume` |
+| `claude` | `claude -p --input-format stream-json --output-format stream-json --verbose [--model] [--permission-mode] [--settings <Freigabe-Hook>] [--resume]` | strukturiert (Text, Tool-Calls, Kosten); Folgeanweisungen über stdin, Fortsetzen mit `--resume` |
 | `codex` | `codex exec --json …` | strukturiert |
 | `pty` | beliebiger Befehl im Terminal (interaktiv) | nur Terminal-Stream, kein Parsing |
 
@@ -307,14 +307,45 @@ Push-Rechte** – Veröffentlichen ist immer ein Daemon-Schritt nach Freigabe.
 
 ### 4.3 Freigaben
 
-Agent-CLIs bieten Hook- bzw. Permission-Mechanismen (z. B. Claude Code `PreToolUse`-Hooks).
-ADE liefert einen kleinen Hook (`ade hook pretooluse`), der im Container läuft und den Daemon
-über den Proxy (`http://ade.internal/api/approvals`) fragt. Der Aufruf **blockiert**, bis im
-Dashboard entschieden wurde (mit Timeout → ablehnen).
+Agent-CLIs bieten Hook- bzw. Permission-Mechanismen. Für Claude Code bindet ADE beim Start einer
+Session `ade hook pretooluse` als `PreToolUse`-Hook für alle Werkzeuge ein (`--settings`,
+ADR-016). Der Hook schickt Werkzeug und Eingabe an ADE und **blockiert**, bis entschieden ist;
+bei jedem Fehler lautet die Antwort `deny`.
+
+- **Lokal** fragt der Hook den Daemon direkt (`POST /api/hook/pretooluse`, Token je Session).
+- **In der Sandbox** läuft das nur lesend gemountete ade-Binary im Container und fragt den
+  Egress-Proxy (`http://proxy:8080/ade/hook/pretooluse`). Der Proxy hält die Frage, der Daemon
+  holt sie über die Steuer-API ab und antwortet (der Container erreicht den Daemon nie direkt).
+
+Der Daemon prüft zuerst die **Regeln** des Projekts, getrennt für Sandbox und lokal:
+
+```yaml
+# .ade/project.yaml
+approvals:
+  sandbox:                     # Voreinstellung: allow: ["*"]
+    allow: ["*"]
+    deny: ["Bash(git push *)"]
+  local:                       # Voreinstellung: Lesen und Dateiänderungen im Workspace
+    allow: ["Read(**)", "Grep(**)", "Glob(**)", "Edit(**)", "Write(**)", "Bash(go test *)"]
+    ask: ["Edit(.github/**)"]
+```
+
+Einträge sind `Tool` oder `Tool(muster)`: Befehle für `Bash` (ein abschließendes ` *` passt auch
+ohne Argumente; Allow-Regeln passen nie auf zusammengesetzte Befehle mit `;`, `&&`, `|`,
+Umleitungen oder `$(…)`), Pfade für Datei-Werkzeuge (relativ zum Workspace, `*` innerhalb eines
+Verzeichnisses, `**` darüber hinaus; absolute Pfade und `~/…` für Ziele außerhalb), Hosts für
+`WebFetch`, Platzhalter im Werkzeugnamen (`mcp__*`). Reihenfolge: deny → ask → allow; was keine
+Regel erlaubt, wird eine **Freigabe**. Ist `project.yaml` ungültig, erlaubt keine Regel etwas.
+
+Freigaben erscheinen auf der Seite **Freigaben** (Badge in der Navigation, Browser-Benachrichtigung)
+und in der Session-Ansicht. Ohne Entscheidung gilt eine Anfrage nach `approvals.timeout`
+(globale Konfiguration, Standard 10m) als abgelehnt; eine Begründung beim Ablehnen bekommt der
+Agent als Rückmeldung. Dieselbe Warteschlange nimmt Netzwerk-Freigaben der Sandbox auf
+(`egress.on_blocked: ask`, [sandbox.md](sandbox.md#3-egress-proxy-ade-proxy)).
 
 Faustregel: **In der Sandbox großzügig, außerhalb streng.** Die Sandbox begrenzt den Schaden,
 deshalb muss nicht jeder `ls` bestätigt werden; Freigaben bleiben für Netzwerk-Ausnahmen,
-Merges und Pushes.
+Merges und Pushes. Terminal-Sessions (`pty`) haben keinen Hook.
 
 ## 5. API-Skizze
 
@@ -339,7 +370,10 @@ Merges und Pushes.
 | `POST` | `/api/sessions/{id}/input` \| `/stop` | Folgeanweisung bzw. Fortsetzen / Stop |
 | `WS` | `/ws/sessions/{id}/events` | Event-Stream (mit `?since=<seq>` für Replay) |
 | `WS` | `/ws/sessions/{id}/pty` | Terminal |
-| `GET/POST` | `/api/approvals[/{id}]` | Freigaben |
+| `GET` | `/api/approvals[?status&session_id&workspace_id]`, `/api/approvals/{id}` | Freigaben |
+| `POST` | `/api/approvals/{id}` | Entscheiden (`decision`: `allow`, `deny`, bei egress auch `allow_workspace`, `allow_project`; `reason`) |
+| `POST` | `/api/hook/pretooluse` | Frage des Hooks lokaler Agenten (Token der Session statt Anmeldung) |
+| `POST` | `/api/workspaces/{id}/egress/grants`, `DELETE /api/egress-grants/{id}` | Egress-Ausnahmen (`rule`, `scope`: `workspace`/`project`) |
 | `GET` | `/api/workspaces/{id}/egress[?blocked=1]` | Egress-Events, Zusammenfassung je Host, wirksame Policy (bearbeitet wird `.ade/sandbox.yaml`) |
 | `POST` | `/api/projects/{id}/factories/{name}/runs` | Fabrik-Run starten |
 
@@ -369,6 +403,8 @@ providers:
 defaults:
   adapter: claude
   sandbox: true
+approvals:
+  timeout: 10m        # Wartezeit auf eine Freigabe, danach abgelehnt
 ide:
   binary: ""          # leer = festgelegte openvscode-server-Version herunterladen (ADR-012)
   idle_timeout: 15m

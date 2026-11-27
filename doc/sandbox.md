@@ -3,9 +3,8 @@
 Ziel: Ein Agent darf in seinem Workspace **alles** tun – aber **nur** dort, und ins Netz
 **nur dorthin**, wo die Policy es erlaubt. Er kann weder Secrets lesen noch etwas veröffentlichen.
 
-> **Stand M6:** Alles in diesem Dokument ist umgesetzt, außer Freigabe-Anfragen bei geblockten
-> Zielen (`on_blocked: ask`, M7) und TLS-Interception (später). Umsetzung: ADR-014 (Container),
-> ADR-015 (Netz, Proxy, Secrets).
+> **Stand M7:** Alles in diesem Dokument ist umgesetzt, außer TLS-Interception (später).
+> Umsetzung: ADR-014 (Container), ADR-015 (Netz, Proxy, Secrets), ADR-016 (Freigaben).
 
 ## 1. Aufbau pro Workspace
 
@@ -73,9 +72,21 @@ Ein kleiner HTTP-Forward-Proxy in Go, Teil des `ade`-Binaries.
   2000 je Workspace und zeigt sie in der Ansicht **Netzwerk**.
 - Ohne Policy (direkt nach dem Start) ist alles gesperrt.
 - **Steuer-API** (`:8081`, nur mit Token aus `ADE_PROXY_TOKEN`; der Agent kennt es nicht):
-  `PUT /policy` (Allow/Deny und Keys), `GET /events`, `GET /healthz`.
-- **Geplant (M7):** Geblockte Anfrage → **Freigabe-Anfrage** im Dashboard („Agent will `pypi.org` –
-  einmal / immer für dieses Projekt / ablehnen“).
+  `PUT /policy` (Allow/Deny, Keys, Rückfragen), `GET /events`, `GET /questions`,
+  `POST /questions/{id}`, `GET /healthz`.
+- **Freigaben** (`on_blocked: ask`): Eine Anfrage an ein nicht freigegebenes Ziel wartet (bis zu
+  2 min) auf eine Entscheidung im Dashboard („Agent will `pypi.org:443` erreichen“): **Einmal**
+  (nur die wartenden Anfragen), **Für diesen Workspace**, **Immer (Projekt)** oder **Ablehnen**
+  (bis zum Neustart des Proxys nicht erneut fragen). Ziele auf der deny-Liste und interne
+  Adressen fragen nie. Gleichzeitige Anfragen an dasselbe Ziel teilen sich eine Freigabe.
+- **Ausnahmen:** „Für diesen Workspace“ und „Immer (Projekt)“ speichert der Daemon in SQLite und
+  ergänzt damit die Allowlist – `.ade/sandbox.yaml` im Repo bleibt unverändert. Auch mit
+  `on_blocked: deny` lässt sich ein geblockter Host in der Netzwerk-Ansicht mit einem Klick
+  erlauben; dort stehen alle Ausnahmen und lassen sich entfernen.
+- **Freigabe-Hook:** Der Proxy nimmt unter `/ade/hook/pretooluse` die Fragen von
+  `ade hook pretooluse` aus dem Agent-Container entgegen und reicht sie über die Steuer-API an
+  den Daemon weiter (doc/architecture.md#43-freigaben). Das ade-Binary ist dafür nur lesend unter
+  `/opt/ade/ade` im Agent-Container gemountet.
 
 **Später (optional):** TLS-Interception mit eigener CA im Container für Regeln auf
 Pfad-/Methodenebene (z. B. GitHub nur lesend). Bewusst nicht in v1 – mehr Komplexität,
@@ -105,7 +116,7 @@ egress:
     - "*.githubusercontent.com"
   deny:
     - "*.pastebin.com"
-  on_blocked: deny         # deny; ask kommt mit M7
+  on_blocked: ask          # deny (Standard) oder ask: Freigabe im Dashboard
 ```
 
 Presets sind im Binary hinterlegte Domain-Listen (`internal/sandbox/egress.go`):
