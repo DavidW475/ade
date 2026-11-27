@@ -115,12 +115,12 @@ export type ApprovalDecision = "allow" | "allow_workspace" | "allow_project" | "
 /** Freigabe-Anfrage (Werkzeug-Aufruf eines Agenten, geblocktes Netzwerk-Ziel oder überschrittenes Budget). */
 export interface Approval {
   id: string;
-  kind: "tool" | "egress" | "budget";
+  kind: "tool" | "egress" | "budget" | "gate";
   project_id: string;
   workspace_id: string;
   session_id?: string;
   title: string;
-  detail: ToolApprovalDetail | EgressApprovalDetail | BudgetApprovalDetail;
+  detail: ToolApprovalDetail | EgressApprovalDetail | BudgetApprovalDetail | GateApprovalDetail;
   sandbox: boolean;
   status: ApprovalStatus;
   decision?: ApprovalDecision;
@@ -136,6 +136,15 @@ export interface BudgetApprovalDetail {
   spent_usd: number;
   /** Betrag, um den „Erlauben“ das Budget erhöht. */
   step_usd: number;
+}
+
+/** Gate eines Fabrik-Runs (gate: human). */
+export interface GateApprovalDetail {
+  run_id: string;
+  factory: string;
+  step: string;
+  task?: string;
+  artifacts?: string[];
 }
 
 export interface ToolApprovalDetail {
@@ -298,6 +307,10 @@ export interface Session {
   metered?: boolean;
   /** Budget der Session in USD (fehlt: keins). */
   budget_usd?: number;
+  /** Rolle einer Fabrik (z. B. planner) bzw. feedback. */
+  role?: string;
+  /** Lese-Rolle: Workspace nur lesend (Lese-Container bzw. Schnappschuss). */
+  read_only?: boolean;
   created_at: string;
   updated_at: string;
   ended_at?: string;
@@ -457,6 +470,97 @@ export interface IdeStatus {
   url: string;
 }
 
+// --- Software-Fabrik (M9) ---
+
+export type RunStatus = "running" | "waiting" | "paused" | "done" | "failed" | "canceled";
+export type StepStatus = "pending" | "running" | "waiting" | "done" | "failed" | "canceled";
+export type StepKind = "role" | "gate" | "action";
+
+export interface RunStep {
+  index: number;
+  name: string;
+  kind: StepKind;
+  role?: string;
+  read_only?: boolean;
+  status: StepStatus;
+  session_id?: string;
+  approval_id?: string;
+  /** Artefakt der Rolle (ihre letzte Antwort). */
+  output?: string;
+  error?: string;
+  started_at?: string;
+  ended_at?: string;
+}
+
+export interface Run {
+  id: string;
+  project_id: string;
+  workspace_id?: string;
+  factory: string;
+  source?: "project" | "builtin";
+  inputs: Record<string, string>;
+  task?: string;
+  sandbox: boolean;
+  status: RunStatus;
+  /** Index des aktuellen Schritts (= Anzahl Schritte, wenn fertig). */
+  current: number;
+  error?: string;
+  budget_usd?: number;
+  max_duration_ns?: number;
+  created_at: string;
+  updated_at: string;
+  ended_at?: string;
+  steps: RunStep[];
+  cost_usd: number;
+  artifacts: { name: string; step: string; role: string; size: number }[];
+  pr_url?: string;
+  workspace_gone?: boolean;
+}
+
+export interface FactoryInput {
+  type: string;
+  required?: boolean;
+  description?: string;
+}
+
+/** GET /api/factories: eigene (.ade/factories) und mitgelieferte Fabriken. */
+export interface FactorySummary {
+  name: string;
+  description?: string;
+  source: "project" | "builtin";
+  path: string;
+  inputs?: Record<string, FactoryInput>;
+  steps?: { name: string; kind: StepKind; role?: string; read_only?: boolean }[];
+  error?: string;
+}
+
+export interface StartRunRequest {
+  project_id: string;
+  factory: string;
+  task?: string;
+  inputs?: Record<string, string>;
+  sandbox?: boolean;
+}
+
+export function runActive(status: RunStatus): boolean {
+  return status === "running" || status === "waiting" || status === "paused";
+}
+
+async function requestText(path: string): Promise<string> {
+  const res = await fetch(path);
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (data.error) message = data.error;
+    } catch {
+      // Kein JSON.
+    }
+    throw new ApiError(res.status, message);
+  }
+  return res.text();
+}
+
 /** Fehler einer API-Antwort mit HTTP-Status und Meldung des Daemons. */
 export class ApiError extends Error {
   readonly status: number;
@@ -561,6 +665,21 @@ export const api = {
     request<EgressGrant>("POST", `/api/workspaces/${encodeURIComponent(workspaceId)}/egress/grants`, { rule, scope }),
   deleteEgressGrant: (id: number) => request<void>("DELETE", `/api/egress-grants/${id}`),
   startAgent: (req: StartAgentRequest) => request<Session>("POST", "/api/agents", req),
+  factories: (projectId: string) => request<FactorySummary[]>("GET", `/api/factories?project_id=${encodeURIComponent(projectId)}`),
+  runs: (filter: { project_id?: string; workspace_id?: string; active?: boolean; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (filter.project_id) q.set("project_id", filter.project_id);
+    if (filter.workspace_id) q.set("workspace_id", filter.workspace_id);
+    if (filter.active) q.set("active", "1");
+    if (filter.limit) q.set("limit", String(filter.limit));
+    const qs = q.toString();
+    return request<Run[]>("GET", `/api/runs${qs ? `?${qs}` : ""}`);
+  },
+  run: (id: string) => request<Run>("GET", `/api/runs/${encodeURIComponent(id)}`),
+  startRun: (req: StartRunRequest) => request<Run>("POST", "/api/runs", req),
+  cancelRun: (id: string) => request<Run>("POST", `/api/runs/${encodeURIComponent(id)}/cancel`),
+  artifact: (id: string, name: string) =>
+    requestText(`/api/runs/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(name)}`),
   sessions: (filter: { project_id?: string; workspace_id?: string; active?: boolean; limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (filter.project_id) q.set("project_id", filter.project_id);

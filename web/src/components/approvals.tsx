@@ -8,6 +8,7 @@ import {
   type ApprovalStatus,
   type BudgetApprovalDetail,
   type EgressApprovalDetail,
+  type GateApprovalDetail,
   type ToolApprovalDetail,
 } from "../api";
 import { errorMessage, formatTime, formatUSD } from "../format";
@@ -101,12 +102,13 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
   const tool = a.kind === "tool" ? (a.detail as ToolApprovalDetail) : undefined;
   const egress = a.kind === "egress" ? (a.detail as EgressApprovalDetail) : undefined;
   const budget = a.kind === "budget" ? (a.detail as BudgetApprovalDetail) : undefined;
-  const kindLabel = egress ? "Netzwerk" : budget ? "Budget" : (tool?.tool ?? "Werkzeug");
+  const gate = a.kind === "gate" ? (a.detail as GateApprovalDetail) : undefined;
+  const kindLabel = egress ? "Netzwerk" : budget ? "Budget" : gate ? "Fabrik" : (tool?.tool ?? "Werkzeug");
 
   return (
     <li className={`card approval ${pending ? "pending" : ""}`}>
       <div className="cardtitle">
-        <Badge tone={egress ? "busy" : budget ? "warn" : "neutral"}>{kindLabel}</Badge>
+        <Badge tone={egress ? "busy" : budget || gate ? "warn" : "neutral"}>{kindLabel}</Badge>
         <strong className="approvaltitle">
           {egress ? (
             <>
@@ -151,19 +153,26 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
           {pending && ` „Budget erhöhen“ gibt weitere ${formatUSD(budget.step_usd)} frei und setzt ihn fort.`}
         </p>
       )}
+      {gate && (
+        <p className="hint">
+          Run <Link to={`/runs/${gate.run_id}`} className="mono">{gate.run_id}</Link> wartet vor dem Schritt <code>{gate.step}</code>.
+          {gate.artifacts?.length ? <> Zu prüfen: {gate.artifacts.map((n) => <code key={n}>{n} </code>)}</> : null}
+          {pending && " Ein Hinweis im Begründungsfeld geht an die nächste Rolle; Ablehnen bricht den Run ab."}
+        </p>
+      )}
       {!pending && a.reason && <p className="hint">Begründung: {a.reason}</p>}
       {pending && (
         <>
           <div className="inline-form approvalactions">
             <input
-              placeholder={tool ? "Begründung / Hinweis an den Agenten (optional)" : "Begründung (optional)"}
+              placeholder={tool || gate ? "Begründung / Hinweis an den Agenten (optional)" : "Begründung (optional)"}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               aria-label="Begründung"
             />
-            {tool || budget ? (
+            {tool || budget || gate ? (
               <button type="button" className="primary" disabled={decide.isPending} onClick={() => decide.mutate("allow")}>
-                {budget ? "Budget erhöhen" : "Erlauben"}
+                {budget ? "Budget erhöhen" : gate ? "Freigeben" : "Erlauben"}
               </button>
             ) : (
               <>

@@ -10,6 +10,8 @@ import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { IdePage } from "./pages/IdePage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
+import { RunPage } from "./pages/RunPage";
+import { RunsPage } from "./pages/RunsPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
 
 // Die Session-Seite bringt xterm.js mit – erst laden, wenn sie gebraucht wird.
@@ -29,6 +31,7 @@ export function App() {
         <nav>
           <Link to="/">Projekte</Link>
           <Link to="/agents">Agenten</Link>
+          <Link to="/runs">Runs</Link>
           {auth.data && (
             <Link to="/approvals" className="navitem">
               Freigaben <ApprovalsNavBadge />
@@ -68,6 +71,8 @@ export function App() {
             <Route path="/projects/:id" element={<ProjectPage />} />
             <Route path="/workspaces/:id" element={<WorkspacePage />} />
             <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/runs" element={<RunsPage />} />
+            <Route path="/runs/:id" element={<RunPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/ide/:id" element={<IdePage />} />
             <Route
