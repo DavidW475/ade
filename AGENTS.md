@@ -43,7 +43,9 @@ eigene Konfiguration mit anderem Port und Datenverzeichnis verwenden (siehe
 | `internal/sandbox/` | Docker-Container (Agent, Lese-Container), internes Netz und Proxy-Container je Workspace über die Docker-CLI, `.ade/sandbox.yaml` (inkl. `egress`), GC |
 | `internal/proxy/` | Egress-Proxy `ade proxy`: Allowlist, Schutz vor internen Zielen, Secret-Injection, Token-Zählung, Steuer-API, Rückfragen (Hook, `on_blocked: ask`) |
 | `internal/approval/` | Freigaben: Warteschlange, Regeln aus `approvals` in `project.yaml`, `ade hook pretooluse`, Egress-Ausnahmen, Budget-Freigaben |
-| `internal/factory/` | Software-Fabrik: Definitionen (`.ade/factories`, Vorlagen aus `examples/factories`), Runner (Runs, Gates, Artefakte, Fortsetzen nach Neustart) |
+| `internal/factory/` | Software-Fabrik: Definitionen (`.ade/factories`, Vorlagen aus `examples/factories`), Runner (Runs, Gates, Artefakte, Schleifen, parallele Schritte, Fortsetzen nach Neustart), Bedingungen und Schemas |
+| `internal/trigger/` | Auslöser für Runs: GitHub-Issues mit Label (Polling über `gh`), Zeitplan |
+| `internal/cron/` | Cron-Ausdrücke (5 Felder) und Termine |
 | `web/` | Dashboard (Vite + React + TypeScript, Monaco Diff Editor) |
 | `examples/`, `images/` | Beispielkonfigurationen, Fabrik-Vorlagen (`examples/factories`, eingebettet), Container-Images (`images/agent-base`) |
 

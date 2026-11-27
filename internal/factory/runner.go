@@ -194,6 +194,12 @@ type StartRequest struct {
 	Inputs map[string]string `json:"inputs,omitempty"`
 	// Sandbox gilt für den Workspace des Runs (nil: defaults.sandbox).
 	Sandbox *bool `json:"sandbox,omitempty"`
+	// Auslöser (nur intern, nicht über die API): Name, Verweis und das Issue, das der Pull
+	// Request schließen soll. RequireBudget lehnt Fabriken ohne budget.max_cost_usd ab.
+	Trigger       string `json:"-"`
+	TriggerRef    string `json:"-"`
+	Closes        int    `json:"-"`
+	RequireBudget bool   `json:"-"`
 }
 
 // Start lädt die Fabrik, legt Workspace und Run an und beginnt mit dem ersten Schritt.
@@ -231,6 +237,9 @@ func (r *Runner) Start(ctx context.Context, req StartRequest) (*View, error) {
 	if err := r.checkRoles(f); err != nil {
 		return nil, err
 	}
+	if req.RequireBudget && (f.Budget == nil || f.Budget.MaxCostUSD <= 0) {
+		return nil, apperr.Invalid("die Fabrik %s hat kein budget.max_cost_usd – automatisch gestartete Runs brauchen eins (oder allow_unbudgeted: true am Auslöser)", f.Name)
+	}
 	def, err := json.Marshal(f)
 	if err != nil {
 		return nil, err
@@ -250,6 +259,7 @@ func (r *Runner) Start(ctx context.Context, req StartRequest) (*View, error) {
 	run := &store.Run{
 		ID: project.NewID(), ProjectID: p.ID, WorkspaceID: ws.ID, Factory: f.Name, Source: src,
 		Definition: def, Inputs: inputs, Task: task, Sandbox: ws.Sandbox, Status: store.RunRunning,
+		Trigger: req.Trigger, TriggerRef: req.TriggerRef, Closes: req.Closes,
 	}
 	if f.Budget != nil {
 		run.BudgetUSD, run.MaxDuration = f.Budget.MaxCostUSD, f.Budget.MaxDuration
@@ -1126,7 +1136,14 @@ func (r *Runner) deliver(ctx context.Context, run *store.Run, st store.RunStep) 
 // prBody ergänzt die PR-Beschreibung um Fabrik und Artefakte.
 func (r *Runner) prBody(run *store.Run, draft string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "## Software-Fabrik\n\nFabrik `%s` · Run `%s`\n\n", run.Factory, run.ID)
+	if run.Closes > 0 {
+		fmt.Fprintf(&b, "Closes #%d\n\n", run.Closes)
+	}
+	fmt.Fprintf(&b, "## Software-Fabrik\n\nFabrik `%s` · Run `%s`", run.Factory, run.ID)
+	if run.Trigger != "" {
+		fmt.Fprintf(&b, " · Auslöser `%s`", run.Trigger)
+	}
+	b.WriteString("\n\n")
 	for _, st := range run.Steps {
 		if st.Output == "" {
 			continue
@@ -1140,6 +1157,9 @@ func (r *Runner) prBody(run *store.Run, draft string) string {
 	}
 	body := b.String() + draft
 	if len(body) > 60<<10 {
+		if run.Closes > 0 {
+			return fmt.Sprintf("Closes #%d\n\n%s", run.Closes, draft)
+		}
 		return draft
 	}
 	return body

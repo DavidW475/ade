@@ -40,3 +40,21 @@ budget:
   session_usd: 5
   # Alle Sessions des Projekts im Kalendermonat (UTC), auch in verworfenen Workspaces.
   monthly_usd: 100
+
+# Auslöser (M10) starten Fabrik-Runs automatisch (doc/factory.md#5-auslöser). Ausgelöste Runs
+# laufen standardmäßig in der Sandbox und brauchen budget.max_cost_usd in der Fabrik.
+triggers:
+  # Je offenem Issue mit Label ein Run; Titel und Text werden die Aufgabe, der PR schließt
+  # das Issue. Der Issue-Text ist fremde Eingabe – authors einschränken, wenn das Repo
+  # öffentlich ist.
+  - name: features
+    factory: feature
+    github_issues:
+      label: "ade:feature"
+      authors: [octocat]
+      interval: 5m
+  # Nach Zeitplan (Cron, Zeitzone des Systems); verpasste Termine: nur der letzte.
+  - name: nightly-deps
+    factory: feature
+    inputs: { task: "Abhängigkeiten aktualisieren, Tests laufen lassen" }
+    schedule: { cron: "0 3 * * 1-5" }

@@ -30,6 +30,7 @@ import (
 	"github.com/DavidW475/ade/internal/proxy"
 	"github.com/DavidW475/ade/internal/sandbox"
 	"github.com/DavidW475/ade/internal/store"
+	"github.com/DavidW475/ade/internal/trigger"
 	"github.com/DavidW475/ade/internal/workspace"
 )
 
@@ -134,6 +135,11 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	// nicht gleich wieder fortsetzen.
 	defer runs.Close()
 
+	// Läuft vor runs.Close (defer-Reihenfolge): keine neuen Runs, während der Runner endet.
+	triggers := trigger.New(trigger.Options{Store: st, Projects: projects, Runs: runs, Logger: log})
+	triggers.Start()
+	defer triggers.Close()
+
 	ides := ide.NewManager(ide.Options{
 		Dir:         cfg.IDEDir(),
 		Binary:      cfg.IDE.Binary,
@@ -199,6 +205,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 			Approvals:  approvals,
 			Usage:      st,
 			Runs:       runs,
+			Triggers:   triggers,
 			// Wie der Manager: ohne Konfiguration gilt claude.
 			DefaultAdapter: defaultAdapter(cfg),
 		}),

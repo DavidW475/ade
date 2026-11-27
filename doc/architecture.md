@@ -74,6 +74,7 @@ flowchart LR
 | `ide` | openvscode-server starten/stoppen (in der Sandbox oder lokal). |
 | `approval` | Freigabe-Warteschlange; blockierende Anfragen von Agenten/Hooks. |
 | `factory` | Fabrik-Definitionen und Run-Zustandsmaschine (siehe [factory.md](factory.md)). |
+| `trigger` | Auslöser: GitHub-Issues mit Label und Zeitpläne starten Runs (`triggers` in `project.yaml`). |
 | `provider` | Adapter → Anbieter, Modell-Aliase, Preistabelle und Kostenberechnung (M8, [4.4](#44-kosten-und-budgets)). |
 | `store` | SQLite mit Migrationen; Events, Sessions, Runs, Freigaben. |
 | `config` | Globale (`~/.config/ade/config.yaml`) und Projekt-Konfiguration (`.ade/`). |
@@ -466,7 +467,9 @@ Gates mit einer neuen Freigabe (die alte ist mit dem Neustart abgelaufen).
 | `GET/POST` | `/api/runs[?project_id&workspace_id&active=1]` | Runs auflisten / starten (`project_id`, `factory`, `task`, `inputs`, `sandbox`) |
 | `GET` | `/api/runs/{id}` | Run mit Schritten, Artefakten und PR |
 | `POST` | `/api/runs/{id}/cancel` | Run abbrechen (laufende Session stoppen, Gate zurückziehen) |
-| `GET` | `/api/runs/{id}/artifacts/{name}` | Artefakt als Text |
+| `GET` | `/api/runs/{id}/artifacts/{name}[?iteration=N]` | Artefakt als Text (jüngster Stand oder aus Durchlauf N) |
+| `GET` | `/api/projects/{id}/triggers` | Auslöser mit Zustand, nächstem Termin und letzten Runs |
+| `POST` | `/api/projects/{id}/triggers/{name}/pause`, `…/resume` | Auslöser pausieren / fortsetzen |
 
 ## 6. Konfiguration
 
@@ -558,7 +561,9 @@ ade/
 │   ├── proxy/               # Egress-Proxy (ade proxy), Allowlist, Steuer-API
 │   ├── ide/                 # openvscode-server
 │   ├── approval/
-│   ├── factory/             # Fabrik-Definitionen, Runner (Runs, Gates, Artefakte)
+│   ├── factory/             # Fabrik-Definitionen, Runner (Runs, Gates, Artefakte, Schleifen)
+│   ├── trigger/             # Auslöser: GitHub-Issues (gh), Zeitplan
+│   ├── cron/                # Cron-Ausdrücke
 │   ├── provider/
 │   ├── store/               # SQLite + migrations/
 │   └── config/

@@ -80,6 +80,11 @@ type Run struct {
 	Steps []RunStep `json:"steps"`
 	// History sind frühere Durchläufe (Schleifen), nach Position und Durchlauf.
 	History []RunStep `json:"history,omitempty"`
+	// Trigger ist der Auslöser (leer: von Hand gestartet), TriggerRef sein Verweis (z. B. die
+	// URL des Issues), Closes das Issue, das der Pull Request schließt (0: keins).
+	Trigger    string `json:"trigger,omitempty"`
+	TriggerRef string `json:"trigger_ref,omitempty"`
+	Closes     int    `json:"closes,omitempty"`
 	// CostUSD ist die Summe der Nutzung aller Sessions des Runs (Tabelle usage, bleibt nach
 	// dem Verwerfen des Workspaces erhalten).
 	CostUSD float64 `json:"cost_usd"`
@@ -112,6 +117,7 @@ type RunStep struct {
 
 const runCols = `r.id, r.project_id, r.workspace_id, r.factory, r.source, r.definition, r.inputs, r.task, r.sandbox,
 	r.status, r.current, r.error, r.budget_usd, r.max_duration_s, r.created_at, r.updated_at, r.ended_at,
+	r.trigger, r.trigger_ref, r.closes,
 	COALESCE((SELECT SUM(u.cost_usd) FROM usage u WHERE u.session_id IN
 		(SELECT rs.session_id FROM run_steps rs WHERE rs.run_id = r.id AND rs.session_id != '')), 0)`
 
@@ -121,7 +127,8 @@ func scanRun(row interface{ Scan(...any) error }) (*Run, error) {
 	var ended sql.NullString
 	var maxDur int64
 	if err := row.Scan(&r.ID, &r.ProjectID, &r.WorkspaceID, &r.Factory, &r.Source, &def, &inputs, &r.Task, &r.Sandbox,
-		&r.Status, &r.Current, &r.Error, &r.BudgetUSD, &maxDur, &created, &updated, &ended, &r.CostUSD); err != nil {
+		&r.Status, &r.Current, &r.Error, &r.BudgetUSD, &maxDur, &created, &updated, &ended,
+		&r.Trigger, &r.TriggerRef, &r.Closes, &r.CostUSD); err != nil {
 		return nil, err
 	}
 	r.Definition = json.RawMessage(def)
@@ -149,9 +156,9 @@ func (s *Store) CreateRun(ctx context.Context, r *Run) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	_, err = tx.ExecContext(ctx, `INSERT INTO runs (id, project_id, workspace_id, factory, source, definition, inputs, task,
-		sandbox, status, budget_usd, max_duration_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		sandbox, status, budget_usd, max_duration_s, trigger, trigger_ref, closes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.ProjectID, r.WorkspaceID, r.Factory, r.Source, string(r.Definition), string(inputs), r.Task,
-		r.Sandbox, r.Status, r.BudgetUSD, int64(r.MaxDuration/time.Second))
+		r.Sandbox, r.Status, r.BudgetUSD, int64(r.MaxDuration/time.Second), r.Trigger, r.TriggerRef, r.Closes)
 	if isForeignKeyViolation(err) {
 		return apperr.NotFound("Projekt %s nicht gefunden", r.ProjectID)
 	}

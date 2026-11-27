@@ -332,3 +332,25 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
   Ausdrücke oder Referenzen in Schemas braucht, muss bis zu einer Erweiterung darauf
   verzichten. Die Zahl der Zeilen je Run wächst mit den Durchläufen (höchstens
   `max_iterations` × Schritte).
+
+## ADR-020: Auslöser per Polling über gh, Zustand in SQLite, Sandbox und Budget als Standard
+
+- **Kontext:** M10 soll Runs aus GitHub-Issues mit Label und nach Zeitplan starten. Der Daemon
+  lauscht nur auf `127.0.0.1` und ist von GitHub aus nicht erreichbar. Issue-Texte sind fremde
+  Eingabe.
+- **Entscheidung:**
+  1. GitHub-Issues werden über `gh issue list` im Haupt-Repo abgefragt (Standard alle 5 Minuten),
+     nicht per Webhook. Anmeldung und Repo kommen von `gh` und dem Remote, ADE speichert kein
+     Token.
+  2. Die Auslöser stehen in `.ade/project.yaml`; ihr Zustand (pausiert, letzte Abfrage bzw.
+     letzter Termin, letzter Fehler) und die ausgelösten Runs (`trigger_runs`, Schlüssel
+     Issue-Nummer bzw. Termin) in SQLite. Ein Issue startet nie zwei Runs.
+  3. Zeitpläne nutzen einen eigenen Cron-Parser (`internal/cron`, 5 Felder und Kurzformen),
+     keine Bibliothek. Nach einer Pause wird höchstens der letzte Termin nachgeholt.
+  4. Ausgelöste Runs laufen standardmäßig in der Sandbox und nur mit `budget.max_cost_usd` in der
+     Fabrik; beides lässt sich je Auslöser ausdrücklich abschalten (`sandbox: false`,
+     `allow_unbudgeted: true`).
+- **Konsequenzen:** Ein Run startet bis zu einem Intervall nach dem Labeln. Ohne `gh auth login`
+  steht der Fehler am Auslöser im Dashboard. `authors` prüft den Verfasser des Issues, nicht wer
+  das Label gesetzt hat (das liefert `gh issue list` nicht); in öffentlichen Repos ist `authors`
+  deshalb dringend empfohlen.
