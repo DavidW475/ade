@@ -30,6 +30,9 @@ import (
 // Binary ist der Name des CLI-Programms.
 const Binary = "claude"
 
+// ReadOnlyDenied sind die Werkzeuge, die eine Lese-Rolle nicht bekommt.
+var ReadOnlyDenied = []string{"Edit", "Write", "NotebookEdit"}
+
 // PermissionModes sind die Werte für --permission-mode, die ADE durchreicht.
 var PermissionModes = []string{"default", "acceptEdits", "auto", "bypassPermissions", "dontAsk", "plan"}
 
@@ -71,6 +74,9 @@ func (a *Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 			return nil, fmt.Errorf("unbekannter Berechtigungsmodus %q (erlaubt: %s)", spec.PermissionMode, strings.Join(PermissionModes, ", "))
 		}
 		args = append(args, "--permission-mode", spec.PermissionMode)
+	}
+	if spec.ReadOnly {
+		args = append(args, "--disallowedTools="+strings.Join(ReadOnlyDenied, ","))
 	}
 	if spec.Hook != nil && spec.Hook.Command != "" {
 		// PreToolUse-Hook für alle Werkzeuge: ADE entscheidet (Regeln oder Freigabe im

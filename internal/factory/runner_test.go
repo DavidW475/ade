@@ -1,0 +1,366 @@
+package factory
+
+import (
+	"context"
+	"io"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/DavidW475/ade/internal/agent"
+	"github.com/DavidW475/ade/internal/agent/adapter"
+	"github.com/DavidW475/ade/internal/agent/adapter/fake"
+	"github.com/DavidW475/ade/internal/approval"
+	"github.com/DavidW475/ade/internal/project"
+	"github.com/DavidW475/ade/internal/store"
+	"github.com/DavidW475/ade/internal/workspace"
+)
+
+func gitRun(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// testFactory: Planer (lesend) → Gate → Entwickler (schreibend) → Reviewer (lesend) → Gate → PR.
+const testFactory = `name: t
+inputs:
+  task: { required: true }
+roles:
+  planner: { permissions: read, outputs: [plan.md], prompt: prompts/planner.md }
+  implementer: { inputs: [plan.md], outputs: [summary.md] }
+  reviewer: { permissions: read, inputs: [plan.md, summary.md], outputs: [review.md] }
+flow:
+  - { step: plan, role: planner }
+  - { step: approve-plan, gate: human }
+  - { step: implement, role: implementer }
+  - { step: review, role: reviewer }
+  - { step: final, gate: human }
+  - { step: deliver, action: pull_request }
+`
+
+type env struct {
+	t       *testing.T
+	ctx     context.Context
+	st      *store.Store
+	ps      *project.Service
+	ws      *workspace.Manager
+	project *project.View
+	dataDir string
+	flag    string // solange die Datei fehlt, beendet der Fake-Agent seine Runde nicht
+	gh      string
+	log     *slog.Logger
+
+	agents    *agent.Manager
+	approvals *approval.Service
+	runner    *Runner
+}
+
+func setup(t *testing.T) *env {
+	t.Helper()
+	ctx := context.Background()
+	repo := t.TempDir()
+	gitRun(t, repo, "init", "-q", "-b", "main")
+	for p, c := range map[string]string{
+		"README.md":                         "hallo\n",
+		".ade/factories/t.yaml":             testFactory,
+		".ade/factories/prompts/planner.md": "Du planst.",
+	} {
+		writeFile(t, filepath.Join(repo, p), c)
+	}
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-q", "-m", "init")
+	remote := t.TempDir()
+	gitRun(t, remote, "init", "-q", "--bare")
+	gitRun(t, repo, "remote", "add", "origin", remote)
+
+	dataDir := t.TempDir()
+	st, err := store.Open(ctx, filepath.Join(dataDir, "ade.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ps := project.NewService(st)
+	p, err := ps.Add(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wm := workspace.NewManager(st, ps, t.TempDir(), log)
+	t.Cleanup(wm.Close)
+	gh := filepath.Join(t.TempDir(), "gh")
+	writeFile(t, gh, "#!/bin/sh\ncat > /dev/null\necho https://github.com/o/r/pull/9\n")
+	if err := os.Chmod(gh, 0o700); err != nil { //nolint:gosec // G302: Testskript
+		t.Fatal(err)
+	}
+	wm.SetGitHubCLI(gh)
+	e := &env{t: t, ctx: ctx, st: st, ps: ps, ws: wm, project: p, dataDir: dataDir, flag: filepath.Join(t.TempDir(), "go"), gh: gh, log: log}
+	writeFile(t, e.flag, "")
+	e.boot()
+	t.Cleanup(e.shutdown)
+	return e
+}
+
+// script ist der Fake-Agent: meldet eine Resume-ID, spiegelt jede Anweisung als Antwort,
+// schreibt eine Datei ins Arbeitsverzeichnis und beendet die Runde, wenn die Flag-Datei da ist.
+func (e *env) script() []string {
+	return []string{"sh", "-c", `echo '{"type":"resume_id","payload":{"id":"r1"}}'
+while read -r l; do
+  printf '%s\n' "$l"
+  echo "$ADE_SESSION_ID" > "touched-$ADE_SESSION_ID"
+  while [ ! -e "$1" ]; do sleep 0.05; done
+  echo '{"type":"turn_done"}'
+done`, "sh", e.flag}
+}
+
+// boot startet Agent-Manager, Freigaben und Runner (wie der Daemon, auch nach einem Neustart).
+func (e *env) boot() {
+	e.t.Helper()
+	fa := &fake.Adapter{AdapterName: "claude", Argv: e.script()}
+	e.agents = agent.NewManager(agent.Options{
+		Store: e.st, Projects: e.ps, Workspaces: e.ws, Adapters: adapter.NewRegistry(fa), DataDir: e.dataDir,
+		Logger: e.log, DefaultAdapter: "claude", FlushInterval: 10 * time.Millisecond, StopTimeout: 2 * time.Second,
+	})
+	e.ws.SetBusyCheck(e.agents.WorkspaceBusy)
+	e.ws.SetBeforeDelete(e.agents.BeforeWorkspaceDelete)
+	e.approvals = approval.New(approval.Options{Store: e.st, Logger: e.log})
+	if err := e.approvals.Recover(e.ctx); err != nil {
+		e.t.Fatal(err)
+	}
+	if err := e.agents.Recover(e.ctx); err != nil {
+		e.t.Fatal(err)
+	}
+	e.runner = New(Options{Store: e.st, Projects: e.ps, Workspaces: e.ws, Agents: e.agents, Gates: e.approvals,
+		DataDir: e.dataDir, Logger: e.log, Tick: 200 * time.Millisecond})
+	if err := e.runner.Recover(e.ctx); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+func (e *env) shutdown() {
+	if e.runner == nil {
+		return
+	}
+	e.runner.Close()
+	e.approvals.Close()
+	e.agents.Close()
+	e.runner = nil
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("Zeitüberschreitung: %s", what)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func (e *env) run(id string) *store.Run {
+	e.t.Helper()
+	r, err := e.st.GetRun(e.ctx, id)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return r
+}
+
+// waitStep wartet, bis der Run beim Schritt name mit Status status steht.
+func (e *env) waitStep(id, name, status string) store.RunStep {
+	e.t.Helper()
+	var st store.RunStep
+	waitFor(e.t, name+" "+status, func() bool {
+		r := e.run(id)
+		if !store.RunActive(r.Status) && r.Status != store.RunDone {
+			e.t.Fatalf("Run endete mit %s: %s", r.Status, r.Error)
+		}
+		for _, s := range r.Steps {
+			if s.Name == name && s.Status == status {
+				st = s
+				return true
+			}
+		}
+		return false
+	})
+	return st
+}
+
+func (e *env) decide(approvalID, decision, reason string) {
+	e.t.Helper()
+	if _, err := e.approvals.Decide(e.ctx, approvalID, decision, reason); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+func TestRunThroughWithRestart(t *testing.T) {
+	e := setup(t)
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "t", Task: "Baue X"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Source != SourceProject || len(v.Steps) != 6 || v.WorkspaceID == "" {
+		t.Fatalf("Run %+v", v.Run)
+	}
+	ws, err := e.ws.Get(e.ctx, v.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Planer: Antwort wird plan.md, Prompt enthält Rollen-Prompt und Aufgabe; der Lesezugriff
+	// lässt den Workspace unverändert.
+	gate := e.waitStep(v.ID, "approve-plan", store.StepWaiting)
+	plan, err := e.runner.ReadArtifact(e.ctx, v.ID, "plan.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"echo: Du planst.", "## Aufgabe", "Baue X", "nur Lesezugriff", "`plan.md`"} {
+		if !strings.Contains(string(plan), want) {
+			t.Errorf("plan.md ohne %q:\n%s", want, plan)
+		}
+	}
+	planner := e.run(v.ID).Steps[0]
+	if _, err := os.Stat(filepath.Join(ws.Path, "touched-"+planner.SessionID)); err == nil {
+		t.Fatal("die Lese-Rolle hat eine Datei im Workspace angelegt")
+	}
+	if s, _ := e.st.GetSession(e.ctx, planner.SessionID); !s.ReadOnly || s.Role != "planner" || s.Status != store.SessionDone {
+		t.Fatalf("Planer-Session %+v", s)
+	}
+	if _, err := os.Stat(filepath.Join(e.dataDir, "snapshots", planner.SessionID)); err == nil {
+		t.Fatal("Schnappschuss des Planers blieb liegen")
+	}
+
+	// Neustart am Gate: Die alte Freigabe läuft ab, der Runner legt eine neue an.
+	e.shutdown()
+	e.boot()
+	e.waitStep(v.ID, "approve-plan", store.StepWaiting)
+	waitFor(t, "neue Freigabe", func() bool { return e.run(v.ID).Steps[1].ApprovalID != gate.ApprovalID })
+	gate2 := e.run(v.ID).Steps[1]
+	if a, _ := e.st.GetApproval(e.ctx, gate2.ApprovalID); a.Status != store.ApprovalPending || a.Kind != store.ApprovalGate {
+		t.Fatalf("Freigabe nach Neustart %+v", a)
+	}
+
+	// Freigabe mit Hinweis → Entwickler bekommt Plan und Hinweis. Er bleibt mitten in der
+	// Runde hängen (Flag fehlt), der Daemon startet neu, die Session wird fortgesetzt.
+	if err := os.Remove(e.flag); err != nil {
+		t.Fatal(err)
+	}
+	e.decide(gate2.ApprovalID, store.DecisionAllow, "Bitte mit Tests")
+	impl := e.waitStep(v.ID, "implement", store.StepRunning)
+	waitFor(t, "Entwickler arbeitet", func() bool {
+		_, err := os.Stat(filepath.Join(ws.Path, "touched-"+impl.SessionID))
+		return err == nil
+	})
+	e.shutdown()
+	if s, _ := e.st.GetSession(e.ctx, impl.SessionID); s.Status != store.SessionInterrupted {
+		t.Fatalf("Entwickler nach Shutdown: %s", s.Status)
+	}
+	writeFile(t, e.flag, "")
+	e.boot()
+	final := e.waitStep(v.ID, "final", store.StepWaiting)
+	summary, err := e.runner.ReadArtifact(e.ctx, v.ID, "summary.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(summary), agent.ResumePrompt) {
+		t.Errorf("summary.md stammt nicht aus der fortgesetzten Runde:\n%s", summary)
+	}
+	// Die Schreib-Rolle hat den Workspace geändert, ADE hat den Stand gesichert.
+	if out := gitRun(t, ws.Path, "log", "--name-only", "--format=", ws.BaseCommit+"..HEAD"); !strings.Contains(out, "touched-"+impl.SessionID) {
+		t.Fatalf("Änderung des Entwicklers nicht committet: %q", out)
+	}
+	review, _ := e.runner.ReadArtifact(e.ctx, v.ID, "review.md")
+	for _, want := range []string{"Artefakt plan.md", "Artefakt summary.md"} {
+		if !strings.Contains(string(review), want) {
+			t.Errorf("Reviewer-Prompt ohne %q", want)
+		}
+	}
+
+	// Letztes Gate → PR.
+	e.decide(final.ApprovalID, store.DecisionAllow, "")
+	waitFor(t, "Run fertig", func() bool { return e.run(v.ID).Status == store.RunDone })
+	got, err := e.runner.Get(e.ctx, v.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PRURL != "https://github.com/o/r/pull/9" || len(got.Artifacts) != 3 || got.EndedAt == nil {
+		t.Fatalf("Ende %+v", got)
+	}
+	for _, st := range got.Steps {
+		if st.Status != store.StepDone {
+			t.Errorf("Schritt %s: %s", st.Name, st.Status)
+		}
+	}
+}
+
+func TestRunGateDenyAndCancel(t *testing.T) {
+	e := setup(t)
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "t", Task: "Y"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := e.waitStep(v.ID, "approve-plan", store.StepWaiting)
+	e.decide(gate.ApprovalID, store.DecisionDeny, "falscher Ansatz")
+	waitFor(t, "Run abgebrochen", func() bool { return e.run(v.ID).Status == store.RunCanceled })
+	if r := e.run(v.ID); !strings.Contains(r.Error, "falscher Ansatz") || r.Steps[1].Status != store.StepCanceled {
+		t.Fatalf("%+v", r)
+	}
+
+	// Abbrechen während eine Rolle arbeitet: Session wird gestoppt.
+	if err := os.Remove(e.flag); err != nil {
+		t.Fatal(err)
+	}
+	v2, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "t", Task: "Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := e.waitStep(v2.ID, "plan", store.StepRunning)
+	got, err := e.runner.Cancel(e.ctx, v2.ID)
+	if err != nil || got.Status != store.RunCanceled {
+		t.Fatalf("Cancel: %+v %v", got, err)
+	}
+	waitFor(t, "Session gestoppt", func() bool {
+		s, _ := e.st.GetSession(e.ctx, st.SessionID)
+		return s.Status == store.SessionStopped
+	})
+	if _, err := e.runner.Cancel(e.ctx, v2.ID); err == nil {
+		t.Fatal("zweites Abbrechen ohne Fehler")
+	}
+}
+
+func TestRunStartErrors(t *testing.T) {
+	e := setup(t)
+	for name, req := range map[string]StartRequest{
+		"Fabrik fehlt":  {ProjectID: e.project.ID, Factory: "gibtsnicht", Task: "x"},
+		"Aufgabe fehlt": {ProjectID: e.project.ID, Factory: "t"},
+		"Projekt fehlt": {Factory: "t", Task: "x"},
+		"Eingabe fremd": {ProjectID: e.project.ID, Factory: "t", Task: "x", Inputs: map[string]string{"foo": "1"}},
+		// Vorlage: Modell opus ist hier kein Alias und geht unverändert an die CLI.
+		"Vorlage feature": {ProjectID: e.project.ID, Factory: "feature", Task: "x"},
+	} {
+		_, err := e.runner.Start(e.ctx, req)
+		if name == "Vorlage feature" {
+			if err != nil {
+				t.Errorf("%s: %v", name, err)
+			}
+			continue
+		}
+		if err == nil {
+			t.Errorf("%s: kein Fehler", name)
+		}
+	}
+	list, err := e.runner.Factories(e.ctx, e.project.ID)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("Fabriken %+v %v", list, err)
+	}
+}

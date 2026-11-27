@@ -1,0 +1,50 @@
+# Fabrik „feature“: Plan → Freigabe → Umsetzung → Review → Freigabe → Pull Request.
+# Gehört (angepasst) nach .ade/factories/feature.yaml im Repo; ohne eigene Datei nimmt ADE
+# diese Vorlage. Aufbau: doc/factory.md.
+name: feature
+description: Feature von der Aufgabe bis zum Pull Request
+
+inputs:
+  task: { type: text, required: true, description: Was gebaut werden soll }
+
+roles:
+  planner:
+    adapter: claude
+    model: opus            # Alias aus models in config.yaml, sonst unverändert an die CLI
+    permissions: read      # sieht den Workspace nur lesend
+    prompt: prompts/planner.md
+    outputs: [plan.md]     # die letzte Antwort der Rolle
+
+  implementer:
+    adapter: claude
+    model: sonnet
+    permissions: write
+    prompt: prompts/implementer.md
+    inputs: [plan.md]
+    outputs: [summary.md]
+
+  reviewer:
+    adapter: claude
+    model: opus
+    permissions: read
+    prompt: prompts/reviewer.md
+    inputs: [plan.md, summary.md]
+    outputs: [review.md]
+
+flow:
+  - step: plan
+    role: planner
+  - step: approve-plan
+    gate: human
+  - step: implement
+    role: implementer
+  - step: review
+    role: reviewer
+  - step: final
+    gate: human
+  - step: deliver
+    action: pull_request
+
+budget:
+  max_cost_usd: 10
+  max_duration: 2h

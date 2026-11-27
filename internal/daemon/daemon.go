@@ -23,6 +23,7 @@ import (
 	"github.com/DavidW475/ade/internal/apperr"
 	"github.com/DavidW475/ade/internal/approval"
 	"github.com/DavidW475/ade/internal/config"
+	"github.com/DavidW475/ade/internal/factory"
 	"github.com/DavidW475/ade/internal/ide"
 	"github.com/DavidW475/ade/internal/project"
 	"github.com/DavidW475/ade/internal/provider"
@@ -72,6 +73,13 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	approvals := approval.New(approval.Options{
 		Store: st, Timeout: cfg.Approvals.Timeout, Logger: log, Rules: projects.ApprovalConfig,
 		OnGrant: sb.ReloadPolicies,
+		// Lokale Lese-Rollen einer Fabrik arbeiten im Schnappschuss (agent/snapshot.go).
+		Workdir: func(sess *store.Session) string {
+			if sess.ReadOnly {
+				return agent.SnapshotDir(cfg.DataDir, sess.ID)
+			}
+			return ""
+		},
 	})
 	if err := approvals.Recover(ctx); err != nil {
 		return err
@@ -114,6 +122,17 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	}
 	// Läuft vor workspaces.Close (defer-Reihenfolge): erst Agenten beenden, dann Setups.
 	defer agents.Close()
+
+	runs := factory.New(factory.Options{
+		Store: st, Projects: projects, Workspaces: workspaces, Agents: agents, Gates: approvals,
+		DataDir: cfg.DataDir, Logger: log,
+	})
+	if err := runs.Recover(ctx); err != nil {
+		return err
+	}
+	// Läuft vor agents.Close (defer-Reihenfolge): Der Runner soll unterbrochene Sessions
+	// nicht gleich wieder fortsetzen.
+	defer runs.Close()
 
 	ides := ide.NewManager(ide.Options{
 		Dir:         cfg.IDEDir(),
@@ -179,6 +198,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 			Egress:     st,
 			Approvals:  approvals,
 			Usage:      st,
+			Runs:       runs,
 			// Wie der Manager: ohne Konfiguration gilt claude.
 			DefaultAdapter: defaultAdapter(cfg),
 		}),

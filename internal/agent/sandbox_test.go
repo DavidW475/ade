@@ -11,6 +11,7 @@ import (
 	"github.com/DavidW475/ade/internal/sandbox"
 	"github.com/DavidW475/ade/internal/sandbox/sandboxtest"
 	"github.com/DavidW475/ade/internal/store"
+	"github.com/DavidW475/ade/internal/workspace"
 )
 
 // Ende-zu-Ende mit echtem Docker (nur mit ADE_TEST_DOCKER=1): Agent und Terminal laufen im
@@ -152,3 +153,54 @@ func (e *env) waitStatusTimeout(id, want string, d time.Duration) {
 	}
 	e.t.Fatalf("Status %s nicht erreicht (ist %s)", want, e.status(id))
 }
+
+// Lese-Rolle in der Sandbox (M9): läuft im Lese-Container, /workspace ist nur lesend; Stop
+// beendet ihre Prozesse dort.
+func TestSandboxReadOnlyRole(t *testing.T) {
+	e := sandboxSetup(t, "")
+	e.fake.Argv = []string{"sh", "-c", `cat /workspace/README.md > /tmp/gelesen; if echo x > /workspace/neu 2>/dev/null; then echo geschrieben > /tmp/ergebnis; else echo verweigert > /tmp/ergebnis; fi; exec cat`}
+	ws, err := e.ws.Create(e.ctx, e.project.ID, workspace.CreateOptions{Sandbox: boolPtr(true)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := e.m.StartRole(e.ctx, StartRequest{WorkspaceID: ws.ID, Task: "lesen"}, RoleStart{Role: "reviewer", Prompt: "lies", ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.waitStatusTimeout(s.ID, store.SessionRunning, 2*time.Minute)
+	sb := e.ws.Sandbox()
+	read := func(path string) string {
+		out, _ := sb.Command(e.ctx, ws.ID, sandbox.Exec{Argv: []string{"cat", path}, Reader: true}).Output()
+		return strings.TrimSpace(string(out))
+	}
+	waitFor(t, "Ergebnis im Lese-Container", func() bool { return read("/tmp/ergebnis") != "" })
+	if got := read("/tmp/ergebnis"); got != "verweigert" {
+		t.Fatalf("Schreiben in /workspace: %s", got)
+	}
+	if got := read("/tmp/gelesen"); got != "hallo" {
+		t.Fatalf("Lesen: %q", got)
+	}
+	if _, err := os.Stat(ws.Path + "/neu"); err == nil {
+		t.Fatal("Datei der Lese-Rolle im Workspace")
+	}
+	if c, err := sb.GetReader(e.ctx, ws.ID); err != nil || c == nil || !c.Running {
+		t.Fatalf("Lese-Container %+v %v", c, err)
+	}
+	v, err := e.m.Stop(e.ctx, s.ID)
+	if err != nil || v.Status != store.SessionStopped {
+		t.Fatalf("Stop = %+v, %v", v, err)
+	}
+	out, _ := sb.Command(e.ctx, ws.ID, sandbox.Exec{Reader: true, Argv: []string{"sh", "-c",
+		`n=0; for d in /proc/[0-9]*; do tr '\0' '\n' < $d/environ 2>/dev/null | grep -qx "ADE_SESSION_ID=` + s.ID + `" && n=$((n+1)); done; echo $n`}}).Output()
+	if strings.TrimSpace(string(out)) != "0" {
+		t.Errorf("Prozesse der Lese-Rolle nach Stop: %q", out)
+	}
+	if err := e.ws.Delete(e.ctx, ws.ID); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := sb.GetReader(e.ctx, ws.ID); c != nil {
+		t.Errorf("Lese-Container nach Verwerfen: %+v", c)
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }

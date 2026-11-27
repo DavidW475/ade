@@ -208,6 +208,21 @@ func TestCommand(t *testing.T) {
 	}
 }
 
+func TestCommandReadOnly(t *testing.T) {
+	a := &Adapter{Binary: "sh"}
+	c, err := a.Command(adapter.Spec{Task: "x", ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(c.Args, "--disallowedTools=Edit,Write,NotebookEdit") {
+		t.Fatalf("Schreibwerkzeuge nicht gesperrt: %v", c.Args)
+	}
+	c, _ = a.Command(adapter.Spec{Task: "x"})
+	if strings.Contains(strings.Join(c.Args, " "), "disallowed") {
+		t.Fatalf("ohne ReadOnly gesperrt: %v", c.Args)
+	}
+}
+
 func TestCommandWithHook(t *testing.T) {
 	a := &Adapter{Binary: "sh"}
 	c, err := a.Command(adapter.Spec{Task: "x", Hook: &adapter.Hook{Command: "/opt/ade/ade hook pretooluse", Timeout: 10 * time.Minute}})

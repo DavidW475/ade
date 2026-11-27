@@ -501,6 +501,16 @@ func (m *Manager) SandboxSpec(ctx context.Context, id string) (sandbox.Spec, err
 
 // EnsureSandbox legt den Container eines Sandbox-Workspaces an bzw. startet ihn.
 func (m *Manager) EnsureSandbox(ctx context.Context, id string) error {
+	return m.ensureSandbox(ctx, id, false)
+}
+
+// EnsureSandboxReader legt zusätzlich den Lese-Container an bzw. startet ihn (Lese-Rollen
+// einer Fabrik, /workspace nur lesend).
+func (m *Manager) EnsureSandboxReader(ctx context.Context, id string) error {
+	return m.ensureSandbox(ctx, id, true)
+}
+
+func (m *Manager) ensureSandbox(ctx context.Context, id string, reader bool) error {
 	w, err := m.store.GetWorkspace(ctx, id)
 	if err != nil {
 		return err
@@ -515,6 +525,9 @@ func (m *Manager) EnsureSandbox(ctx context.Context, id string) error {
 	spec, err := m.sandboxSpec(ctx, w)
 	if err != nil {
 		return err
+	}
+	if reader {
+		return sb.EnsureReader(ctx, spec)
 	}
 	return sb.Ensure(ctx, spec)
 }

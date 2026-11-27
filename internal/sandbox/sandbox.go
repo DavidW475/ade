@@ -55,7 +55,12 @@ const (
 const (
 	RoleAgent = "agent"
 	RoleProxy = "proxy"
+	// RoleReader ist der Container für Lese-Rollen einer Fabrik: /workspace nur lesend (M9).
+	RoleReader = "reader"
 )
+
+// ReaderAlias ist der Name des Lese-Containers im Workspace-Netz.
+const ReaderAlias = "reader"
 
 // DetachKeys ersetzt Docker's Ctrl-P Ctrl-Q, damit die Tasten im Terminal ankommen.
 const DetachKeys = "ctrl-@,ctrl-^,ctrl-@,ctrl-^"
@@ -171,6 +176,9 @@ func (m *Manager) Image() string { return m.opts.Image }
 
 // ContainerName ist der Name des Containers eines Workspaces.
 func ContainerName(workspace string) string { return "ade-ws-" + workspace }
+
+// ReaderName ist der Name des Lese-Containers eines Workspaces.
+func ReaderName(workspace string) string { return ContainerName(workspace) + "-ro" }
 
 // Error ist ein fehlgeschlagener docker-Aufruf mit dessen Fehlerausgabe.
 type Error struct {
@@ -383,12 +391,21 @@ func (m *Manager) inspect(ctx context.Context, refs ...string) ([]Container, err
 
 // Get liefert den Container eines Workspaces oder nil, wenn es keinen gibt.
 func (m *Manager) Get(ctx context.Context, workspace string) (*Container, error) {
-	cs, err := m.inspect(ctx, ContainerName(workspace))
+	return m.getRole(ctx, workspace, ContainerName(workspace), RoleAgent)
+}
+
+// GetReader liefert den Lese-Container eines Workspaces oder nil, wenn es keinen gibt.
+func (m *Manager) GetReader(ctx context.Context, workspace string) (*Container, error) {
+	return m.getRole(ctx, workspace, ReaderName(workspace), RoleReader)
+}
+
+func (m *Manager) getRole(ctx context.Context, workspace, name, role string) (*Container, error) {
+	cs, err := m.inspect(ctx, name)
 	if err != nil || len(cs) == 0 {
 		return nil, err
 	}
 	c := cs[0]
-	if c.DataDir != m.opts.DataDir || c.Workspace != workspace || c.Role != RoleAgent {
+	if c.DataDir != m.opts.DataDir || c.Workspace != workspace || c.Role != role {
 		return nil, fmt.Errorf("Container %s gehört nicht zu dieser ADE-Instanz", c.Name)
 	}
 	return &c, nil
@@ -442,6 +459,12 @@ func (m *Manager) Ensure(ctx context.Context, s Spec) error {
 	if err != nil {
 		return err
 	}
+	if netCreated || (c != nil && c.Net != NetVersion) {
+		// Ein Lese-Container hängt am alten Netz: beim nächsten Gebrauch neu anlegen.
+		if _, err := m.run(ctx, nil, "container", "rm", "--force", "--", ReaderName(s.Workspace)); err != nil && !isNoSuch(err) {
+			return fmt.Errorf("alten Lese-Container entfernen: %w", err)
+		}
+	}
 	if c != nil && (c.Net != NetVersion || netCreated) {
 		m.log.Info("Sandbox-Container wird mit dem aktuellen Aufbau neu angelegt", "workspace", s.Workspace, "bisher", c.Net)
 		m.unlinkLocked(s.Workspace)
@@ -470,7 +493,7 @@ func (m *Manager) Ensure(ctx context.Context, s Spec) error {
 		m.log.Info("Sandbox-Container gestartet", "workspace", s.Workspace)
 	}
 	if created {
-		m.prepareUser(ctx, s.Workspace)
+		m.prepareUser(ctx, ContainerName(s.Workspace))
 	}
 	m.mu.Lock()
 	m.ensure[s.Workspace] = time.Now()
@@ -478,12 +501,63 @@ func (m *Manager) Ensure(ctx context.Context, s Spec) error {
 	return nil
 }
 
+// EnsureReader sorgt wie Ensure für Netz und Proxy und zusätzlich für den Lese-Container
+// des Workspaces: gleiches Image, gleiches internes Netz, gleicher Proxy, aber /workspace
+// nur lesend gemountet. Lese-Rollen einer Fabrik (Planer, Reviewer) laufen darin und können
+// den Workspace nicht ändern.
+func (m *Manager) EnsureReader(ctx context.Context, s Spec) error {
+	if err := m.Ensure(ctx, s); err != nil {
+		return err
+	}
+	unlock := m.lock(s.Workspace)
+	defer unlock()
+	c, err := m.GetReader(ctx, s.Workspace)
+	if err != nil {
+		return err
+	}
+	if c != nil && c.Net != NetVersion {
+		if _, err := m.run(ctx, nil, "container", "rm", "--force", "--", c.ID); err != nil {
+			return fmt.Errorf("alten Lese-Container entfernen: %w", err)
+		}
+		c = nil
+	}
+	created := false
+	if c == nil {
+		if err := checkMountPath(s.Path); err != nil {
+			return err
+		}
+		m.log.Info("Lese-Container wird angelegt", "workspace", s.Workspace, "image", m.ImageFor(s.Config))
+		if _, err := m.run(ctx, nil, m.createArgs(s, true)...); err != nil {
+			return fmt.Errorf("Lese-Container anlegen: %w", err)
+		}
+		created = true
+	}
+	if c == nil || !c.Running {
+		if _, err := m.run(ctx, nil, "container", "start", ReaderName(s.Workspace)); err != nil {
+			return fmt.Errorf("Lese-Container starten: %w", err)
+		}
+	}
+	if created {
+		m.prepareUser(ctx, ReaderName(s.Workspace))
+	}
+	return nil
+}
+
 // CreateArgs liefert die Argumente für docker create (exportiert für Tests).
-func (m *Manager) CreateArgs(s Spec) []string {
+func (m *Manager) CreateArgs(s Spec) []string { return m.createArgs(s, false) }
+
+// ReaderCreateArgs liefert die Argumente für docker create des Lese-Containers.
+func (m *Manager) ReaderCreateArgs(s Spec) []string { return m.createArgs(s, true) }
+
+func (m *Manager) createArgs(s Spec, reader bool) []string {
 	r := s.Config.Resources
+	name, role, alias, mount := ContainerName(s.Workspace), RoleAgent, AgentAlias, "type=bind,source="+s.Path+",target="+Workdir
+	if reader {
+		name, role, alias, mount = ReaderName(s.Workspace), RoleReader, ReaderAlias, mount+",readonly"
+	}
 	args := []string{
 		"container", "create",
-		"--name", ContainerName(s.Workspace),
+		"--name", name,
 		"--label", LabelManaged + "=true",
 		"--label", LabelWorkspace + "=" + s.Workspace,
 		"--label", LabelDataDir + "=" + m.opts.DataDir,
@@ -492,11 +566,11 @@ func (m *Manager) CreateArgs(s Spec) []string {
 		"--cap-drop", "ALL",
 		"--security-opt", "no-new-privileges",
 		"--init",
-		"--mount", "type=bind,source=" + s.Path + ",target=" + Workdir,
-		"--label", LabelRole + "=" + RoleAgent,
+		"--mount", mount,
+		"--label", LabelRole + "=" + role,
 		"--label", LabelNet + "=" + NetVersion,
 		"--network", NetworkName(s.Workspace),
-		"--network-alias", AgentAlias,
+		"--network-alias", alias,
 		"--dns", noDNS,
 		"--workdir", Workdir,
 		"--env", "HOME=" + Home,
@@ -523,9 +597,16 @@ func (m *Manager) CreateArgs(s Spec) []string {
 	return append(args, "--entrypoint", "sleep", m.ImageFor(s.Config), "infinity")
 }
 
+func checkMountPath(p string) error {
+	if strings.ContainsAny(p, ",\n") || !strings.HasPrefix(p, "/") {
+		return fmt.Errorf("Workspace-Pfad %q ist für einen Mount ungeeignet", p)
+	}
+	return nil
+}
+
 func (m *Manager) create(ctx context.Context, s Spec) error {
-	if strings.ContainsAny(s.Path, ",\n") || !strings.HasPrefix(s.Path, "/") {
-		return fmt.Errorf("Workspace-Pfad %q ist für einen Mount ungeeignet", s.Path)
+	if err := checkMountPath(s.Path); err != nil {
+		return err
 	}
 	m.log.Info("Sandbox-Container wird angelegt", "workspace", s.Workspace, "image", m.ImageFor(s.Config))
 	if _, err := m.run(ctx, nil, m.CreateArgs(s)...); err != nil {
@@ -536,12 +617,12 @@ func (m *Manager) create(ctx context.Context, s Spec) error {
 
 // prepareUser legt einen passwd-Eintrag an, falls die UID im Image fehlt (sonst zeigen
 // Shells „I have no name!“ und manche Werkzeuge scheitern). Fehler sind nicht fatal.
-func (m *Manager) prepareUser(ctx context.Context, workspace string) {
+func (m *Manager) prepareUser(ctx context.Context, container string) {
 	uid, gid := strconv.Itoa(m.opts.UID), strconv.Itoa(m.opts.GID)
 	script := `getent group "$2" >/dev/null || echo "ade$2:x:$2:" >> /etc/group
 getent passwd "$1" >/dev/null || echo "ade$1:x:$1:$2:ADE:` + Home + `:/bin/bash" >> /etc/passwd`
-	if _, err := m.run(ctx, nil, "exec", "--user", "0", ContainerName(workspace), "sh", "-c", script, "sh", uid, gid); err != nil {
-		m.log.Debug("passwd-Eintrag im Container", "workspace", workspace, "err", err)
+	if _, err := m.run(ctx, nil, "exec", "--user", "0", container, "sh", "-c", script, "sh", uid, gid); err != nil {
+		m.log.Debug("passwd-Eintrag im Container", "container", container, "err", err)
 	}
 }
 
@@ -556,6 +637,8 @@ type Exec struct {
 	Stdin bool
 	// Root: als root statt als Nutzer (nur für Vorbereitungen von ADE).
 	Root bool
+	// Reader: im Lese-Container statt im Agent-Container (EnsureReader).
+	Reader bool
 }
 
 // ExecArgs liefert die Argumente für docker exec und die Umgebung der CLI.
@@ -585,7 +668,11 @@ func (m *Manager) ExecArgs(workspace string, e Exec) ([]string, []string) {
 		args = append(args, "--env", k)
 		env = append(env, kv)
 	}
-	args = append(args, ContainerName(workspace))
+	name := ContainerName(workspace)
+	if e.Reader {
+		name = ReaderName(workspace)
+	}
+	args = append(args, name)
 	return append(args, e.Argv...), env
 }
 
@@ -610,6 +697,15 @@ exit 0`
 // Signal sendet sig an alle Prozesse im Container mit der Umgebungsvariable marker
 // (KEY=VALUE), z. B. ADE_SESSION_ID=<id>.
 func (m *Manager) Signal(ctx context.Context, workspace, marker string, sig syscall.Signal) error {
+	return m.signalIn(ctx, ContainerName(workspace), marker, sig)
+}
+
+// SignalReader ist Signal für den Lese-Container.
+func (m *Manager) SignalReader(ctx context.Context, workspace, marker string, sig syscall.Signal) error {
+	return m.signalIn(ctx, ReaderName(workspace), marker, sig)
+}
+
+func (m *Manager) signalIn(ctx context.Context, container, marker string, sig syscall.Signal) error {
 	name := map[syscall.Signal]string{syscall.SIGTERM: "TERM", syscall.SIGKILL: "KILL", syscall.SIGINT: "INT", syscall.SIGHUP: "HUP"}[sig]
 	if name == "" {
 		return fmt.Errorf("Signal %v wird nicht unterstützt", sig)
@@ -620,7 +716,7 @@ func (m *Manager) Signal(ctx context.Context, workspace, marker string, sig sysc
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	_, err := m.run(cctx, nil, "exec", "--user", strconv.Itoa(m.opts.UID)+":"+strconv.Itoa(m.opts.GID),
-		ContainerName(workspace), "sh", "-c", signalScript, "sh", marker, name)
+		container, "sh", "-c", signalScript, "sh", marker, name)
 	return err
 }
 
@@ -651,11 +747,15 @@ func (m *Manager) hostPort(ctx context.Context, name string, port int) (int, err
 	return 0, fmt.Errorf("Port %d des Containers ist nicht auf 127.0.0.1 veröffentlicht", port)
 }
 
-// Stop stoppt Container und Proxy eines Workspaces (die Dateien bleiben im Workspace).
+// Stop stoppt Container, Lese-Container und Proxy eines Workspaces (die Dateien bleiben im
+// Workspace).
 func (m *Manager) Stop(ctx context.Context, workspace string) error {
 	unlock := m.lock(workspace)
 	defer unlock()
 	m.unlinkLocked(workspace)
+	if err := m.stop(ctx, ReaderName(workspace)); err != nil {
+		return err
+	}
 	return m.stop(ctx, ContainerName(workspace), ProxyName(workspace))
 }
 
@@ -682,7 +782,8 @@ func (m *Manager) forget(workspace string) {
 	m.mu.Unlock()
 }
 
-// Remove entfernt Container, Proxy und Netz eines Workspaces (soweit vorhanden).
+// Remove entfernt Container, Lese-Container, Proxy und Netz eines Workspaces (soweit
+// vorhanden).
 func (m *Manager) Remove(ctx context.Context, workspace string) error {
 	unlock := m.lock(workspace)
 	defer unlock()
@@ -691,12 +792,16 @@ func (m *Manager) Remove(ctx context.Context, workspace string) error {
 	if err != nil {
 		return err
 	}
+	rd, err := m.GetReader(ctx, workspace)
+	if err != nil {
+		return err
+	}
 	p, err := m.getProxy(ctx, workspace)
 	if err != nil {
 		return err
 	}
 	var ids []string
-	for _, x := range []*Container{c, p} {
+	for _, x := range []*Container{c, rd, p} {
 		if x != nil {
 			ids = append(ids, x.ID)
 		}

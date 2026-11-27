@@ -76,16 +76,18 @@ type Session struct {
 	BudgetUSD float64 `json:"budget_usd,omitempty"`
 	// MonthlyAllowUSD: Nach Freigabe darf die Session bis zu diesen Monatskosten des
 	// Projekts weiterlaufen.
-	MonthlyAllowUSD float64    `json:"monthly_allow_usd,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	EndedAt         *time.Time `json:"ended_at,omitempty"`
+	MonthlyAllowUSD float64 `json:"monthly_allow_usd,omitempty"`
+	// ReadOnly: Session einer Lese-Rolle einer Fabrik (Workspace nur lesend, M9).
+	ReadOnly  bool       `json:"read_only,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	EndedAt   *time.Time `json:"ended_at,omitempty"`
 }
 
 const sessionCols = `s.id, s.workspace_id, w.project_id, s.adapter, s.task, s.command, s.model, s.permission_mode,
 	s.role, s.status, s.error, s.exit_code, s.resume_id, s.pid, s.cost_usd, s.created_at, s.updated_at, s.ended_at,
 	s.model_id, s.input_tokens, s.output_tokens, s.cache_read_tokens, s.cache_write_tokens, s.unpriced, s.metered,
-	s.budget_usd, s.monthly_allow_usd`
+	s.budget_usd, s.monthly_allow_usd, s.read_only`
 
 const sessionFrom = ` FROM sessions s JOIN workspaces w ON w.id = s.workspace_id`
 
@@ -97,7 +99,7 @@ func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 	if err := row.Scan(&s.ID, &s.WorkspaceID, &s.ProjectID, &s.Adapter, &s.Task, &command, &s.Model,
 		&s.PermissionMode, &s.Role, &s.Status, &s.Error, &exit, &s.ResumeID, &s.PID, &s.CostUSD,
 		&created, &updated, &ended, &s.ModelID, &s.InputTokens, &s.OutputTokens, &s.CacheReadTokens,
-		&s.CacheWriteTokens, &s.Unpriced, &s.Metered, &s.BudgetUSD, &s.MonthlyAllowUSD); err != nil {
+		&s.CacheWriteTokens, &s.Unpriced, &s.Metered, &s.BudgetUSD, &s.MonthlyAllowUSD, &s.ReadOnly); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(command), &s.Command)
@@ -124,10 +126,10 @@ func (s *Store) CreateSession(ctx context.Context, sess *Session) error {
 	}
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO sessions (id, workspace_id, adapter, task, command, model, permission_mode, role, status, resume_id,
-		 model_id, metered, budget_usd)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 model_id, metered, budget_usd, read_only)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sess.ID, sess.WorkspaceID, sess.Adapter, sess.Task, string(cmd), sess.Model, sess.PermissionMode,
-		sess.Role, sess.Status, sess.ResumeID, sess.ModelID, sess.Metered, sess.BudgetUSD)
+		sess.Role, sess.Status, sess.ResumeID, sess.ModelID, sess.Metered, sess.BudgetUSD, sess.ReadOnly)
 	if isForeignKeyViolation(err) {
 		return apperr.NotFound("Workspace %s nicht gefunden", sess.WorkspaceID)
 	}

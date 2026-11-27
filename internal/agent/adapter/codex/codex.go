@@ -82,6 +82,9 @@ func (a *Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 		// Der Container ist die Sandbox; die eigene (Landlock/seccomp) von Codex läuft darin
 		// nicht zuverlässig. Rückfragen gibt es im exec-Modus ohnehin nicht.
 		args = append(args, "--dangerously-bypass-approvals-and-sandbox")
+	case spec.ReadOnly:
+		// Lese-Rolle ohne ADE-Sandbox: Codex' eigene Sandbox nur lesend.
+		args = append(args, "--sandbox", "read-only")
 	case spec.PermissionMode != "":
 		args = append(args, "--sandbox", spec.PermissionMode)
 	default:

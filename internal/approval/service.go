@@ -41,6 +41,9 @@ type Options struct {
 	Rules func(ctx context.Context, projectID string) (*Config, error)
 	// OnGrant läuft nach einer neuen Egress-Ausnahme (Policies an die Proxys schicken).
 	OnGrant func(ctx context.Context)
+	// Workdir liefert das Arbeitsverzeichnis einer lokalen Session, wenn es nicht der
+	// Workspace ist (Lese-Rollen arbeiten in einem Schnappschuss; leer: Workspace).
+	Workdir func(sess *store.Session) string
 }
 
 // Service verwaltet Freigaben.
@@ -380,6 +383,10 @@ func (s *Service) PreToolUse(ctx context.Context, req HookRequest) proxy.Answer 
 	workdir := ws.Path
 	if ws.Sandbox {
 		workdir = sandbox.Workdir
+	} else if s.opts.Workdir != nil {
+		if wd := s.opts.Workdir(sess); wd != "" {
+			workdir = wd
+		}
 	}
 	env := "local"
 	if ws.Sandbox {
@@ -479,6 +486,40 @@ func (s *Service) RequestBudget(ctx context.Context, a *store.Approval, decided 
 		}
 	}()
 	return nil
+}
+
+// --- Gates ------------------------------------------------------------------------------
+
+// GateTimeout ist die Wartezeit an einem Gate eines Fabrik-Runs. Es wartet kein Prozess.
+const GateTimeout = 7 * 24 * time.Hour
+
+// RequestGate legt die Freigabe eines Gates an (Art gate). decided läuft in einer eigenen
+// Goroutine, sobald entschieden, abgelaufen oder abgebrochen ist.
+func (s *Service) RequestGate(ctx context.Context, a *store.Approval, decided func(*store.Approval)) error {
+	a.Kind = store.ApprovalGate
+	if err := s.createFor(ctx, a, GateTimeout); err != nil {
+		return err
+	}
+	go func() { //nolint:gosec // G118: wartet über die Anfrage hinaus bis zur Entscheidung
+		res, err := s.wait(context.Background(), a.ID)
+		if err == nil && res != nil {
+			decided(res)
+		}
+	}()
+	return nil
+}
+
+// Cancel bricht eine offene Freigabe ab (z. B. weil der Run abgebrochen wurde).
+func (s *Service) Cancel(ctx context.Context, id, reason string) error {
+	a, err := s.opts.Store.GetApproval(ctx, id)
+	if err != nil {
+		return err
+	}
+	if a.Status != store.ApprovalPending {
+		return nil
+	}
+	_, err = s.finish(ctx, id, store.ApprovalCanceled, "", reason)
+	return err
 }
 
 // --- Egress -----------------------------------------------------------------------------

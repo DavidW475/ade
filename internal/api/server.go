@@ -11,6 +11,7 @@ import (
 
 	"github.com/DavidW475/ade/internal/agent"
 	"github.com/DavidW475/ade/internal/approval"
+	"github.com/DavidW475/ade/internal/factory"
 	"github.com/DavidW475/ade/internal/gateway"
 	"github.com/DavidW475/ade/internal/ide"
 	"github.com/DavidW475/ade/internal/project"
@@ -50,6 +51,8 @@ type Options struct {
 	Approvals *approval.Service
 	// Usage liefert Kosten und Tokens (optional; ohne ihn fehlt GET /api/usage).
 	Usage UsageStore
+	// Runs ist der Fabrik-Runner (optional; ohne ihn fehlen /api/factories und /api/runs).
+	Runs *factory.Runner
 }
 
 // UsageStore ist der Teil der Datenbank für Kosten.
@@ -91,6 +94,7 @@ func New(opts Options) *Server {
 	s.routesSandbox(mux)
 	s.routesApprovals(mux)
 	s.routesUsage(mux)
+	s.routesRuns(mux)
 	unknown := func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "unbekannter API-Pfad")
 	}

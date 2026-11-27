@@ -146,6 +146,8 @@ func TestCommand(t *testing.T) {
 		{"sandbox", adapter.Spec{Task: "x", Sandbox: true, Provider: &adapter.ProviderAccess{BaseURL: "http://proxy:8080/p/openai/v1", KeyEnv: "OPENAI_API_KEY"}},
 			[]string{"--dangerously-bypass-approvals-and-sandbox", "model_provider=ade", `base_url="http://proxy:8080/p/openai/v1"`, `env_key="OPENAI_API_KEY"`}, []string{"--sandbox "}},
 		{"resume", adapter.Spec{Task: "weiter", ResumeID: "t-1"}, []string{"resume t-1 -"}, nil},
+		{"lese-rolle", adapter.Spec{Task: "x", ReadOnly: true, PermissionMode: "workspace-write"}, []string{"--sandbox read-only"}, []string{"workspace-write"}},
+		{"lese-rolle sandbox", adapter.Spec{Task: "x", ReadOnly: true, Sandbox: true}, []string{"--dangerously-bypass-approvals-and-sandbox"}, []string{"--sandbox "}},
 	}
 	for _, tc := range cases {
 		c, err := a.Command(tc.spec)

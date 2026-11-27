@@ -54,6 +54,10 @@ type Spec struct {
 	// Sandbox: Der Prozess läuft im Docker-Container des Workspaces (Workdir /workspace).
 	// Programme werden dann im Image gesucht, nicht auf dem Host.
 	Sandbox bool
+	// ReadOnly: Lese-Rolle einer Fabrik. ADE sorgt selbst dafür, dass der Workspace nicht
+	// geändert wird (Lese-Container bzw. Schnappschuss); Adapter sperren zusätzlich ihre
+	// Schreibwerkzeuge, damit der Agent es gar nicht erst versucht.
+	ReadOnly bool
 	// Hook ist der Freigabe-Hook (nil: keiner, die CLI entscheidet über PermissionMode).
 	Hook *Hook
 	// Provider beschreibt den Zugang zum Anbieter, falls ADE ihn vorgibt (nil: eigene
