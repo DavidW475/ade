@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -473,7 +474,7 @@ func (r *Runner) step(ctx context.Context, run *store.Run) (more bool, err error
 			// aktualisiert).
 			return false, r.deliver(ctx, run)
 		}
-		return r.checkRole(ctx, run, st)
+		return r.checkRole(ctx, run, &f, st)
 	case store.StepWaiting:
 		return r.checkGate(ctx, run, st)
 	}
@@ -584,7 +585,7 @@ func (r *Runner) startRole(ctx context.Context, run *store.Run, f *Factory, st s
 	return true, nil
 }
 
-func (r *Runner) checkRole(ctx context.Context, run *store.Run, st store.RunStep) (bool, error) {
+func (r *Runner) checkRole(ctx context.Context, run *store.Run, f *Factory, st store.RunStep) (bool, error) {
 	v, err := r.opts.Agents.Get(ctx, st.SessionID)
 	if errors.Is(err, apperr.ErrNotFound) {
 		return false, errors.New("die Session wurde gelöscht (Workspace verworfen?)")
@@ -607,7 +608,12 @@ func (r *Runner) checkRole(ctx context.Context, run *store.Run, st store.RunStep
 		r.setStatus(ctx, run, store.RunPaused)
 		return false, nil
 	case store.SessionIdle, store.SessionDone:
-		return true, r.completeRole(ctx, run, st, v)
+		err := r.completeRole(ctx, run, f, st, v)
+		if errors.Is(err, errFixRequested) {
+			r.setStatus(ctx, run, store.RunRunning)
+			return false, nil
+		}
+		return true, err
 	case store.SessionInterrupted:
 		if r.isClosing() {
 			return false, nil
@@ -630,7 +636,7 @@ func (r *Runner) checkRole(ctx context.Context, run *store.Run, st store.RunStep
 
 // completeRole sichert die Antwort als Artefakt, beendet einen wartenden Agenten und
 // schließt den Schritt ab.
-func (r *Runner) completeRole(ctx context.Context, run *store.Run, st store.RunStep, v *agent.View) error {
+func (r *Runner) completeRole(ctx context.Context, run *store.Run, f *Factory, st store.RunStep, v *agent.View) error {
 	if st.Output != "" {
 		text, err := r.opts.Agents.LastMessage(ctx, st.SessionID)
 		if err != nil {
@@ -638,6 +644,13 @@ func (r *Runner) completeRole(ctx context.Context, run *store.Run, st store.RunS
 		}
 		if strings.TrimSpace(text) == "" {
 			return fmt.Errorf("die Rolle %s hat keine Antwort für %s geliefert", st.Role, st.Output)
+		}
+		if out := outputOf(f, st); out.Structured() {
+			data, problem := structured(out, text)
+			if problem != "" {
+				return r.requestFix(ctx, run, st, out, problem)
+			}
+			text = string(data)
 		}
 		if err := r.writeArtifact(run.ID, st.Output, text); err != nil {
 			return err
@@ -650,12 +663,65 @@ func (r *Runner) completeRole(ctx context.Context, run *store.Run, st store.RunS
 			return err
 		}
 	}
-	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, run.Current, store.StepUpdate{Status: store.Ptr(store.StepDone), Ended: true}); err != nil {
+	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, run.Current, store.StepUpdate{Status: store.Ptr(store.StepDone), Error: store.Ptr(""), Ended: true}); err != nil {
 		return err
 	}
 	r.log.Info("Rolle fertig", "run", run.ID, "schritt", st.Name, "rolle", st.Role)
 	return nil
 }
+
+// MaxFixes ist die Zahl der Korrektur-Runden für ein ungültiges strukturiertes Artefakt.
+const MaxFixes = 2
+
+// outputOf liefert das Artefakt des Schritts aus der Definition (nil: keins).
+func outputOf(f *Factory, st store.RunStep) *Output {
+	if role := f.Roles[st.Role]; role != nil {
+		if o := role.OutputSpec(); o != nil && o.Name == st.Output {
+			return o
+		}
+	}
+	return nil
+}
+
+// structured liest das JSON aus der Antwort und prüft es gegen das Schema; problem
+// beschreibt, was nicht stimmt (leer: gültig).
+func structured(out *Output, text string) (data []byte, problem string) {
+	data, v, err := ExtractJSON(text)
+	if err != nil {
+		return nil, err.Error()
+	}
+	if len(out.SchemaDoc) == 0 {
+		return data, ""
+	}
+	s, err := CompileSchema(out.SchemaDoc)
+	if err != nil {
+		return nil, "Schema nicht lesbar: " + err.Error()
+	}
+	if errs := s.Validate(v); len(errs) > 0 {
+		return nil, "die Antwort passt nicht zum Schema:\n- " + strings.Join(errs, "\n- ")
+	}
+	return data, ""
+}
+
+// requestFix schickt der Rolle die Prüffehler als Folgeanweisung; nach MaxFixes Runden
+// scheitert der Schritt.
+func (r *Runner) requestFix(ctx context.Context, run *store.Run, st store.RunStep, out *Output, problem string) error {
+	if st.Fixes >= MaxFixes {
+		return fmt.Errorf("%s ist nach %d Korrekturen noch ungültig: %s", out.Name, st.Fixes, problem)
+	}
+	msg := fmt.Sprintf("Deine letzte Antwort ist als Artefakt `%s` ungültig: %s\n\nAntworte noch einmal, nur mit dem vollständigen JSON (gern in einem ```json-Block), ohne weiteren Text.", out.Name, problem)
+	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, run.Current, store.StepUpdate{Fixes: store.Ptr(st.Fixes + 1), Error: &problem}); err != nil {
+		return err
+	}
+	if _, err := r.opts.Agents.Input(ctx, st.SessionID, msg); err != nil {
+		return fmt.Errorf("Korrektur von %s anfordern: %w", out.Name, err)
+	}
+	r.log.Info("Artefakt ungültig, Rolle korrigiert", "run", run.ID, "schritt", st.Name, "artefakt", out.Name, "runde", st.Fixes+1)
+	return errFixRequested
+}
+
+// errFixRequested: Die Rolle korrigiert ihr Artefakt; der Schritt läuft weiter.
+var errFixRequested = errors.New("Korrektur angefordert")
 
 type gateDetail struct {
 	RunID     string   `json:"run_id"`
@@ -770,7 +836,7 @@ func (r *Runner) prBody(run *store.Run, draft string) string {
 			continue
 		}
 		text := truncate(string(data), maxArtifactInPR)
-		fmt.Fprintf(&b, "<details>\n<summary>%s (%s)</summary>\n\n%s\n\n</details>\n\n", st.Output, st.Role, strings.TrimSpace(text))
+		fmt.Fprintf(&b, "<details>\n<summary>%s (%s)</summary>\n\n%s\n\n</details>\n\n", st.Output, st.Role, artifactBlock(st.Output, text))
 	}
 	body := b.String() + draft
 	if len(body) > 60<<10 {
@@ -794,6 +860,15 @@ func (r *Runner) writeArtifact(runID, name, text string) error {
 		return err
 	}
 	return os.WriteFile(p, []byte(truncate(text, MaxArtifact)), 0o600)
+}
+
+// artifactBlock setzt JSON-Artefakte in einen Codeblock, Text bleibt, wie er ist.
+func artifactBlock(name, text string) string {
+	text = strings.TrimSpace(text)
+	if strings.HasSuffix(name, ".json") {
+		return "```json\n" + text + "\n```"
+	}
+	return text
 }
 
 func truncate(s string, n int) string {
@@ -849,7 +924,7 @@ func (r *Runner) prompt(ctx context.Context, run *store.Run, f *Factory, st stor
 		if err != nil {
 			return "", fmt.Errorf("Artefakt %s fehlt: %w", in, err)
 		}
-		fmt.Fprintf(&b, "## Artefakt %s%s\n\n%s\n\n", in, from, strings.TrimSpace(truncate(string(data), maxArtifactInPrompt)))
+		fmt.Fprintf(&b, "## Artefakt %s%s\n\n%s\n\n", in, from, artifactBlock(in, truncate(string(data), maxArtifactInPrompt)))
 	}
 	b.WriteString("## Rahmen\n\n")
 	fmt.Fprintf(&b, "- Du bist ein Schritt (%s) im Run %s der Fabrik %s; die anderen Rollen sind eigene Agenten.\n", st.Name, run.ID, f.Name)
@@ -858,8 +933,17 @@ func (r *Runner) prompt(ctx context.Context, run *store.Run, f *Factory, st stor
 	} else {
 		b.WriteString("- Arbeite im aktuellen Branch. Committen und pushen musst du nicht; ADE sichert den Stand.\n")
 	}
-	if out := role.Output(); out != "" {
-		fmt.Fprintf(&b, "- Deine letzte Antwort wird als Artefakt `%s` gespeichert und an die folgenden Schritte weitergegeben. Schreibe sie vollständig in deine letzte Nachricht, ohne Rückfragen – es antwortet dir niemand.\n", out)
+	if out := role.OutputSpec(); out != nil {
+		fmt.Fprintf(&b, "- Deine letzte Antwort wird als Artefakt `%s` gespeichert und an die folgenden Schritte weitergegeben. Schreibe sie vollständig in deine letzte Nachricht, ohne Rückfragen – es antwortet dir niemand.\n", out.Name)
+		if out.Structured() {
+			b.WriteString("- Die letzte Antwort muss genau ein JSON-Wert sein (gern in einem ```json-Block), ohne weiteren Text danach. ADE prüft sie; ist sie ungültig, bekommst du die Fehler und antwortest noch einmal.\n")
+			if len(out.SchemaDoc) > 0 {
+				var pretty bytes.Buffer
+				if json.Indent(&pretty, out.SchemaDoc, "", "  ") == nil {
+					fmt.Fprintf(&b, "\nJSON Schema für `%s`:\n\n```json\n%s\n```\n", out.Name, pretty.String())
+				}
+			}
+		}
 	} else {
 		b.WriteString("- Es antwortet dir niemand auf Rückfragen; triff sinnvolle Annahmen und nenne sie am Ende.\n")
 	}

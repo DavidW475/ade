@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -73,17 +74,20 @@ flow:
 		"parallel": {minimal + `  - parallel:
       - { step: r, role: a }
 `, "erst ab M10"},
-		"when":             {minimal + "  - { step: d, when: \"x\", goto: one }\n", "erst ab M10"},
-		"gate":             {minimal + "  - { step: g, gate: robot }\n", "gate: \"robot\""},
-		"zwei Arten":       {minimal + "  - { step: g, gate: human, role: a }\n", "genau eins"},
-		"PR nicht am Ende": {strings.Replace(minimal, "  - { step: two, role: b }\n", "  - { step: pr, action: pull_request }\n  - { step: two, role: b }\n", 1), "letzte Schritt"},
-		"Adapter":          {strings.Replace(minimal, "a: { permissions: read", "a: { adapter: pty, permissions: read", 1), "adapter: \"pty\""},
-		"Rechte":           {strings.Replace(minimal, "permissions: read", "permissions: admin", 1), "permissions"},
-		"sandbox":          {strings.Replace(minimal, "b: { inputs", "b: { sandbox: default, inputs", 1), "ganzen Run"},
-		"Prompt":           {strings.Replace(minimal, "b: { inputs", "b: { prompt: ../x.md, inputs", 1), "herausführen"},
-		"zwei Ausgaben":    {strings.Replace(minimal, "outputs: [plan.md]", "outputs: [plan.md, b.json]", 1), "ab M10"},
-		"leer":             {"", "leer"},
-		"Budget":           {minimal + "budget: { max_cost_usd: -1 }\n", "max_cost_usd"},
+		"when":              {minimal + "  - { step: d, when: \"x\", goto: one }\n", "erst ab M10"},
+		"gate":              {minimal + "  - { step: g, gate: robot }\n", "gate: \"robot\""},
+		"zwei Arten":        {minimal + "  - { step: g, gate: human, role: a }\n", "genau eins"},
+		"PR nicht am Ende":  {strings.Replace(minimal, "  - { step: two, role: b }\n", "  - { step: pr, action: pull_request }\n  - { step: two, role: b }\n", 1), "letzte Schritt"},
+		"Adapter":           {strings.Replace(minimal, "a: { permissions: read", "a: { adapter: pty, permissions: read", 1), "adapter: \"pty\""},
+		"Rechte":            {strings.Replace(minimal, "permissions: read", "permissions: admin", 1), "permissions"},
+		"sandbox":           {strings.Replace(minimal, "b: { inputs", "b: { sandbox: default, inputs", 1), "ganzen Run"},
+		"Prompt":            {strings.Replace(minimal, "b: { inputs", "b: { prompt: ../x.md, inputs", 1), "herausführen"},
+		"zwei Ausgaben":     {strings.Replace(minimal, "outputs: [plan.md]", "outputs: [plan.md, b.json]", 1), "höchstens ein Artefakt"},
+		"Schema ohne .json": {strings.Replace(minimal, "outputs: [plan.md]", "outputs: [{ name: plan.md, schema: s.json }]", 1), "muss auf .json enden"},
+		"Schema außerhalb":  {strings.Replace(minimal, "outputs: [plan.md]", "outputs: [{ name: p.json, schema: ../s.json }]", 1), "herausführen"},
+		"Artefakt-Feld":     {strings.Replace(minimal, "outputs: [plan.md]", "outputs: [{ name: plan.md, type: x }]", 1), "Feld type gibt es bei einem Artefakt nicht"},
+		"leer":              {"", "leer"},
+		"Budget":            {minimal + "budget: { max_cost_usd: -1 }\n", "max_cost_usd"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -149,6 +153,48 @@ func TestLoadProject(t *testing.T) {
 	}
 	if len(byName["p"].Steps) != 1 || byName["p"].Steps[0].Kind != KindRole {
 		t.Fatalf("Schritte %+v", byName["p"].Steps)
+	}
+}
+
+func TestLoadSchema(t *testing.T) {
+	repo := t.TempDir()
+	dir := filepath.Join(repo, Dir)
+	def := "name: s\nroles:\n  r: { permissions: read, outputs: [{ name: review.json, schema: schemas/review.%s }] }\n" +
+		"  w: { inputs: [review.json] }\nflow:\n  - { step: review, role: r }\n  - { step: fix, role: w }\n"
+	writeFile(t, filepath.Join(dir, "s.yaml"), strings.Replace(def, "%s", "json", 1))
+	writeFile(t, filepath.Join(dir, "schemas", "review.json"), reviewSchema)
+	writeFile(t, filepath.Join(dir, "y.yaml"), strings.Replace(strings.Replace(def, "%s", "yaml", 1), "name: s", "name: y", 1))
+	writeFile(t, filepath.Join(dir, "schemas", "review.yaml"), "type: object\nrequired: [verdict]\n")
+	writeFile(t, filepath.Join(dir, "bad.yaml"), strings.Replace(strings.Replace(def, "%s", "bad", 1), "name: s", "name: bad", 1))
+	writeFile(t, filepath.Join(dir, "schemas", "review.bad"), `{"type": "object", "oneOf": []}`)
+
+	f, _, err := Load(repo, "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := f.Roles["r"].OutputSpec()
+	if !out.Structured() || out.Name != "review.json" || !strings.Contains(string(out.SchemaDoc), "approve") {
+		t.Fatalf("Artefakt %+v", out)
+	}
+	// Die Definition wird als JSON im Run gespeichert und muss sich wieder lesen lassen.
+	b, err := json.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Factory
+	if err := json.Unmarshal(b, &back); err != nil || string(back.Roles["r"].OutputSpec().SchemaDoc) != string(out.SchemaDoc) {
+		t.Fatalf("JSON: %v %s", err, b)
+	}
+	// Definitionen von vor M10 (outputs als Liste von Namen).
+	var old Factory
+	if err := json.Unmarshal([]byte(`{"roles":{"a":{"outputs":["plan.md"]}}}`), &old); err != nil || old.Roles["a"].Output() != "plan.md" {
+		t.Fatalf("alte Definition: %v %+v", err, old.Roles["a"])
+	}
+	if y, _, err := Load(repo, "y"); err != nil || !strings.Contains(string(y.Roles["r"].OutputSpec().SchemaDoc), `"required":["verdict"]`) {
+		t.Fatalf("YAML-Schema: %v", err)
+	}
+	if _, _, err := Load(repo, "bad"); err == nil || !strings.Contains(err.Error(), "oneOf wird nicht unterstützt") {
+		t.Fatalf("ungültiges Schema: %v", err)
 	}
 }
 

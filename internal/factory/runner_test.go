@@ -2,6 +2,7 @@ package factory
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"os"
@@ -48,6 +49,39 @@ flow:
   - { step: deliver, action: pull_request }
 `
 
+// structFactory: Reviewer mit strukturiertem Artefakt → Entwickler.
+const structFactory = `name: s
+inputs:
+  task: { required: true }
+roles:
+  reviewer: { permissions: read, outputs: [{ name: review.json, schema: schemas/review.json }] }
+  implementer: { inputs: [review.json], outputs: [summary.md] }
+flow:
+  - { step: review, role: reviewer }
+  - { step: fix, role: implementer }
+`
+
+// inputs liefert alle Anweisungen an den Fake-Agenten im Schritt step (JSON-kodiert).
+func (e *env) inputs(step string) string {
+	b, _ := os.ReadFile(filepath.Join(e.resp, step+".log"))
+	return string(b)
+}
+
+// answer legt die nächsten Antworten des Fake-Agenten im Schritt step fest.
+func (e *env) answer(step string, texts ...string) {
+	e.t.Helper()
+	var b strings.Builder
+	for _, t := range texts {
+		line, err := json.Marshal(map[string]any{"type": "message", "payload": map[string]string{"role": "assistant", "text": t}})
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	writeFile(e.t, filepath.Join(e.resp, step), b.String())
+}
+
 type env struct {
 	t       *testing.T
 	ctx     context.Context
@@ -57,6 +91,7 @@ type env struct {
 	project *project.View
 	dataDir string
 	flag    string // solange die Datei fehlt, beendet der Fake-Agent seine Runde nicht
+	resp    string // Antworten des Fake-Agenten je Schritt (eine Zeile je Runde, sonst Echo)
 	gh      string
 	log     *slog.Logger
 
@@ -71,9 +106,11 @@ func setup(t *testing.T) *env {
 	repo := t.TempDir()
 	gitRun(t, repo, "init", "-q", "-b", "main")
 	for p, c := range map[string]string{
-		"README.md":                         "hallo\n",
-		".ade/factories/t.yaml":             testFactory,
-		".ade/factories/prompts/planner.md": "Du planst.",
+		"README.md":                          "hallo\n",
+		".ade/factories/t.yaml":              testFactory,
+		".ade/factories/prompts/planner.md":  "Du planst.",
+		".ade/factories/s.yaml":              structFactory,
+		".ade/factories/schemas/review.json": reviewSchema,
 	} {
 		writeFile(t, filepath.Join(repo, p), c)
 	}
@@ -103,7 +140,7 @@ func setup(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	wm.SetGitHubCLI(gh)
-	e := &env{t: t, ctx: ctx, st: st, ps: ps, ws: wm, project: p, dataDir: dataDir, flag: filepath.Join(t.TempDir(), "go"), gh: gh, log: log}
+	e := &env{t: t, ctx: ctx, st: st, ps: ps, ws: wm, project: p, dataDir: dataDir, flag: filepath.Join(t.TempDir(), "go"), resp: t.TempDir(), gh: gh, log: log}
 	writeFile(t, e.flag, "")
 	e.boot()
 	t.Cleanup(e.shutdown)
@@ -114,12 +151,17 @@ func setup(t *testing.T) *env {
 // schreibt eine Datei ins Arbeitsverzeichnis und beendet die Runde, wenn die Flag-Datei da ist.
 func (e *env) script() []string {
 	return []string{"sh", "-c", `echo '{"type":"resume_id","payload":{"id":"r1"}}'
+step=""
 while read -r l; do
-  printf '%s\n' "$l"
+  s=$(printf '%s' "$l" | sed -n 's/.*Du bist ein Schritt (\([a-z0-9_-]*\)).*/\1/p')
+  [ -n "$s" ] && step=$s
+  f="$2/$step"
+  [ -n "$step" ] && printf '%s\n' "$l" >> "$f.log"
+  if [ -n "$step" ] && [ -s "$f" ]; then head -n 1 "$f"; sed -i 1d "$f"; else printf '%s\n' "$l"; fi
   echo "$ADE_SESSION_ID" > "touched-$ADE_SESSION_ID"
   while [ ! -e "$1" ]; do sleep 0.05; done
   echo '{"type":"turn_done"}'
-done`, "sh", e.flag}
+done`, "sh", e.flag, e.resp}
 }
 
 // boot startet Agent-Manager, Freigaben und Runner (wie der Daemon, auch nach einem Neustart).
@@ -360,7 +402,46 @@ func TestRunStartErrors(t *testing.T) {
 		}
 	}
 	list, err := e.runner.Factories(e.ctx, e.project.ID)
-	if err != nil || len(list) != 2 {
+	if err != nil || len(list) != 3 {
 		t.Fatalf("Fabriken %+v %v", list, err)
+	}
+}
+
+func TestRunStructuredArtifact(t *testing.T) {
+	e := setup(t)
+	e.answer("review", `{"verdict": "maybe"}`, "Hier:\n```json\n{\"verdict\": \"changes\", \"comments\": [\"Test fehlt\"]}\n```")
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "s", Task: "Prüfe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "Run fertig", func() bool { return e.run(v.ID).Status == store.RunDone })
+	r := e.run(v.ID)
+	if r.Steps[0].Fixes != 1 || r.Steps[0].Error != "" {
+		t.Fatalf("Reviewer-Schritt %+v", r.Steps[0])
+	}
+	review, err := e.runner.ReadArtifact(e.ctx, v.ID, "review.json")
+	if err != nil || string(review) != "{\n  \"verdict\": \"changes\",\n  \"comments\": [\n    \"Test fehlt\"\n  ]\n}" {
+		t.Fatalf("review.json %q %v", review, err)
+	}
+	// Die Rolle kannte das Schema und bekam die Prüffehler.
+	for _, want := range []string{"JSON Schema für `review.json`", `$.verdict: erlaubt sind nur`, "Feld comments fehlt"} {
+		if !strings.Contains(e.inputs("review"), want) {
+			t.Errorf("Anweisungen an den Reviewer ohne %q:\n%s", want, e.inputs("review"))
+		}
+	}
+	summary, _ := e.runner.ReadArtifact(e.ctx, v.ID, "summary.md")
+	if !strings.Contains(string(summary), "```json") || !strings.Contains(string(summary), "Test fehlt") {
+		t.Fatalf("Entwickler bekam review.json nicht als JSON:\n%s", summary)
+	}
+
+	// Bleibt die Antwort ungültig, scheitert der Run nach MaxFixes Korrekturen.
+	e.answer("review", "nein", "immer noch nicht", `{"verdict": "approve"}`)
+	v2, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "s", Task: "Prüfe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "Run gescheitert", func() bool { return e.run(v2.ID).Status == store.RunFailed })
+	if r := e.run(v2.ID); !strings.Contains(r.Error, "nach 2 Korrekturen noch ungültig") || r.Steps[0].Fixes != 2 {
+		t.Fatalf("Run %+v", r)
 	}
 }

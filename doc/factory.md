@@ -20,8 +20,9 @@ Ohne eigene Datei gilt die gleichnamige mitgelieferte Vorlage (`examples/factori
 
 Umfang in **M9**: lineare Schritte mit `role`, `gate: human` und `action: pull_request` (als
 letzter Schritt), je Rolle höchstens ein Artefakt (ihre letzte Antwort), Eingaben vom Typ `text`,
-`budget.max_cost_usd` und `budget.max_duration`. `parallel`, `when`, `goto`/`max_iterations` und
-strukturierte Artefakte mit Schema folgen mit **M10**; ADE lehnt sie bis dahin mit einer
+`budget.max_cost_usd` und `budget.max_duration`. Strukturierte Artefakte mit Schema gibt es seit
+M10 (siehe [Ausführung](#3-ausführung)). `parallel`, `when` und `goto`/`max_iterations` folgen
+mit **M10**; ADE lehnt sie bis dahin mit einer
 Fehlermeldung ab. Das Beispiel zeigt das Ziel nach M10:
 
 ```yaml
@@ -50,7 +51,8 @@ roles:
     model: gpt-default
     permissions: read
     prompt: prompts/reviewer.md
-    outputs: [review.json]   # { "verdict": "approve" | "changes", "comments": [...] }
+    outputs:                 # { "verdict": "approve" | "changes", "comments": [...] }
+      - { name: review.json, schema: schemas/review.json }
 
   tester:
     adapter: claude
@@ -120,8 +122,16 @@ stateDiagram-v2
   ADE speichert es außerhalb des Workspaces (`<data_dir>/runs/<run-id>/`), damit es weder im
   Branch landet noch von einer späteren Rolle verändert werden kann, und gibt es den Rollen, die
   es unter `inputs` nennen, im Prompt mit. Im Dashboard und in der PR-Beschreibung sind alle
-  Artefakte zu sehen. Strukturierte Artefakte (JSON mit Schema, Grundlage für `when`) folgen
-  mit M10.
+  Artefakte zu sehen.
+- **Strukturierte Artefakte** (ab M10): Endet ein Artefakt auf `.json`, muss die letzte Antwort
+  JSON sein (die ganze Antwort oder der letzte ```` ```json ````-Block). Mit
+  `outputs: [{ name: review.json, schema: schemas/review.json }]` prüft ADE es zusätzlich gegen
+  ein Schema (JSON oder YAML, relativ zur Fabrik). Unterstützt wird eine Teilmenge von JSON
+  Schema: `type`, `properties`, `required`, `enum`, `items`, `additionalProperties` (nur
+  `true`/`false`), `minimum`/`maximum`, `minLength`/`maxLength`, `minItems`/`maxItems`; andere
+  Schlüsselwörter lehnt ADE beim Laden ab. Das Schema steht im Prompt der Rolle. Ist die
+  Antwort ungültig, bekommt die Rolle die Fehler als Folgeanweisung und darf zweimal
+  korrigieren, danach scheitert der Schritt. Gespeichert wird das bereinigte JSON.
 - **Gates** (`gate: human`) erzeugen eine Freigabe (Art `gate`, 7 Tage gültig); der Run wartet.
   Eine Begründung beim Freigeben geht als Hinweis an die folgenden Rollen, „Ablehnen“ bricht den
   Run ab (bis M10, dann mit Rücksprung).
