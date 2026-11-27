@@ -34,6 +34,7 @@ Befehle:
   serve     Daemon im Vordergrund ausführen
   project   Projekte verwalten (add, list, remove)
   gc        Verwaiste Sandbox-Container entfernen
+  proxy     Egress-Proxy der Sandbox (startet der Daemon im Container)
   version   Version ausgeben
   help      Diese Hilfe anzeigen
 
@@ -98,6 +99,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return cmdProject(rest, stdout, stderr)
 	case "gc":
 		return cmdGC(rest, stdout, stderr)
+	case "proxy":
+		return cmdProxy(rest, stderr)
 	case "version", "--version":
 		_, _ = fmt.Fprintln(stdout, versionString())
 		return nil
