@@ -62,6 +62,13 @@ jobs:
           name: ade-linux-amd64
           path: bin/ade
 
+  shell:
+    name: Shell-Skripte
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: shellcheck install.sh
+
   release-config:
     name: GoReleaser-Konfiguration
     runs-on: ubuntu-latest

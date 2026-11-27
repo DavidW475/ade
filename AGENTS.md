@@ -30,6 +30,7 @@ eigene Konfiguration mit anderem Port und Datenverzeichnis verwenden (siehe
 | `internal/config/` | Globale Konfiguration |
 | `internal/daemon/` | Daemon-Start, Lock, Client für die CLI |
 | `internal/store/` | SQLite und Migrationen (`migrations/NNNN_name.sql`, lückenlos nummeriert) |
+| `internal/service/` | systemd-User-Dienst (`ade install-service`, `ade uninstall-service`) |
 | `internal/browser/` | Browser öffnen (WSL → Windows) |
 | `internal/apperr/` | Fehlerarten (NotFound, Invalid, Conflict) → HTTP-Status |
 | `internal/git/` | Aufrufe des git-Binarys, Diff über temporären Index, Commit/Fetch/Merge/Push |

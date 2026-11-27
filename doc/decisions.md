@@ -354,3 +354,25 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
   steht der Fehler am Auslöser im Dashboard. `authors` prüft den Verfasser des Issues, nicht wer
   das Label gesetzt hat (das liefert `gh issue list` nicht); in öffentlichen Repos ist `authors`
   deshalb dringend empfohlen.
+
+## ADR-021: Hintergrunddienst als systemd-User-Unit mit übernommenem PATH
+
+- **Kontext:** Unter WSL mit systemd soll der Daemon ohne `ade start` laufen. User-Dienste erben
+  die Umgebung der Shell nicht; git, docker, gh, claude und codex liegen oft in `~/.local/bin`,
+  `~/.npm-global/bin` o. ä. Ein Daemon außerhalb von systemd hält den Lock des Datenverzeichnisses.
+- **Entscheidung:**
+  1. `ade install-service` schreibt `~/.config/systemd/user/ade.service` mit absolutem Binary-Pfad,
+     fester Konfiguration und dem aktuellen `PATH` (`Environment=`). Weitere Variablen, insbesondere
+     Secrets, kommen nicht in die Unit; dafür gibt es die Konfiguration.
+  2. stdout/stderr gehen per `StandardOutput=append:` ins normale Daemon-Log, damit Fehlersuche
+     und Meldungen von `ade start` gleich bleiben (systemd ≥ 240).
+  3. `Restart=on-failure`; Lingering setzt ADE nicht selbst (braucht root), es weist nur darauf hin.
+  4. Läuft schon ein Daemon außerhalb von systemd, bricht `install-service` mit PID ab, statt den
+     Dienst in eine Neustart-Schleife zu schicken.
+  5. `ade start` startet den Dienst über `systemctl --user start`, wenn die Unit für dieselbe
+     Konfiguration installiert ist (Kommentarzeile `# ade-config:` in der Unit), sonst wie bisher
+     einen eigenen Hintergrundprozess.
+- **Konsequenzen:** Nach neuem Binary-Pfad oder geändertem `PATH` muss `install-service` erneut
+  laufen (es überschreibt die Unit und startet neu). Ein SSH-Agent der Shell steht dem Dienst
+  nicht zur Verfügung; Pushes brauchen Zugangsdaten, die ohne Agent funktionieren (z. B. `gh auth
+  setup-git`).

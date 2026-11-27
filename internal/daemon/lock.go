@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/DavidW475/ade/internal/config"
 )
 
 // ErrAlreadyRunning bedeutet, dass bereits ein Daemon dasselbe Datenverzeichnis benutzt.
@@ -60,3 +62,6 @@ func readPID(path string) int {
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
 	return pid
 }
+
+// RunningPID liefert die PID aus der Lock-Datei (0, wenn keine eingetragen ist).
+func RunningPID(cfg *config.Config) int { return readPID(cfg.LockPath()) }

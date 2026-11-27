@@ -8,6 +8,13 @@ Abschnitt der jeweiligen Version als Release-Notizen.
 
 ### Neu
 
+- **Installationsskript** (M11): `curl -fsSL https://raw.githubusercontent.com/DavidW475/ade/main/install.sh | sh`
+  lädt das passende Release-Binary, prüft die Prüfsumme, installiert nach `~/.local/bin` und warnt
+  bei fehlenden Voraussetzungen (git ≥ 2.38, docker/podman, gh, claude/codex). `--service` richtet
+  zusätzlich den Dienst ein. Das Skript liegt auch jedem Release bei.
+- **`ade install-service`** und **`ade uninstall-service`**: Daemon als systemd-User-Dienst unter
+  WSL (`systemd=true`). Die Unit übernimmt den `PATH`, schreibt ins Daemon-Log und startet bei
+  Fehlern neu; `ade start` nutzt den Dienst, wenn er für dieselbe Konfiguration installiert ist.
 - **Fabrik-Vorlagen** (M10): `bugfix` (Fehler per Test reproduzieren, beheben, Tests grün),
   `review-only` (zwei Reviewer parallel, Zusammenfassung, kein PR) und `refactor` (schrittweise
   mit Test nach jedem Schritt); `feature` mit Review und Test parallel und Rücksprung bei
