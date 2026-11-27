@@ -131,7 +131,7 @@ Image-Registries, Angriffe auf den Kernel oder die Container-Laufzeit selbst (Ze
 |---|---|---|
 | Manipuliertes openvscode-server | Download mit fester SHA-256-Prüfsumme | – |
 | Manipuliertes Release oder Image | Prüfsummen, SBOM und Build-Provenance (Attestierung) für Binary und Images (#97); `install.sh` prüft die Prüfsumme | Prüfung der Attestierung bleibt dem Nutzer überlassen (`gh attestation verify`) |
-| Bekannte Lücken in Abhängigkeiten | `govulncheck` und `npm audit` in der CI; wenige Abhängigkeiten, kein cgo | Neue Lücken zwischen zwei CI-Läufen |
+| Bekannte Lücken in Abhängigkeiten und Go | Toolchain in `go.mod` festgelegt (`toolchain`); `govulncheck` und `npm audit` bei jedem PR und wöchentlich; wenige Abhängigkeiten, kein cgo | Bis zum nächsten Release bleiben veröffentlichte Binaries verwundbar |
 
 ## 5. Restrisiken im Überblick
 
@@ -170,7 +170,8 @@ Geprüft im Rahmen von #95. Befunde sind behoben (mit Test) oder als Issue angel
 
 **Abhängigkeiten**
 - [x] **Behoben:** `monaco-editor` 0.57 brachte DOMPurify ≤ 3.4.16 mit (5 Advisories, niedrig); jetzt 0.58
-- [x] `govulncheck` (ohne Befund) und `npm audit` als CI-Job
+- [x] **Behoben:** CI und Release bauten mit Go 1.26.0 (`go-version-file` ohne `toolchain`), die Standardbibliothek hatte 34 erreichbare Lücken (u. a. `crypto/x509`, `net/http`); jetzt `toolchain go1.26.11` in `go.mod`
+- [x] `govulncheck` und `npm audit` als Workflow `audit.yml` bei PRs, auf `main` und wöchentlich
 
 **Als Issue angelegt**
 - #103: Fabrik ohne Gate vor `pull_request` pusht ungeprüften Agent-Code (inkl. Workflows)

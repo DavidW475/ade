@@ -112,7 +112,10 @@ Abschnitt der jeweiligen Version als Release-Notizen.
 - Die Datenbank (`ade.db`, `-wal`, `-shm`) ist nur noch für den Nutzer lesbar; ein für andere
   lesbares Datenverzeichnis setzt der Daemon beim Start auf `0700`.
 - Der Proxy sperrt auch IPv4-kompatible IPv6-Adressen (`::127.0.0.1`) und Site-Local (`fec0::/10`).
-- `monaco-editor` 0.58 (DOMPurify ohne bekannte Lücken); `govulncheck` und `npm audit` in der CI.
+- Binaries werden mit Go 1.26.11 gebaut (`toolchain` in `go.mod`); bisher nahm die CI Go 1.26.0
+  mit bekannten Lücken in der Standardbibliothek (u. a. `crypto/x509`, `net/http`).
+- `monaco-editor` 0.58 (DOMPurify ohne bekannte Lücken); `govulncheck` und `npm audit` bei jedem
+  PR und wöchentlich (`audit.yml`).
 
 ### Geändert
 

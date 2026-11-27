@@ -1,0 +1,32 @@
+name: Audit
+
+# #95: bekannte Schwachstellen in Go (Standardbibliothek der Toolchain aus go.mod und Module,
+# nur erreichbarer Code) und in den npm-Paketen des Dashboards. Wöchentlich zusätzlich, damit
+# neue Lücken auch ohne PR auffallen; dann meist `toolchain` in go.mod anheben.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Abhängigkeiten prüfen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: govulncheck
+        run: |
+          go version
+          go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
+      - name: npm audit
+        run: npm audit --audit-level=low
+        working-directory: web
