@@ -307,3 +307,28 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
   Lese-Container verdoppelt den Speicherbedarf eines Workspaces, solange eine Lese-Rolle läuft;
   er bleibt bis zum Stoppen oder Verwerfen des Workspaces bestehen. Ein Zeitlimit lässt den Run
   scheitern, statt nach einer Freigabe zu fragen.
+
+## ADR-019: Schleifen als neue Durchläufe, eigene Ausdruckssprache und Schema-Teilmenge
+
+- **Kontext:** M10 bringt strukturierte Artefakte, Bedingungen und Rücksprünge in Fabriken
+  (doc/factory.md). Frühere Durchläufe sollen nachvollziehbar bleiben, Abhängigkeiten sparsam
+  sein, und eine Bedingung aus dem Repo darf nichts anderes können als Werte vergleichen.
+- **Entscheidung:**
+  1. Jede Ausführung eines Schritts ist eine eigene Zeile in `run_steps` (`pos` = Position im
+     Ablauf, `iteration` = Durchlauf). Ein Rücksprung legt für die Positionen vom Ziel bis zur
+     springenden Stelle neue Zeilen an. Die API liefert je Position die jüngste Ausführung
+     (`steps`, `steps[current]` bleibt der aktuelle Schritt) und die älteren unter `history`.
+  2. Artefakte liegen als jüngster Stand unter `<data_dir>/runs/<id>/<name>` und je Durchlauf
+     unter `iterations/<n>/<name>`.
+  3. Bedingungen sind eine eigene kleine Sprache (Pfade, Literale, Vergleiche, `&& || !`,
+     `len`), kein Skript und keine Bibliothek wie CEL oder expr: kein Zugriff auf anderes als
+     die Artefakte, keine Schleifen, keine Funktionen außer `len`.
+  4. Schemas sind eine geprüfte Teilmenge von JSON Schema ohne `$ref`, `oneOf`, `pattern` usw.;
+     unbekannte Schlüsselwörter sind ein Fehler beim Laden statt still ignoriert.
+  5. Ungültige strukturierte Antworten gehen als Folgeanweisung an dieselbe Session zurück
+     (höchstens zwei Korrekturen), statt die Rolle neu zu starten.
+- **Konsequenzen:** `max_iterations` zählt die Durchläufe eines Schritts, nicht einer
+  bestimmten Schleife; verschachtelte Schleifen teilen sich die Zählung. Wer reguläre
+  Ausdrücke oder Referenzen in Schemas braucht, muss bis zu einer Erweiterung darauf
+  verzichten. Die Zahl der Zeilen je Run wächst mit den Durchläufen (höchstens
+  `max_iterations` × Schritte).

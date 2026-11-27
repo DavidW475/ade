@@ -36,6 +36,20 @@ const (
 	KindRole   = "role"
 	KindGate   = "gate"
 	KindAction = "action"
+	// KindDecision springt zurück, wenn when wahr ist (goto, max_iterations).
+	KindDecision = "decision"
+)
+
+// Grenzen und Voreinstellungen für Schleifen.
+const (
+	DefaultMaxIterations = 3
+	MaxIterations        = 20
+)
+
+// Verhalten einer Entscheidung, wenn max_iterations erreicht ist.
+const (
+	ExhaustedFail     = "fail"
+	ExhaustedContinue = "continue"
 )
 
 // Rechte einer Rolle.
@@ -160,11 +174,25 @@ type Step struct {
 	Role   string `yaml:"role" json:"role,omitempty"`
 	Gate   string `yaml:"gate" json:"gate,omitempty"`
 	Action string `yaml:"action" json:"action,omitempty"`
-	// Ab M10; hier nur für eine klare Fehlermeldung.
-	Parallel      []Step `yaml:"parallel" json:"-"`
-	When          string `yaml:"when" json:"-"`
-	Goto          string `yaml:"goto" json:"-"`
-	MaxIterations int    `yaml:"max_iterations" json:"-"`
+	// When ist eine Bedingung (Expr): falsch → Schritt übersprungen; bei einer Entscheidung
+	// wahr → Rücksprung nach Goto.
+	When string `yaml:"when" json:"when,omitempty"`
+	Goto string `yaml:"goto" json:"goto,omitempty"`
+	// MaxIterations begrenzt die Durchläufe einer Schleife (Entscheidung oder Gate mit
+	// on_deny; 0: DefaultMaxIterations).
+	MaxIterations int `yaml:"max_iterations" json:"max_iterations,omitempty"`
+	// OnExhausted: fail (Standard) oder continue, wenn eine Entscheidung nach
+	// max_iterations Durchläufen noch zurückspringen würde.
+	OnExhausted string `yaml:"on_exhausted" json:"on_exhausted,omitempty"`
+	// OnDeny lässt ein Gate beim Ablehnen zurückspringen statt den Run abzubrechen.
+	OnDeny *OnDeny `yaml:"on_deny" json:"on_deny,omitempty"`
+	// Ab #83; hier nur für eine klare Fehlermeldung.
+	Parallel []Step `yaml:"parallel" json:"-"`
+}
+
+// OnDeny ist der Rücksprung eines Gates beim Ablehnen.
+type OnDeny struct {
+	Goto string `yaml:"goto" json:"goto"`
 }
 
 // Kind liefert die Art des Schritts.
@@ -176,8 +204,36 @@ func (s *Step) Kind() string {
 		return KindGate
 	case s.Action != "":
 		return KindAction
+	case s.Goto != "":
+		return KindDecision
 	}
 	return ""
+}
+
+// Iterations liefert die erlaubten Durchläufe der Schleife des Schritts.
+func (s *Step) Iterations() int {
+	if s.MaxIterations > 0 {
+		return s.MaxIterations
+	}
+	return DefaultMaxIterations
+}
+
+// Target liefert das Ziel eines Rücksprungs (Entscheidung: goto, Gate: on_deny.goto).
+func (s *Step) Target() string {
+	if s.OnDeny != nil {
+		return s.OnDeny.Goto
+	}
+	return s.Goto
+}
+
+// Pos liefert die Position des Schritts name im Ablauf (-1: gibt es nicht).
+func (f *Factory) Pos(name string) int {
+	for i := range f.Flow {
+		if f.Flow[i].Step == name {
+			return i
+		}
+	}
+	return -1
 }
 
 // Budget begrenzt einen Run.
@@ -240,6 +296,15 @@ func Parse(path string, data []byte, read func(rel string) ([]byte, error)) (*Fa
 				return nil, fail("roles.%s.prompt: Datei ist zu groß (höchstens %d KiB)", name, maxPromptSize>>10)
 			}
 			r.PromptText = strings.TrimSpace(string(b))
+		}
+		// Felder in Bedingungen erst jetzt gegen die gelesenen Schemas prüfen.
+		for i, st := range f.Flow {
+			if st.When == "" {
+				continue
+			}
+			if msg := f.checkWhen(i, st.When); msg != "" {
+				return nil, fail("flow[%d] (%s).when: %s", i, st.Step, msg)
+			}
 		}
 	}
 	return &f, nil
@@ -385,54 +450,108 @@ func (f *Factory) validate() string {
 		}
 	}
 
+	if msg := f.validateFlow(); msg != "" {
+		return msg
+	}
+	if b := f.Budget; b != nil {
+		if b.MaxCostUSD < 0 || b.MaxCostUSD > MaxBudgetUSD || b.MaxCostUSD != b.MaxCostUSD {
+			return fmt.Sprintf("budget.max_cost_usd: zwischen 0 und %.0f", MaxBudgetUSD)
+		}
+		if b.MaxDuration < 0 || b.MaxDuration > 30*24*time.Hour {
+			return "budget.max_duration: zwischen 0 und 720h"
+		}
+	}
+	return ""
+}
+
+// validateFlow prüft den Ablauf: Schritte, Bedingungen, Rücksprünge und dass jede Rolle ihre
+// Eingaben bekommt (im ersten Durchlauf oder nach einem Rücksprung).
+func (f *Factory) validateFlow() string {
 	if len(f.Flow) == 0 {
 		return "flow: mindestens ein Schritt nötig"
 	}
 	if len(f.Flow) > maxSteps {
 		return fmt.Sprintf("flow: höchstens %d Schritte", maxSteps)
 	}
-	seen := map[string]bool{}
-	produced := map[string]bool{}
+	pos := map[string]int{}
 	for i := range f.Flow {
 		s := &f.Flow[i]
 		at := fmt.Sprintf("flow[%d]", i)
-		switch {
-		case len(s.Parallel) > 0:
-			return at + ".parallel: parallele Schritte gibt es erst ab M10"
-		case s.When != "":
-			return at + ".when: Bedingungen gibt es erst ab M10"
-		case s.Goto != "" || s.MaxIterations != 0:
-			return at + ".goto: Schleifen gibt es erst ab M10"
+		if len(s.Parallel) > 0 {
+			return at + ".parallel: parallele Schritte werden noch nicht unterstützt"
 		}
 		if !ValidName(s.Step) {
 			return fmt.Sprintf("%s.step: %q ist ungültig (Kleinbuchstaben, Ziffern, - und _)", at, s.Step)
 		}
-		if seen[s.Step] {
+		if _, ok := pos[s.Step]; ok {
 			return fmt.Sprintf("%s.step: %s gibt es schon", at, s.Step)
 		}
-		seen[s.Step] = true
+		pos[s.Step] = i
+	}
+	// Rücksprünge: Ziel → Herkunft (für Eingaben, die erst ein späterer Schritt erzeugt).
+	type loop struct{ from, to int }
+	var loops []loop
+	for i := range f.Flow {
+		s := &f.Flow[i]
+		at := fmt.Sprintf("flow[%d] (%s)", i, s.Step)
 		n := 0
 		for _, v := range []string{s.Role, s.Gate, s.Action} {
 			if v != "" {
 				n++
 			}
 		}
-		if n != 1 {
-			return at + ": genau eins von role, gate oder action angeben"
+		if n > 1 || n == 1 && s.Goto != "" {
+			return at + ": genau eins von role, gate, action oder goto angeben"
 		}
-		switch s.Kind() {
+		if n == 0 && s.Goto == "" {
+			if s.When != "" {
+				return at + ": eine Entscheidung braucht goto (Rücksprung, wenn when wahr ist)"
+			}
+			return at + ": genau eins von role, gate, action oder goto angeben"
+		}
+		kind := s.Kind()
+		if s.When != "" {
+			if msg := f.checkWhen(i, s.When); msg != "" {
+				return at + ".when: " + msg
+			}
+		} else if kind == KindDecision {
+			return at + ".when: eine Entscheidung braucht eine Bedingung"
+		}
+		if s.OnDeny != nil && kind != KindGate {
+			return at + ".on_deny: gibt es nur bei Gates"
+		}
+		if s.OnExhausted != "" && kind != KindDecision {
+			return at + ".on_exhausted: gibt es nur bei Entscheidungen (goto)"
+		}
+		if s.MaxIterations != 0 && kind != KindDecision && s.OnDeny == nil {
+			return at + ".max_iterations: gibt es nur bei Entscheidungen (goto) und Gates mit on_deny"
+		}
+		if s.MaxIterations < 0 || s.MaxIterations > MaxIterations {
+			return fmt.Sprintf("%s.max_iterations: zwischen 1 und %d", at, MaxIterations)
+		}
+		if t := s.Target(); t != "" {
+			field := "goto"
+			if s.OnDeny != nil {
+				field = "on_deny.goto"
+			}
+			p, ok := pos[t]
+			switch {
+			case !ok:
+				return fmt.Sprintf("%s.%s: Schritt %s gibt es nicht", at, field, t)
+			case p >= i:
+				return fmt.Sprintf("%s.%s: nur Rücksprünge auf frühere Schritte (%s liegt nicht davor)", at, field, t)
+			}
+			loops = append(loops, loop{from: i, to: p})
+		}
+		switch s.OnExhausted {
+		case "", ExhaustedFail, ExhaustedContinue:
+		default:
+			return fmt.Sprintf("%s.on_exhausted: %q ist ungültig (erlaubt: fail, continue)", at, s.OnExhausted)
+		}
+		switch kind {
 		case KindRole:
-			r := f.Roles[s.Role]
-			if r == nil {
+			if f.Roles[s.Role] == nil {
 				return fmt.Sprintf("%s.role: Rolle %s ist nicht definiert", at, s.Role)
-			}
-			for _, a := range r.Inputs {
-				if !produced[a] {
-					return fmt.Sprintf("%s: die Rolle %s braucht %s, das erst ein späterer Schritt erzeugt", at, s.Role, a)
-				}
-			}
-			for _, o := range r.Outputs {
-				produced[o.Name] = true
 			}
 		case KindGate:
 			if s.Gate != GateHuman {
@@ -447,12 +566,68 @@ func (f *Factory) validate() string {
 			}
 		}
 	}
-	if b := f.Budget; b != nil {
-		if b.MaxCostUSD < 0 || b.MaxCostUSD > MaxBudgetUSD || b.MaxCostUSD != b.MaxCostUSD {
-			return fmt.Sprintf("budget.max_cost_usd: zwischen 0 und %.0f", MaxBudgetUSD)
+	// Eingaben: im ersten Durchlauf von einem früheren Schritt erzeugt oder durch einen
+	// Rücksprung von hinter dem Erzeuger auf den Verbraucher oder davor erreichbar.
+	producers := map[string][]int{}
+	for i, s := range f.Flow {
+		if r := f.Roles[s.Role]; r != nil {
+			for _, o := range r.Outputs {
+				producers[o.Name] = append(producers[o.Name], i)
+			}
 		}
-		if b.MaxDuration < 0 || b.MaxDuration > 30*24*time.Hour {
-			return "budget.max_duration: zwischen 0 und 720h"
+	}
+	for i, s := range f.Flow {
+		r := f.Roles[s.Role]
+		if r == nil {
+			continue
+		}
+		for _, a := range r.Inputs {
+			ok := false
+			for _, p := range producers[a] {
+				if p < i {
+					ok = true
+				}
+				for _, l := range loops {
+					if l.from >= p && l.to <= i {
+						ok = true
+					}
+				}
+			}
+			if !ok {
+				return fmt.Sprintf("flow[%d] (%s): die Rolle %s braucht %s, das erst ein späterer Schritt erzeugt (und kein Rücksprung führt zurück)", i, s.Step, s.Role, a)
+			}
+		}
+	}
+	return ""
+}
+
+// checkWhen prüft die Bedingung des Schritts an Position i: Jeder Pfad nennt einen früheren
+// Schritt mit strukturiertem Artefakt und, falls das Schema Felder nennt, eines davon.
+func (f *Factory) checkWhen(i int, src string) string {
+	e, err := ParseExpr(src)
+	if err != nil {
+		return err.Error()
+	}
+	for _, path := range e.Paths() {
+		p := f.Pos(path[0])
+		if p < 0 {
+			return fmt.Sprintf("Schritt %s gibt es nicht", path[0])
+		}
+		if p >= i {
+			return fmt.Sprintf("%s ist kein früherer Schritt", path[0])
+		}
+		r := f.Roles[f.Flow[p].Role]
+		out := (*Output)(nil)
+		if r != nil {
+			out = r.OutputSpec()
+		}
+		if !out.Structured() {
+			return fmt.Sprintf("der Schritt %s hat kein strukturiertes Artefakt (outputs mit .json)", path[0])
+		}
+		if len(out.SchemaDoc) > 0 {
+			if sch, err := CompileSchema(out.SchemaDoc); err == nil && len(sch.Properties) > 0 && sch.Properties[path[1]] == nil {
+				return fmt.Sprintf("%s hat laut Schema kein Feld %s", out.Name, path[1])
+			}
 		}
 	}
 	return ""

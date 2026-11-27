@@ -20,10 +20,10 @@ Ohne eigene Datei gilt die gleichnamige mitgelieferte Vorlage (`examples/factori
 
 Umfang in **M9**: lineare Schritte mit `role`, `gate: human` und `action: pull_request` (als
 letzter Schritt), je Rolle höchstens ein Artefakt (ihre letzte Antwort), Eingaben vom Typ `text`,
-`budget.max_cost_usd` und `budget.max_duration`. Strukturierte Artefakte mit Schema gibt es seit
-M10 (siehe [Ausführung](#3-ausführung)). `parallel`, `when` und `goto`/`max_iterations` folgen
-mit **M10**; ADE lehnt sie bis dahin mit einer
-Fehlermeldung ab. Das Beispiel zeigt das Ziel nach M10:
+`budget.max_cost_usd` und `budget.max_duration`. Seit **M10** dazu: strukturierte Artefakte mit
+Schema, Bedingungen (`when`) und Schleifen (`goto`, `max_iterations`, `on_deny`), siehe
+[Ausführung](#3-ausführung). `parallel` folgt; ADE lehnt es bis dahin mit einer Fehlermeldung ab.
+Das Beispiel zeigt das Ziel nach M10:
 
 ```yaml
 name: feature
@@ -134,7 +134,26 @@ stateDiagram-v2
   korrigieren, danach scheitert der Schritt. Gespeichert wird das bereinigte JSON.
 - **Gates** (`gate: human`) erzeugen eine Freigabe (Art `gate`, 7 Tage gültig); der Run wartet.
   Eine Begründung beim Freigeben geht als Hinweis an die folgenden Rollen, „Ablehnen“ bricht den
-  Run ab (bis M10, dann mit Rücksprung).
+  Run ab. Mit `on_deny: { goto: implement }` springt das Gate beim Ablehnen stattdessen zurück;
+  die Begründung steht im Prompt des nächsten Durchlaufs.
+- **Bedingungen** (`when`): Ist sie an einem Schritt mit `role`, `gate` oder `action` falsch,
+  wird der Schritt übersprungen. Pfade beginnen mit dem Namen eines früheren Schritts und lesen
+  Felder aus seinem strukturierten Artefakt (`review.verdict`, `test.suite.failed`); fehlende
+  Felder sind `null`. Erlaubt sind Zeichenketten (`'…'`), Zahlen, `true`/`false`/`null`,
+  `== != < <= > >=`, `&& || !`, Klammern und `len(x)`. ADE prüft beim Laden, dass jeder Pfad
+  einen früheren Schritt mit strukturiertem Artefakt nennt und, wenn dessen Schema Felder
+  aufzählt, ein vorhandenes Feld.
+- **Schleifen:** Eine Entscheidung `{ step: decide, when: "…", goto: implement }` springt zurück,
+  wenn die Bedingung wahr ist, sonst geht es weiter. Ein Rücksprung legt für alle Schritte vom
+  Ziel bis zur Entscheidung einen neuen Durchlauf an; frühere Durchläufe mit ihren Sessions und
+  Artefakten bleiben sichtbar. Im neuen Durchlauf bekommen die Rollen die jüngsten Artefakte
+  (z. B. `review.json` mit Kommentaren) und den Grund des Rücksprungs. Eine Rolle darf auch ein
+  Artefakt als Eingabe nennen, das erst ein späterer Schritt erzeugt, wenn ein Rücksprung von
+  dort zurückführt; im ersten Durchlauf fehlt es dann. `max_iterations` (Standard 3, höchstens
+  20) begrenzt die Durchläufe einer Entscheidung bzw. eines Gates mit `on_deny`; ist die Grenze
+  erreicht, scheitert der Run (Entscheidung mit `on_exhausted: continue`: es geht ohne
+  Rücksprung weiter; Gate: der Run wird abgebrochen). Gezählt werden die Durchläufe des
+  Schritts, gleich welche Schleife zurückgesprungen ist.
 - **Budgets:** `max_cost_usd` gilt für alle Sessions des Runs zusammen; jede Rolle startet mit dem
   Rest als Session-Budget und pausiert bei Überschreitung mit Budget-Freigabe (wie in M8).
   `max_duration` begrenzt die Arbeitszeit der Rollen (Warten an Gates zählt nicht); danach

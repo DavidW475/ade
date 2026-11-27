@@ -473,11 +473,16 @@ export interface IdeStatus {
 // --- Software-Fabrik (M9) ---
 
 export type RunStatus = "running" | "waiting" | "paused" | "done" | "failed" | "canceled";
-export type StepStatus = "pending" | "running" | "waiting" | "done" | "failed" | "canceled";
-export type StepKind = "role" | "gate" | "action";
+export type StepStatus = "pending" | "running" | "waiting" | "done" | "failed" | "canceled" | "skipped" | "looped";
+export type StepKind = "role" | "gate" | "action" | "decision";
 
 export interface RunStep {
+  /** Position im Ablauf. */
   index: number;
+  /** Zeile der Ausführung (eindeutig im Run). */
+  row: number;
+  /** Durchlauf (1, 2, … nach Rücksprüngen). */
+  iteration: number;
   name: string;
   kind: StepKind;
   role?: string;
@@ -488,6 +493,8 @@ export interface RunStep {
   /** Artefakt der Rolle (ihre letzte Antwort). */
   output?: string;
   error?: string;
+  /** Korrektur-Runden für ein ungültiges strukturiertes Artefakt. */
+  fixes?: number;
   started_at?: string;
   ended_at?: string;
 }
@@ -510,9 +517,12 @@ export interface Run {
   created_at: string;
   updated_at: string;
   ended_at?: string;
+  /** Je Position die jüngste Ausführung. */
   steps: RunStep[];
+  /** Frühere Durchläufe (Schleifen). */
+  history?: RunStep[];
   cost_usd: number;
-  artifacts: { name: string; step: string; role: string; size: number }[];
+  artifacts: { name: string; step: string; role: string; size: number; iterations?: number[] }[];
   pr_url?: string;
   workspace_gone?: boolean;
 }

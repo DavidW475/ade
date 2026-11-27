@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,7 +40,20 @@ const (
 	StepDone     = "done"
 	StepFailed   = "failed"
 	StepCanceled = "canceled"
+	// StepSkipped: Bedingung (when) war falsch.
+	StepSkipped = "skipped"
+	// StepLooped: Entscheidung oder abgelehntes Gate ist zurückgesprungen (Error: Grund).
+	StepLooped = "looped"
 )
+
+// StepFinished meldet, ob ein Schritt erledigt ist und der Run dahinter weitergeht.
+func StepFinished(status string) bool {
+	switch status {
+	case StepDone, StepSkipped, StepLooped:
+		return true
+	}
+	return false
+}
 
 // Run ist ein Lauf einer Fabrik.
 type Run struct {
@@ -61,15 +75,24 @@ type Run struct {
 	CreatedAt   time.Time     `json:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at"`
 	EndedAt     *time.Time    `json:"ended_at,omitempty"`
-	Steps       []RunStep     `json:"steps"`
+	// Steps ist je Position im Ablauf die jüngste Ausführung (Steps[Current] ist der
+	// aktuelle Schritt).
+	Steps []RunStep `json:"steps"`
+	// History sind frühere Durchläufe (Schleifen), nach Position und Durchlauf.
+	History []RunStep `json:"history,omitempty"`
 	// CostUSD ist die Summe der Nutzung aller Sessions des Runs (Tabelle usage, bleibt nach
 	// dem Verwerfen des Workspaces erhalten).
 	CostUSD float64 `json:"cost_usd"`
 }
 
-// RunStep ist ein Schritt eines Runs.
+// RunStep ist eine Ausführung eines Schritts.
 type RunStep struct {
-	Index      int    `json:"index"`
+	// Index ist die Position im Ablauf.
+	Index int `json:"index"`
+	// Row ist die Zeile (eindeutig im Run, für UpdateRunStep).
+	Row int `json:"row"`
+	// Iteration ist der Durchlauf (1, 2, … nach Rücksprüngen).
+	Iteration  int    `json:"iteration"`
 	Name       string `json:"name"`
 	Kind       string `json:"kind"`
 	Role       string `json:"role,omitempty"`
@@ -138,8 +161,8 @@ func (s *Store) CreateRun(ctx context.Context, r *Run) error {
 		if status == "" {
 			status = StepPending
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO run_steps (run_id, idx, name, kind, role, read_only, status, output)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, r.ID, i, st.Name, st.Kind, st.Role, st.ReadOnly, status, st.Output); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO run_steps (run_id, idx, pos, iteration, name, kind, role, read_only, status, output)
+			VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`, r.ID, i, i, st.Name, st.Kind, st.Role, st.ReadOnly, status, st.Output); err != nil {
 			return fmt.Errorf("Schritt speichern: %w", err)
 		}
 	}
@@ -163,31 +186,81 @@ func (s *Store) GetRun(ctx context.Context, id string) (*Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	if r.Steps, err = s.runSteps(ctx, id); err != nil {
+	if err := s.runSteps(ctx, r); err != nil {
 		return nil, err
 	}
 	return r, nil
 }
 
-func (s *Store) runSteps(ctx context.Context, runID string) ([]RunStep, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT idx, name, kind, role, read_only, status, session_id, approval_id,
-		output, error, fixes, started_at, ended_at FROM run_steps WHERE run_id = ? ORDER BY idx`, runID)
+func (s *Store) runSteps(ctx context.Context, r *Run) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT pos, idx, iteration, name, kind, role, read_only, status, session_id,
+		approval_id, output, error, fixes, started_at, ended_at FROM run_steps WHERE run_id = ? ORDER BY pos, iteration, idx`, r.ID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer func() { _ = rows.Close() }()
-	out := []RunStep{}
+	r.Steps, r.History = []RunStep{}, nil
 	for rows.Next() {
 		var st RunStep
 		var started, ended sql.NullString
-		if err := rows.Scan(&st.Index, &st.Name, &st.Kind, &st.Role, &st.ReadOnly, &st.Status, &st.SessionID,
-			&st.ApprovalID, &st.Output, &st.Error, &st.Fixes, &started, &ended); err != nil {
-			return nil, err
+		if err := rows.Scan(&st.Index, &st.Row, &st.Iteration, &st.Name, &st.Kind, &st.Role, &st.ReadOnly, &st.Status,
+			&st.SessionID, &st.ApprovalID, &st.Output, &st.Error, &st.Fixes, &started, &ended); err != nil {
+			return err
 		}
 		st.StartedAt, st.EndedAt = nullTime(started), nullTime(ended)
-		out = append(out, st)
+		// Je Position gewinnt der jüngste Durchlauf; die älteren wandern in History.
+		if n := len(r.Steps); n > 0 && r.Steps[n-1].Index == st.Index {
+			r.History = append(r.History, r.Steps[n-1])
+			r.Steps[n-1] = st
+			continue
+		}
+		r.Steps = append(r.Steps, st)
 	}
-	return out, rows.Err()
+	return rows.Err()
+}
+
+// Executions liefert alle Ausführungen (History und Steps) in der Reihenfolge ihres Entstehens.
+func (r *Run) Executions() []RunStep {
+	out := make([]RunStep, 0, len(r.History)+len(r.Steps))
+	out = append(out, r.History...)
+	out = append(out, r.Steps...)
+	slices.SortFunc(out, func(a, b RunStep) int { return a.Row - b.Row })
+	return out
+}
+
+// RepeatSteps legt für die Positionen from bis to je einen neuen Durchlauf an (Status
+// pending) und setzt den Run auf from zurück (Rücksprung einer Schleife).
+func (s *Store) RepeatSteps(ctx context.Context, runID string, from, to int) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var next int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(idx), -1) + 1 FROM run_steps WHERE run_id = ?`, runID).Scan(&next); err != nil {
+		return err
+	}
+	for pos := from; pos <= to; pos++ {
+		res, err := tx.ExecContext(ctx, `INSERT INTO run_steps (run_id, idx, pos, iteration, name, kind, role, read_only, output)
+			SELECT run_id, ?, pos, iteration + 1, name, kind, role, read_only, output FROM run_steps
+			WHERE run_id = ? AND pos = ? ORDER BY iteration DESC LIMIT 1`, next, runID, pos)
+		if err != nil {
+			return fmt.Errorf("Durchlauf anlegen: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return apperr.NotFound("Schritt %d von Run %s nicht gefunden", pos, runID)
+		}
+		next++
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE runs SET current = ?, status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		WHERE id = ?`, from, RunRunning, runID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return apperr.NotFound("Run %s nicht gefunden", runID)
+	}
+	return tx.Commit()
 }
 
 // RunFilter schränkt ListRuns ein; leere Felder filtern nicht.
@@ -240,7 +313,7 @@ func (s *Store) ListRuns(ctx context.Context, f RunFilter) ([]*Run, error) {
 		return nil, err
 	}
 	for _, r := range out {
-		if r.Steps, err = s.runSteps(ctx, r.ID); err != nil {
+		if err := s.runSteps(ctx, r); err != nil {
 			return nil, err
 		}
 	}
@@ -288,8 +361,8 @@ type StepUpdate struct {
 	Ended   bool
 }
 
-// UpdateRunStep ändert die gesetzten Felder eines Schritts.
-func (s *Store) UpdateRunStep(ctx context.Context, runID string, idx int, u StepUpdate) error {
+// UpdateRunStep ändert die gesetzten Felder einer Ausführung (row: RunStep.Row).
+func (s *Store) UpdateRunStep(ctx context.Context, runID string, row int, u StepUpdate) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE run_steps SET
 		status      = COALESCE(?1, status),
 		session_id  = COALESCE(?2, session_id),
@@ -298,12 +371,12 @@ func (s *Store) UpdateRunStep(ctx context.Context, runID string, idx int, u Step
 		started_at  = CASE WHEN ?5 THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE started_at END,
 		ended_at    = CASE WHEN ?6 THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE ended_at END,
 		fixes       = COALESCE(?9, fixes)
-		WHERE run_id = ?7 AND idx = ?8`, u.Status, u.SessionID, u.ApprovalID, u.Error, u.Started, u.Ended, runID, idx, u.Fixes)
+		WHERE run_id = ?7 AND idx = ?8`, u.Status, u.SessionID, u.ApprovalID, u.Error, u.Started, u.Ended, runID, row, u.Fixes)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return apperr.NotFound("Schritt %d von Run %s nicht gefunden", idx, runID)
+		return apperr.NotFound("Schritt %d von Run %s nicht gefunden", row, runID)
 	}
 	if _, err := s.db.ExecContext(ctx, `UPDATE runs SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`, runID); err != nil {
 		return err
