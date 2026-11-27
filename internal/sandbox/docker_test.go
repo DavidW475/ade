@@ -104,9 +104,24 @@ func TestContainerIsolation(t *testing.T) {
 	if err != nil || c == nil || !c.Running {
 		t.Fatalf("Container: %+v, %v", c, err)
 	}
-	// Genau ein Mount: das Workspace-Verzeichnis.
-	if len(c.Mounts) != 1 || c.Mounts[0].Destination != sandbox.Workdir || c.Mounts[0].Source != e.path {
+	// Nur das Workspace-Verzeichnis (beschreibbar) und das ade-Binary für den Freigabe-Hook
+	// (nur lesend).
+	var workspace, hook bool
+	for _, mt := range c.Mounts {
+		switch {
+		case mt.Destination == sandbox.Workdir && mt.Source == e.path && mt.RW:
+			workspace = true
+		case mt.Destination == sandbox.ProxyBinary && !mt.RW:
+			hook = true
+		default:
+			t.Errorf("unerwarteter Mount %+v", mt)
+		}
+	}
+	if !workspace || !hook || len(c.Mounts) != 2 {
 		t.Fatalf("Mounts = %+v", c.Mounts)
+	}
+	if got := e.exec(t, "test -w "+sandbox.ProxyBinary+" && echo schreibbar || echo nur-lesend"); got != "nur-lesend" {
+		t.Errorf("Hook-Binary: %s", got)
 	}
 	if got := e.exec(t, "id -u"); got != strconv.Itoa(os.Getuid()) || got == "0" {
 		t.Errorf("UID im Container = %s", got)
