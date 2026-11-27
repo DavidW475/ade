@@ -26,6 +26,7 @@ ade start  →  http://localhost:7000
 |---|---|
 | [architecture.md](architecture.md) | Gesamtarchitektur, Komponenten, Datenmodell, API, Sicherheit, Tech-Stack, Repo-Struktur |
 | [sandbox.md](sandbox.md) | Docker-Sandbox, Netzwerk-Isolation, Egress-Proxy, Secret-Handling |
+| [threat-model.md](threat-model.md) | Bedrohungsmodell: Werte, Angreifer, Vertrauensgrenzen, Angriffswege, Restrisiken |
 | [factory.md](factory.md) | Software-Fabriken: Rollen, Abläufe, Gates, Modelle |
 | [milestones.md](milestones.md) | Meilensteine M0–M11 mit Umfang und Akzeptanzkriterien |
 | [decisions.md](decisions.md) | Architekturentscheidungen (ADRs) mit Begründung |

@@ -107,6 +107,12 @@ Abschnitt der jeweiligen Version als Release-Notizen.
 - Kein API-Key im Sandbox-Container (weder Umgebung noch `docker inspect`). Programme, die den
   Proxy umgehen, erreichen nichts; externe Namen lösen im Container nicht auf. Der Proxy verbindet
   nie zu internen Adressen (Host, Container, private Netze).
+- **Threat-Model** (M11, `doc/threat-model.md`): Werte, Angreifer, Vertrauensgrenzen,
+  Angriffswege mit Gegenmaßnahmen und Restrisiken; Review von Gateway, Proxy und Container-Härtung.
+- Die Datenbank (`ade.db`, `-wal`, `-shm`) ist nur noch für den Nutzer lesbar; ein für andere
+  lesbares Datenverzeichnis setzt der Daemon beim Start auf `0700`.
+- Der Proxy sperrt auch IPv4-kompatible IPv6-Adressen (`::127.0.0.1`) und Site-Local (`fec0::/10`).
+- `monaco-editor` 0.58 (DOMPurify ohne bekannte Lücken); `govulncheck` und `npm audit` in der CI.
 
 ### Geändert
 
