@@ -348,6 +348,13 @@ func (m *Manager) runSetup(ctx context.Context, w *store.Workspace, cmds []strin
 		case timedOut:
 			return out.String(), fmt.Errorf("Setup-Befehl %d (%s) nach %s abgebrochen", i+1, c, SetupTimeout)
 		case err != nil:
+			if ee, ok := errors.AsType[*exec.ExitError](err); ok && ee.ExitCode() == 127 {
+				hint := "Programm nicht gefunden"
+				if w.Sandbox {
+					hint += " – fehlt das Werkzeug im Sandbox-Image? (image in .ade/sandbox.yaml)"
+				}
+				return out.String(), fmt.Errorf("Setup-Befehl %d (%s) fehlgeschlagen: %w (%s)", i+1, c, err, hint)
+			}
 			return out.String(), fmt.Errorf("Setup-Befehl %d (%s) fehlgeschlagen: %w", i+1, c, err)
 		}
 	}

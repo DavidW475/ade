@@ -4,7 +4,7 @@ BIN     := bin/ade
 DIST    := internal/api/dist
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: all build web go test lint fmt dev clean image
+.PHONY: all build web go test lint fmt dev clean image image-dev
 
 all: build
 
@@ -41,6 +41,10 @@ fmt:
 ## image: Sandbox-Image ade-agent-base lokal bauen (Tag :dev)
 image:
 	docker build -t ghcr.io/davidw475/ade-agent-base:dev images/agent-base
+
+## image-dev: Sandbox-Image ade-dev für dieses Repo lokal bauen (Tag :latest, siehe .ade/sandbox.yaml)
+image-dev:
+	docker build -t ghcr.io/davidw475/ade-dev:latest images/ade-dev
 
 ## dev: Daemon im Vordergrund mit go run (Frontend separat: cd web && npm run dev)
 dev:
