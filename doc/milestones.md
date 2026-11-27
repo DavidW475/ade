@@ -154,9 +154,9 @@ flowchart LR
 - DNS-Verhalten prüfen und absichern
 
 **Fertig, wenn:**
-- [ ] `curl https://example.com` im Container schlägt fehl, `curl https://registry.npmjs.org` (Preset `npm`) klappt
+- [x] `curl https://example.com` im Container schlägt fehl, `curl https://registry.npmjs.org` (Preset `npm`) klappt
 - [ ] Claude Code arbeitet in der Sandbox, ohne dass der API-Key im Container lesbar ist (`env`, Dateien)
-- [ ] Ein Programm, das `HTTP_PROXY` ignoriert, erreicht das Internet nicht
+- [x] Ein Programm, das `HTTP_PROXY` ignoriert, erreicht das Internet nicht
 
 ---
 

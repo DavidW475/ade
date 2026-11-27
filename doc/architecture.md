@@ -70,7 +70,7 @@ flowchart LR
 | `workspace` | Workspaces anlegen (lokaler Clone), Diff berechnen, Merge/PR/Verwerfen. |
 | `agent` | Lebenszyklus von Agent-Sessions; PTY; Adapter; Event-Normalisierung. |
 | `sandbox` | Docker-Container und -Netzwerke pro Workspace (siehe [sandbox.md](sandbox.md)). |
-| `egress` | Egress-Proxy (läuft als `ade proxy` im Proxy-Container) und Policy-Verteilung. |
+| `proxy` | Egress-Proxy (läuft als `ade proxy` im Proxy-Container), Steuer-API; Policy-Verteilung und Event-Abholung macht `sandbox`. |
 | `ide` | openvscode-server starten/stoppen (in der Sandbox oder lokal). |
 | `approval` | Freigabe-Warteschlange; blockierende Anfragen von Agenten/Hooks. |
 | `factory` | Fabrik-Definitionen und Run-Zustandsmaschine (siehe [factory.md](factory.md)). |
@@ -340,7 +340,7 @@ Merges und Pushes.
 | `WS` | `/ws/sessions/{id}/events` | Event-Stream (mit `?since=<seq>` für Replay) |
 | `WS` | `/ws/sessions/{id}/pty` | Terminal |
 | `GET/POST` | `/api/approvals[/{id}]` | Freigaben |
-| `GET/PUT` | `/api/workspaces/{id}/policy` | Egress-Policy |
+| `GET` | `/api/workspaces/{id}/egress[?blocked=1]` | Egress-Events, Zusammenfassung je Host, wirksame Policy (bearbeitet wird `.ade/sandbox.yaml`) |
 | `POST` | `/api/projects/{id}/factories/{name}/runs` | Fabrik-Run starten |
 
 ## 6. Konfiguration
@@ -423,7 +423,7 @@ ade/
 │   ├── agent/
 │   │   └── adapter/         # claude/, codex/, pty/
 │   ├── sandbox/             # Docker-Container (Docker-CLI), sandbox.yaml, GC
-│   ├── egress/              # Proxy + Policy
+│   ├── proxy/               # Egress-Proxy (ade proxy), Allowlist, Steuer-API
 │   ├── ide/                 # openvscode-server
 │   ├── approval/
 │   ├── factory/

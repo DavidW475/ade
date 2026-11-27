@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router";
 import { api, isBusy } from "../api";
 import { SessionTable, StartAgent } from "../components/agents";
 import { IdeButton } from "../components/ide";
+import { NetworkPanel } from "../components/network";
 import { SandboxFacts, SandboxNotice } from "../components/sandbox";
 import { DiffView, ReviewPanel } from "../components/review";
 import { useSessions } from "../sessions";
@@ -124,6 +125,8 @@ export function WorkspacePage() {
       ) : (
         <DiffView workspaceId={w.id} diff={diff.data} />
       )}
+
+      <NetworkPanel workspace={w} />
     </>
   );
 }

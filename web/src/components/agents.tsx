@@ -209,7 +209,7 @@ export function StartAgentForm({
             <p className="hint wide">
               <code>acceptEdits</code> erlaubt Dateiänderungen; Befehle, die eine Bestätigung bräuchten, werden abgelehnt.{" "}
               <code>bypassPermissions</code> ohne Sandbox nur bei vertrauenswürdigen Repositories. In der Sandbox braucht Claude Code einen
-              API-Key in der Konfiguration (<code>providers.anthropic</code>); er ist bis M6 im Container lesbar.
+              API-Key in der Konfiguration (<code>providers.anthropic</code>); der Egress-Proxy fügt ihn ein, der Container sieht ihn nicht.
             </p>
           )}
         </>

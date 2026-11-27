@@ -11,5 +11,6 @@ export function sandboxDefault(info?: SandboxInfo): boolean {
   return !!info && info.available && info.default;
 }
 
-/** Hinweis, solange die Sandbox noch keine Netzwerk-Einschränkung hat (M6). */
-export const networkHint = "Der Container hat noch normales Netz – Egress-Regeln kommen mit M6.";
+/** Hinweis zur Netzwerk-Isolation der Sandbox (M6). */
+export const networkHint =
+  "Ins Internet kommt er nur über den Egress-Proxy und nur zu den Zielen aus .ade/sandbox.yaml (egress); API-Keys fügt der Proxy ein, der Container sieht sie nicht.";

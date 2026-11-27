@@ -25,7 +25,7 @@ export interface Project {
   config_error?: string;
   warnings?: string[];
   /** Wirksame .ade/sandbox.yaml (mit Voreinstellungen). */
-  sandbox?: { image?: string; resources: { memory: string; cpus: number; pids: number } };
+  sandbox?: { image?: string; resources: { memory: string; cpus: number; pids: number }; egress?: Egress };
   sandbox_error?: string;
 }
 
@@ -64,8 +64,60 @@ export interface SandboxInfo {
   image: string;
   /** Voreinstellung für neue Workspaces (defaults.sandbox). */
   default: boolean;
-  /** Netzwerk-Isolation; bis M6 "open" (normales Netz). */
-  network: "open";
+  /** Netzwerk-Isolation neuer Container: internes Netz, Internet nur über den Egress-Proxy. */
+  network: NetworkMode;
+  /** Verfügbare egress.presets mit ihren Hosts. */
+  presets: Record<string, string[]>;
+  /** Presets ohne egress-Abschnitt in .ade/sandbox.yaml. */
+  default_presets: string[];
+}
+
+/** proxy: nur über den Egress-Proxy; open: Container aus M5 mit normalem Netz. */
+export type NetworkMode = "proxy" | "open";
+
+/** Abschnitt egress in .ade/sandbox.yaml. */
+export interface Egress {
+  presets: string[] | null;
+  allow: string[] | null;
+  deny: string[] | null;
+  on_blocked: "deny";
+  /** Kein egress-Abschnitt: es gelten die Voreinstellungen. */
+  default: boolean;
+}
+
+/** GET /api/workspaces/{id}/egress */
+export interface WorkspaceEgress {
+  events: EgressEvent[];
+  hosts: EgressHost[];
+  policy?: Egress & { effective_allow: string[] | null; error?: string; providers: string[] };
+}
+
+export interface EgressEvent {
+  id: number;
+  ts: string;
+  kind: "connect" | "http" | "api";
+  method?: string;
+  host: string;
+  port: number;
+  path?: string;
+  provider?: string;
+  allowed: boolean;
+  reason: string;
+  status?: number;
+  bytes_out: number;
+  bytes_in: number;
+  duration_ms: number;
+  error?: string;
+}
+
+export interface EgressHost {
+  host: string;
+  allowed: number;
+  blocked: number;
+  bytes_out: number;
+  bytes_in: number;
+  last: string;
+  reason?: string;
 }
 
 export interface SandboxContainer {
@@ -83,7 +135,7 @@ export interface WorkspaceSandbox {
   image?: string;
   container?: SandboxContainer;
   error?: string;
-  network?: "open";
+  network?: NetworkMode;
 }
 
 /** Eine Seite einer Datei im Diff-Editor (Basis-Commit bzw. Workspace). */
@@ -346,6 +398,8 @@ export const api = {
     request<Workspace>("POST", `/api/projects/${encodeURIComponent(projectId)}/workspaces`, opts),
   sandbox: () => request<SandboxInfo>("GET", "/api/sandbox"),
   workspaceSandbox: (id: string) => request<WorkspaceSandbox>("GET", `/api/workspaces/${encodeURIComponent(id)}/sandbox`),
+  workspaceEgress: (id: string, blockedOnly = false) =>
+    request<WorkspaceEgress>("GET", `/api/workspaces/${encodeURIComponent(id)}/egress${blockedOnly ? "?blocked=1" : ""}`),
   workspace: (id: string) => request<Workspace>("GET", `/api/workspaces/${encodeURIComponent(id)}`),
   deleteWorkspace: (id: string) => request<void>("DELETE", `/api/workspaces/${encodeURIComponent(id)}`),
   diff: (id: string, patch = true) =>

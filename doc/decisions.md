@@ -184,3 +184,31 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
   Änderungszahlen. Der Container hat bis M6 normales Netz; ein API-Key aus der Konfiguration ist
   im Container lesbar. Rootless Docker und abweichende UIDs funktionieren, die Datei-Eigentümer im
   Workspace stimmen aber nur bei klassischem Docker mit dem Nutzer überein.
+
+## ADR-015: Egress-Proxy als eigener Container, Secret-Injection über die Steuer-API
+
+- **Kontext:** M6 beschränkt das Netz der Sandbox auf freigegebene Ziele und hält API-Keys aus dem
+  Container heraus (doc/sandbox.md). Docker veröffentlicht für Container in `--internal`-Netzen
+  keine Ports, und der Daemon lauscht nur auf `127.0.0.1` des Hosts.
+- **Entscheidung:**
+  1. Pro Workspace ein internes Netz `ade-ws-<id>` und ein Proxy-Container `ade-proxy-<id>` im
+     gemeinsamen Netz `ade-egress` (ohne Verkehr zwischen Containern) und im internen Netz
+     (Alias `proxy`). Erzwungen wird die Isolation durch das Netz; `HTTP(S)_PROXY` ist Bequemlichkeit.
+  2. Der Proxy ist `ade proxy` aus demselben Binary: Der Daemon kopiert sein (statisches)
+     Binary nach `<data_dir>/sandbox/ade-proxy` und mountet es nur lesend ins Standard-Image.
+     Proxy und Daemon haben so immer dieselbe Version, ohne eigenes Image.
+  3. Der Daemon steuert den Proxy über eine HTTP-Steuer-API auf einem veröffentlichten Port
+     (`127.0.0.1`), geschützt durch ein zufälliges Token je Container (über die Umgebung der
+     Docker-CLI übergeben, nicht in der Prozessliste). Policy und Keys gehen nur darüber; der
+     Proxy hält sie im Speicher. Events holt der Daemon per Long-Polling ab.
+  4. Die IDE erreicht der Daemon über eine TCP-Weiterleitung des Proxys an `agent:3000`.
+  5. Der Proxy verbindet nie zu internen Adressen; geprüft wird die IP beim `connect`.
+  6. Externe DNS-Auflösung im Agent-Container ist zusätzlich per `--dns 192.0.2.1` abgeschaltet.
+  7. Container aus M5 (ohne Label `ade.net`) werden beim nächsten Start neu angelegt.
+  8. Bei ungültiger `sandbox.yaml` gilt nicht die Voreinstellung: laufende Proxys behalten die
+     letzte gültige Policy, neue Container starten nicht.
+- **Konsequenzen:** Ein zusätzlicher Container (~10 MB RAM) pro laufendem Workspace. Der Daemon
+  muss ohne cgo gebaut sein (`make build`, `make dev`); ein dynamisch gelinktes Binary meldet er
+  beim Start. Ohne TLS-Interception gilt die Allowlist nur auf Host-Ebene. Hängen andere
+  Programme als Agent-Sessions (IDE-Terminal) an der Anthropic-API, nutzen sie die eigene
+  Anmeldung der CLI über die Allowlist.

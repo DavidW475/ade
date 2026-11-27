@@ -57,7 +57,13 @@ export function SandboxFacts({ workspace: w }: { workspace: Workspace }) {
       <dd>
         <SandboxBadge workspace={w} />{" "}
         {c ? <Badge tone={c.running ? "ok" : "neutral"}>{c.running ? "Container läuft" : `Container ${c.state}`}</Badge> : <Badge>kein Container</Badge>}{" "}
-        <Badge tone="warn">Netz offen</Badge>
+        {sb.data?.network === "open" ? (
+          <span title="Container aus einer älteren ADE-Version; er wird beim nächsten Start mit abgeschottetem Netz neu angelegt">
+            <Badge tone="warn">Netz offen bis zum Neustart</Badge>
+          </span>
+        ) : (
+          <Badge tone="ok">Netz: nur Allowlist</Badge>
+        )}
       </dd>
       <dt>Image</dt>
       <dd className="mono">{w.sandbox_image || sb.data?.image || "–"}</dd>

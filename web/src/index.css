@@ -380,3 +380,15 @@ dialog.modal::backdrop { background: rgb(15 17 21 / 0.45); }
 .sandboxtoggle .hint { margin: 0; }
 .inline-form .sandboxtoggle { flex-basis: 100%; }
 .sandboxtoggle input[type="checkbox"] { width: auto; min-width: 0; flex: none; margin: 0; }
+
+/* Netzwerk-Ansicht */
+.netpolicy .facts { margin-bottom: 0.5rem; }
+.netpolicy details summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
+.netpolicy .notice { margin-top: 0; }
+.netlist { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; }
+.netlist code { font-size: 0.8rem; }
+.netevents { margin-top: 1rem; }
+.netevents .tablewrap { margin-top: 0.75rem; }
+label.checkbox { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; font-size: 0.9rem; }
+label.checkbox input[type="checkbox"] { width: auto; min-width: 0; margin: 0; }
+.netevents td.wrap { word-break: break-all; }

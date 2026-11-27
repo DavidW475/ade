@@ -39,7 +39,8 @@ eigene Konfiguration mit anderem Port und Datenverzeichnis verwenden (siehe
 | `internal/agent/adapter/` | Adapter-Interface, Event-Typen + JSON-Schema; `claude/`, `pty/`, `fake/` (Tests) |
 | `internal/ide/` | openvscode-server je Workspace: Download mit Prüfsumme, Start, Inaktivitäts-Stopp |
 | `internal/gateway/` | Reverse-Proxy `ws-<id>.localhost` → IDE, Ticket-Anmeldung, Connection-Token |
-| `internal/sandbox/` | Docker-Container je Workspace über die Docker-CLI, `.ade/sandbox.yaml`, GC |
+| `internal/sandbox/` | Docker-Container, internes Netz und Proxy-Container je Workspace über die Docker-CLI, `.ade/sandbox.yaml` (inkl. `egress`), GC |
+| `internal/proxy/` | Egress-Proxy `ade proxy`: Allowlist, Schutz vor internen Zielen, Secret-Injection, Steuer-API |
 | `web/` | Dashboard (Vite + React + TypeScript, Monaco Diff Editor) |
 | `examples/`, `images/` | Beispielkonfigurationen, Container-Images (`images/agent-base`) |
 

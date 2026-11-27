@@ -10,7 +10,8 @@ data_dir: ~/.local/share/ade
 # Workspace-Clones. Muss im Linux-Dateisystem liegen, nicht unter /mnt/c.
 workspaces_dir: ~/.ade/workspaces
 
-# API-Keys immer als Referenz angeben, nie im Klartext.
+# API-Keys immer als Referenz angeben, nie im Klartext. In der Sandbox fügt der Egress-Proxy den
+# Key ein (zuerst für anthropic); der Container sieht nur einen Platzhalter.
 providers:
   anthropic:
     api_key: env:ANTHROPIC_API_KEY
