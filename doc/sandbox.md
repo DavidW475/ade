@@ -110,7 +110,7 @@ resources:
   cpus: 2
   pids: 512
 egress:
-  presets: [anthropic, github-readonly, npm, pypi, go-proxy]
+  presets: [anthropic, openai, github-readonly, npm, pypi, go-proxy]
   allow:
     - api.example.com
     - "*.githubusercontent.com"
@@ -124,12 +124,13 @@ Presets sind im Binary hinterlegte Domain-Listen (`internal/sandbox/egress.go`):
 | Preset | Hosts |
 |---|---|
 | `anthropic` | api.anthropic.com, console.anthropic.com, platform.claude.com, claude.ai, statsig.anthropic.com |
+| `openai` | api.openai.com, auth.openai.com, chatgpt.com (Codex CLI: API, ChatGPT-Anmeldung, Modell-Liste) |
 | `github-readonly` | github.com, api.github.com, codeload.github.com, raw/objects/release-assets.githubusercontent.com, ghcr.io, pkg-containers.githubusercontent.com |
 | `npm` | registry.npmjs.org, registry.yarnpkg.com |
 | `pypi` | pypi.org, files.pythonhosted.org |
 | `go-proxy` | proxy.golang.org, sum.golang.org |
 
-- Ohne `egress`-Abschnitt gelten `anthropic`, `github-readonly`, `npm`, `pypi`, `go-proxy`.
+- Ohne `egress`-Abschnitt gelten `anthropic`, `openai`, `github-readonly`, `npm`, `pypi`, `go-proxy`.
   Mit Abschnitt gilt nur, was dort steht; `egress: {}` sperrt alles.
 - `github-readonly` heißt ohne TLS-Aufbrechen nur: Der Container erreicht GitHub, hat aber keine
   Zugangsdaten dafür. Schreibzugriffe scheitern an der Anmeldung, nicht am Proxy.
@@ -160,7 +161,7 @@ Ob eine CLI eine konfigurierbare Basis-URL unterstützt, ist pro Adapter zu prü
 (Claude Code: `ANTHROPIC_BASE_URL`). Für CLIs ohne diese Option bleibt nur Key-im-Container
 mit Warnung im Dashboard oder TLS-Interception (später).
 
-Umsetzung (M6, zuerst Anthropic):
+Umsetzung (M6 für Anthropic, M8 für OpenAI):
 
 - Der Daemon schickt die aufgelösten Keys (`providers.<name>.api_key`) über die Steuer-API an den
   Proxy. Sie stehen nie in Container-Konfiguration, Umgebung oder Dateien des Agent-Containers.
@@ -171,7 +172,23 @@ Umsetzung (M6, zuerst Anthropic):
 - `proxy` steht in `NO_PROXY`. Clients, die die Basis-URL trotzdem über `HTTP_PROXY` ansprechen,
   bedient der Proxy genauso (Anfragen an sich selbst unter `/p/`).
 - Ohne konfigurierten Key bekommt die CLI keine Basis-URL und nutzt ihre eigene Anmeldung über
-  die Allowlist (Preset `anthropic`).
+  die Allowlist (Preset `anthropic` bzw. `openai`).
+
+OpenAI (M8, für Codex):
+
+- `/p/openai/…` geht an `https://api.openai.com/…`, der Proxy setzt `Authorization: Bearer <Key>`.
+- Codex beachtet `OPENAI_BASE_URL` nicht. ADE gibt der CLI deshalb einen eigenen Provider als
+  Argument (`-c model_provider=ade -c model_providers.ade={base_url="http://proxy:8080/p/openai/v1",
+  env_key="OPENAI_API_KEY", wire_api="responses"}`); `OPENAI_API_KEY` ist im Container ein Platzhalter.
+- Codex läuft im Container mit `--dangerously-bypass-approvals-and-sandbox`: Der Container ist die
+  Sandbox, die eigene von Codex (Landlock/seccomp) ist darin nicht zuverlässig.
+
+**Token-Zählung (M8):** Für `/p/<anbieter>/…` fordert der Proxy unkomprimierte Antworten an und
+liest sie beim Durchreichen mit (ohne Puffern): `usage` aus JSON-Antworten und aus den SSE-Events
+(`message_start`/`message_delta` bei Anthropic, `response.completed` bei OpenAI, `usage` in
+Chat-Chunks). Die Nutzung steht im Egress-Event; der Daemon verbucht sie als Kosten der Session
+und prüft die Budgets ([architecture.md](architecture.md#44-kosten-und-budgets)). Was am Proxy
+vorbei über CONNECT läuft (Abo-Login), kann er nicht zählen; dann gilt die Meldung der CLI.
 
 **Git:** Der Agent committet lokal im Workspace. `fetch`/`push` zum Remote macht ausschließlich
 der Daemon auf dem Host nach Freigabe. Lesender Zugriff auf GitHub (z. B. Abhängigkeiten) geht

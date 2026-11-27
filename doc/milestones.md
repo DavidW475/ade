@@ -185,8 +185,8 @@ flowchart LR
 - Optional: LiteLLM als Provider
 
 **Fertig, wenn:**
-- [ ] Zwei verschiedene Agent-CLIs laufen parallel in getrennten Sandboxen
-- [ ] Kosten pro Session werden angezeigt und ein Budget stoppt einen Agenten
+- [x] Zwei verschiedene Agent-CLIs laufen parallel in getrennten Sandboxen
+- [x] Kosten pro Session werden angezeigt und ein Budget stoppt einen Agenten
 
 ---
 

@@ -35,6 +35,27 @@ Abschnitt der jeweiligen Version als Release-Notizen.
   („Einmal“, „Für diesen Workspace“, „Immer (Projekt)“, „Ablehnen“). Geblockte Hosts lassen sich
   in der Netzwerk-Ansicht mit einem Klick dauerhaft erlauben; die Ausnahmen speichert der Daemon,
   das Repo bleibt unverändert.
+- **Adapter `codex`** (M8): Codex CLI lokal und in der Sandbox, mit Timeline (Nachrichten,
+  Befehle, Dateiänderungen) und Fortsetzen über `codex exec resume`. Codex ist im Image
+  `ade-agent-base` enthalten; neues Egress-Preset `openai` (auch in der Voreinstellung).
+- **Secret-Injection für OpenAI:** Mit `providers.openai.api_key` spricht Codex in der Sandbox
+  die API über `http://proxy:8080/p/openai/v1` an; lokal bekommt es den Key als `CODEX_API_KEY`.
+- **Kosten:** Der Egress-Proxy liest die Token-Nutzung aus den API-Antworten (Anthropic, OpenAI;
+  JSON und Streaming). Kosten und Tokens erscheinen live in der Session, im Workspace, im Projekt
+  (Monat und gesamt) und in der Projektübersicht. Ohne Messung am Proxy gilt die Meldung der CLI;
+  Codex-Kosten berechnet ADE aus Tokens. `GET /api/usage`.
+- Eingebaute Preistabelle (Schätzwerte, Stand 2026-11) und `pricing` in der globalen
+  Konfiguration zum Ergänzen.
+- **Modell-Aliase:** `models` in der globalen Konfiguration (z. B. `opus` → Anbieter und
+  Modell-ID); Auswahl im Startdialog, der Anbieter muss zum Adapter passen.
+- **Budgets:** `budget.session_usd` und `budget.monthly_usd` in `.ade/project.yaml`, je Session
+  auch beim Start. Bei Überschreitung pausiert der Agent (Status „pausiert“) und wartet auf eine
+  Budget-Freigabe; „Budget erhöhen“ setzt ihn fort, „Ablehnen“ beendet ihn.
+
+### Behoben
+
+- `ade gc` und der Container-Abgleich scheitern nicht mehr, wenn ein Container zwischen
+  Auflisten und Inspizieren verschwindet (#66).
 
 ### Sicherheit
 
@@ -57,6 +78,8 @@ Abschnitt der jeweiligen Version als Release-Notizen.
 - Ungültige `.ade/sandbox.yaml`: Neue Sandbox-Container starten erst nach der Korrektur, laufende
   behalten die zuletzt gültige Netzwerk-Policy.
 - `make dev` baut ohne cgo; der Daemon braucht ein statisches Binary für den Proxy-Container.
+- Anfragen an `/p/<anbieter>/` fordert der Proxy unkomprimiert an (für die Token-Zählung).
+- `/api/adapters` liefert zusätzlich Modi je Adapter, Anbieter und Modell-Aliase.
 
 ## [0.1.0] – 2026-11-26
 
