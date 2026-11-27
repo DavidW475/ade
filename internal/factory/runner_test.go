@@ -84,6 +84,23 @@ flow:
   - { step: deliver, action: pull_request }
 `
 
+// parallelRunFactory: Umsetzung → Review (lesend) und Test (schreibend) parallel → Rücksprung,
+// solange Tests fehlschlagen.
+const parallelRunFactory = `name: p
+inputs:
+  task: { required: true }
+roles:
+  implementer: { inputs: [review.json, test.json], outputs: [summary.md] }
+  reviewer: { permissions: read, inputs: [summary.md], outputs: [{ name: review.json, schema: schemas/review.json }] }
+  tester: { inputs: [summary.md], outputs: [test.json] }
+flow:
+  - { step: implement, role: implementer }
+  - parallel:
+      - { step: review, role: reviewer }
+      - { step: test, role: tester }
+  - { step: decide, when: "review.verdict == 'changes' || test.failed > 0", goto: implement }
+`
+
 // answer legt die nächsten Antworten des Fake-Agenten im Schritt step fest.
 func (e *env) answer(step string, texts ...string) {
 	e.t.Helper()
@@ -127,6 +144,7 @@ func setup(t *testing.T) *env {
 		".ade/factories/t.yaml":              testFactory,
 		".ade/factories/prompts/planner.md":  "Du planst.",
 		".ade/factories/s.yaml":              structFactory,
+		".ade/factories/p.yaml":              parallelRunFactory,
 		".ade/factories/l.yaml":              loopRunFactory,
 		".ade/factories/schemas/review.json": reviewSchema,
 	} {
@@ -420,7 +438,7 @@ func TestRunStartErrors(t *testing.T) {
 		}
 	}
 	list, err := e.runner.Factories(e.ctx, e.project.ID)
-	if err != nil || len(list) != 4 {
+	if err != nil || len(list) != 5 {
 		t.Fatalf("Fabriken %+v %v", list, err)
 	}
 }
@@ -546,5 +564,59 @@ func TestRunLoopExhausted(t *testing.T) {
 	r := e.run(v.ID)
 	if !strings.Contains(r.Error, "nach 3 Durchläufen noch wahr") || r.Steps[0].Iteration != 3 {
 		t.Fatalf("Run %+v", r)
+	}
+}
+
+func TestRunParallel(t *testing.T) {
+	e := setup(t)
+	approve := `{"verdict": "approve", "comments": []}`
+	e.answer("review", approve, approve)
+	e.answer("test", `{"failed": 1, "name": "TestX"}`, `{"failed": 0}`)
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "p", Task: "Baue P"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Steps[2].Group == nil || *v.Steps[2].Group != 1 || v.Steps[0].Group != nil {
+		t.Fatalf("Schritte %+v", v.Steps)
+	}
+	waitFor(t, "Run fertig", func() bool {
+		r := e.run(v.ID)
+		if r.Status == store.RunFailed {
+			t.Fatalf("Run gescheitert: %s", r.Error)
+		}
+		return r.Status == store.RunDone
+	})
+	r := e.run(v.ID)
+	for _, st := range r.Steps[:3] {
+		if st.Iteration != 2 || st.Status != store.StepDone {
+			t.Errorf("Schritt %s: Durchlauf %d, %s", st.Name, st.Iteration, st.Status)
+		}
+	}
+	// Review und Test liefen gleichzeitig: Beide starteten, bevor einer fertig war.
+	rev, tst := r.Steps[1], r.Steps[2]
+	if rev.StartedAt.After(*tst.EndedAt) || tst.StartedAt.After(*rev.EndedAt) {
+		t.Fatalf("nicht parallel: review %v–%v, test %v–%v", rev.StartedAt, rev.EndedAt, tst.StartedAt, tst.EndedAt)
+	}
+	impl := strings.Split(strings.TrimSpace(e.inputs("implement")), "\n")
+	if len(impl) != 2 || !strings.Contains(impl[1], "TestX") || !strings.Contains(impl[1], "Artefakt review.json") {
+		t.Fatalf("zweiter Durchlauf ohne Test-Ergebnis:\n%s", impl[len(impl)-1])
+	}
+}
+
+func TestRunParallelFailure(t *testing.T) {
+	e := setup(t)
+	e.answer("review", `{"verdict": "approve", "comments": []}`)
+	e.answer("test", "kaputt", "kaputt", "kaputt")
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "p", Task: "Baue P"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "Run gescheitert", func() bool { return e.run(v.ID).Status == store.RunFailed })
+	r := e.run(v.ID)
+	if !strings.HasPrefix(r.Error, "Schritt test: ") || r.Steps[2].Status != store.StepFailed {
+		t.Fatalf("Run %q, Schritte %+v", r.Error, r.Steps)
+	}
+	if s := r.Steps[1].Status; s != store.StepDone && s != store.StepCanceled {
+		t.Fatalf("Review: %s", s)
 	}
 }

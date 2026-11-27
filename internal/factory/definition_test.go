@@ -3,6 +3,7 @@ package factory
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -73,7 +74,29 @@ flow:
 		"doppelter Schritt":     {strings.Replace(minimal, "step: two", "step: one", 1), "one gibt es schon"},
 		"parallel": {minimal + `  - parallel:
       - { step: r, role: a }
-`, "noch nicht unterstützt"},
+`, "2 bis 8 Schritte"},
+		"parallel Gate": {minimal + `  - parallel:
+      - { step: r, role: a }
+      - { step: g, gate: human }
+`, "nur Rollen"},
+		"parallel zwei Schreiber": {minimal + `  - parallel:
+      - { step: r, role: b }
+      - { step: s, role: b }
+`, "höchstens eine Rolle mit Schreibrechten"},
+		"parallel mit Name": {minimal + `  - step: grp
+    parallel:
+      - { step: r, role: a }
+      - { step: s, role: a }
+`, "nur parallel"},
+		"parallel Geschwister": {`name: x
+roles:
+  a: { permissions: read, outputs: [a.json] }
+  b: { permissions: read, inputs: [a.json] }
+flow:
+  - parallel:
+      - { step: one, role: a }
+      - { step: two, role: b }
+`, "erst ein späterer Schritt"},
 		"when ohne Artefakt":     {minimal + "  - { step: d, when: \"one.x == 1\", goto: one }\n", "kein strukturiertes Artefakt"},
 		"when Syntax":            {minimal + "  - { step: d, when: \"one.x = 1\", goto: one }\n", "mit == schreiben"},
 		"when später":            {strings.Replace(minimal, "  - { step: one, role: a }\n", "  - { step: one, role: a, when: \"two.x == 1\" }\n", 1), "kein früherer Schritt"},
@@ -209,6 +232,50 @@ func TestParseLoop(t *testing.T) {
 	typo := strings.Replace(withSchema, "review.verdict == 'changes'", "review.verdikt == 'changes'", 1)
 	if _, err := Parse("loop.yaml", []byte(typo), read); err == nil || !strings.Contains(err.Error(), "kein Feld verdikt") {
 		t.Fatalf("Tippfehler im Feld: %v", err)
+	}
+}
+
+func TestParseParallel(t *testing.T) {
+	f, err := Parse("p.yaml", []byte(`name: p
+roles:
+  dev: { inputs: [review.json, test.json], outputs: [summary.md] }
+  rev: { permissions: read, inputs: [summary.md], outputs: [review.json] }
+  tst: { inputs: [summary.md], outputs: [test.json] }
+flow:
+  - { step: implement, role: dev }
+  - parallel:
+      - { step: review, role: rev }
+      - { step: test, role: tst, when: "implement.x == 1" }
+  - { step: decide, when: "review.verdict == 'changes' || test.failed > 0", goto: review }
+`), nil)
+	if err == nil || !strings.Contains(err.Error(), "kein strukturiertes Artefakt") {
+		t.Fatalf("Bedingung auf Text-Artefakt: %v", err)
+	}
+	f, err = Parse("p.yaml", []byte(`name: p
+roles:
+  dev: { inputs: [review.json, test.json], outputs: [summary.md] }
+  rev: { permissions: read, inputs: [summary.md], outputs: [review.json] }
+  tst: { inputs: [summary.md], outputs: [test.json] }
+flow:
+  - { step: implement, role: dev }
+  - parallel:
+      - { step: review, role: rev }
+      - { step: test, role: tst }
+  - { step: decide, when: "review.verdict == 'changes' || test.failed > 0", goto: implement }
+  - { step: again, when: "test.failed > 0", goto: test }
+`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, s := range f.Flat() {
+		got = append(got, fmt.Sprintf("%s@%d/%d", s.Step.Step, s.Pos, s.Start()))
+	}
+	if strings.Join(got, " ") != "implement@0/0 review@1/1 test@2/1 decide@3/3 again@4/4" || f.Pos("test") != 2 {
+		t.Fatalf("flach: %v", got)
+	}
+	if st := f.Steps(); st[2].Group == nil || *st[2].Group != 1 || st[0].Group != nil {
+		t.Fatalf("Übersicht %+v", st)
 	}
 }
 

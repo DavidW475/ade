@@ -21,9 +21,8 @@ Ohne eigene Datei gilt die gleichnamige mitgelieferte Vorlage (`examples/factori
 Umfang in **M9**: lineare Schritte mit `role`, `gate: human` und `action: pull_request` (als
 letzter Schritt), je Rolle höchstens ein Artefakt (ihre letzte Antwort), Eingaben vom Typ `text`,
 `budget.max_cost_usd` und `budget.max_duration`. Seit **M10** dazu: strukturierte Artefakte mit
-Schema, Bedingungen (`when`) und Schleifen (`goto`, `max_iterations`, `on_deny`), siehe
-[Ausführung](#3-ausführung). `parallel` folgt; ADE lehnt es bis dahin mit einer Fehlermeldung ab.
-Das Beispiel zeigt das Ziel nach M10:
+Schema, Bedingungen (`when`), Schleifen (`goto`, `max_iterations`, `on_deny`) und parallele
+Schritte (`parallel`), siehe [Ausführung](#3-ausführung). Beispiel:
 
 ```yaml
 name: feature
@@ -143,6 +142,15 @@ stateDiagram-v2
   `== != < <= > >=`, `&& || !`, Klammern und `len(x)`. ADE prüft beim Laden, dass jeder Pfad
   einen früheren Schritt mit strukturiertem Artefakt nennt und, wenn dessen Schema Felder
   aufzählt, ein vorhandenes Feld.
+- **Parallele Schritte** (`parallel`): 2 bis 8 Rollen-Schritte laufen gleichzeitig; die Gruppe
+  ist fertig, wenn alle fertig (oder per `when` übersprungen) sind. Scheitert einer, stoppt ADE
+  die anderen und der Run scheitert. Weil alle im selben Workspace arbeiten, darf höchstens eine
+  Rolle der Gruppe Schreibrechte haben; Lese-Rollen laufen in ihrem Lese-Container bzw.
+  Schnappschuss neben ihr. Eine Gruppe hat keinen eigenen Namen und keine Bedingung; ein
+  Rücksprung auf eines ihrer Mitglieder startet die ganze Gruppe neu. Mitglieder einer Gruppe
+  sehen ihre Artefakte gegenseitig nicht (erst die Schritte danach). Das Rest-Budget wird beim
+  Start auf die Mitglieder aufgeteilt; das Zeitlimit zählt die Zeit, in der mindestens eine
+  Rolle arbeitet.
 - **Schleifen:** Eine Entscheidung `{ step: decide, when: "…", goto: implement }` springt zurück,
   wenn die Bedingung wahr ist, sonst geht es weiter. Ein Rücksprung legt für alle Schritte vom
   Ziel bis zur Entscheidung einen neuen Durchlauf an; frühere Durchläufe mit ihren Sessions und
