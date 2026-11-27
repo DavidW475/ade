@@ -152,7 +152,9 @@ func (s *Store) UpdateWorkspace(ctx context.Context, id string, u WorkspaceUpdat
 	if n, _ := res.RowsAffected(); n == 0 {
 		return apperr.NotFound("Workspace %s nicht gefunden", id)
 	}
-	return nil
+	// Egress-Ausnahmen des Workspaces hängen nicht per Fremdschlüssel an ihm.
+	_, err = s.db.ExecContext(ctx, `DELETE FROM egress_grants WHERE workspace_id = ?`, id)
+	return err
 }
 
 // DeleteWorkspace löscht einen Workspace-Datensatz.

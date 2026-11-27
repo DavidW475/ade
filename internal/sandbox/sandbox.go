@@ -82,6 +82,11 @@ type Options struct {
 	Secrets func() map[string]string
 	// OnEgress erhält die Egress-Events der Proxys.
 	OnEgress func(workspace string, events []proxy.Event)
+	// OnQuestion beantwortet Fragen der Proxys (Freigaben, M7). Es blockiert, bis
+	// entschieden ist; ctx endet, wenn der Fragende aufgibt. Ohne Handler gilt deny.
+	OnQuestion QuestionHandler
+	// AskWait ist die Wartezeit einer Anfrage bei egress.on_blocked: ask (Standard 2m).
+	AskWait time.Duration
 	// ReloadInterval ist der Abstand, in dem geänderte Policies an die Proxys gehen.
 	ReloadInterval time.Duration
 	Logger         *slog.Logger
@@ -127,6 +132,9 @@ func New(opts Options) *Manager {
 	}
 	if opts.ProxyImage == "" {
 		opts.ProxyImage = opts.Image
+	}
+	if opts.AskWait <= 0 {
+		opts.AskWait = proxy.DefaultAskWait
 	}
 	if opts.ReloadInterval <= 0 {
 		opts.ReloadInterval = 3 * time.Second
@@ -260,6 +268,8 @@ type Spec struct {
 	Config Config
 	// Env sind feste Variablen des Containers (z. B. Git-Identität), keine Secrets.
 	Env []string
+	// Grants sind Egress-Ausnahmen aus Freigaben im Dashboard (ergänzen egress.allow).
+	Grants []string
 }
 
 // ImageFor liefert das Image für eine Konfiguration.
@@ -420,7 +430,7 @@ func (m *Manager) Ensure(ctx context.Context, s Spec) error {
 		return err
 	}
 	if c != nil && (c.Net != NetVersion || netCreated) {
-		m.log.Info("Sandbox-Container wird für das abgeschottete Netz neu angelegt", "workspace", s.Workspace)
+		m.log.Info("Sandbox-Container wird mit dem aktuellen Aufbau neu angelegt", "workspace", s.Workspace, "bisher", c.Net)
 		m.unlinkLocked(s.Workspace)
 		if _, err := m.run(ctx, nil, "container", "rm", "--force", "--", c.ID); err != nil {
 			return fmt.Errorf("alten Container entfernen: %w", err)
@@ -430,7 +440,7 @@ func (m *Manager) Ensure(ctx context.Context, s Spec) error {
 	if _, err := m.ensureProxy(ctx, s.Workspace, netCreated); err != nil {
 		return err
 	}
-	if err := m.connectProxy(ctx, s.Workspace, m.policyFor(s.Config)); err != nil {
+	if err := m.connectProxy(ctx, s.Workspace, m.policyFor(s)); err != nil {
 		return err
 	}
 	created := false
@@ -480,6 +490,10 @@ func (m *Manager) CreateArgs(s Spec) []string {
 	}
 	for _, kv := range proxyEnv() {
 		args = append(args, "--env", kv)
+	}
+	if m.opts.ProxyBinary != "" {
+		// Für ade hook pretooluse (Freigaben); nur lesend, das Binary enthält keine Secrets.
+		args = append(args, "--mount", "type=bind,source="+m.opts.ProxyBinary+",target="+ProxyBinary+",readonly")
 	}
 	if r.Memory != "" {
 		args = append(args, "--memory", r.Memory)

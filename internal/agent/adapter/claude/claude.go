@@ -3,7 +3,9 @@
 // Aufruf (geprüft gegen Claude Code 2.1):
 //
 //	claude -p --input-format stream-json --output-format stream-json --verbose
-//	       [--model M] [--permission-mode P] [--resume ID]
+//	       [--model M] [--permission-mode P] [--settings HOOK] [--resume ID]
+//
+// HOOK bindet ade hook pretooluse als PreToolUse-Hook ein (Freigaben, M7).
 //
 // Anweisungen gehen als JSON-Zeilen über stdin ({"type":"user","message":{…}}); der Prozess
 // bleibt nach einem Durchgang ("result") am Leben und wartet auf die nächste Zeile. So sind
@@ -22,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/DavidW475/ade/internal/agent/adapter"
+	"github.com/DavidW475/ade/internal/approval"
 )
 
 // Binary ist der Name des CLI-Programms.
@@ -44,7 +47,7 @@ func (a *Adapter) Name() string { return "claude" }
 
 // Capabilities implementiert adapter.Adapter.
 func (a *Adapter) Capabilities() adapter.Capabilities {
-	return adapter.Capabilities{Input: true, Resume: true}
+	return adapter.Capabilities{Input: true, Resume: true, Approvals: true}
 }
 
 // Command implementiert adapter.Adapter.
@@ -68,6 +71,11 @@ func (a *Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 			return nil, fmt.Errorf("unbekannter Berechtigungsmodus %q (erlaubt: %s)", spec.PermissionMode, strings.Join(PermissionModes, ", "))
 		}
 		args = append(args, "--permission-mode", spec.PermissionMode)
+	}
+	if spec.Hook != nil && spec.Hook.Command != "" {
+		// PreToolUse-Hook für alle Werkzeuge: ADE entscheidet (Regeln oder Freigabe im
+		// Dashboard); allow übergeht die Rückfrage der CLI, deny sperrt auch bei bypassPermissions.
+		args = append(args, "--settings", approval.HookSettings(spec.Hook.Command, spec.Hook.Timeout))
 	}
 	if spec.ResumeID != "" {
 		if strings.HasPrefix(spec.ResumeID, "-") {

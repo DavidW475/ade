@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/DavidW475/ade/internal/agent"
+	"github.com/DavidW475/ade/internal/approval"
 	"github.com/DavidW475/ade/internal/gateway"
 	"github.com/DavidW475/ade/internal/ide"
 	"github.com/DavidW475/ade/internal/project"
@@ -45,12 +46,15 @@ type Options struct {
 	Sandbox *sandbox.Manager
 	// Egress liefert die Egress-Events der Sandbox (optional, mit Sandbox).
 	Egress EgressStore
+	// Approvals ist optional; ohne ihn fehlen die Freigabe-Routen.
+	Approvals *approval.Service
 }
 
 // EgressStore ist der Teil der Datenbank für die Netzwerk-Ansicht.
 type EgressStore interface {
 	ListEgress(ctx context.Context, workspaceID string, f store.EgressFilter) ([]store.EgressEvent, error)
 	EgressHosts(ctx context.Context, workspaceID string) ([]store.EgressHost, error)
+	ListEgressGrants(ctx context.Context, projectID, workspaceID string) ([]store.EgressGrant, error)
 }
 
 // Server ist der HTTP-Handler des Daemons.
@@ -76,6 +80,7 @@ func New(opts Options) *Server {
 	s.routesReview(mux)
 	s.routesIDE(mux)
 	s.routesSandbox(mux)
+	s.routesApprovals(mux)
 	unknown := func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "unbekannter API-Pfad")
 	}

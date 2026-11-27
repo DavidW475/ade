@@ -34,6 +34,18 @@ type Config struct {
 	IDE IDE `yaml:"ide"`
 	// Sandbox konfiguriert die Docker-Sandbox.
 	Sandbox Sandbox `yaml:"sandbox"`
+	// Approvals konfiguriert Freigaben.
+	Approvals Approvals `yaml:"approvals"`
+}
+
+// DefaultApprovalTimeout ist die Wartezeit auf eine Freigabe ohne approvals.timeout.
+const DefaultApprovalTimeout = 10 * time.Minute
+
+// Approvals konfiguriert Freigaben (doc/architecture.md#43-freigaben).
+type Approvals struct {
+	// Timeout ist die Wartezeit auf eine Entscheidung im Dashboard; danach gilt die
+	// Anfrage als abgelehnt.
+	Timeout time.Duration `yaml:"timeout"`
 }
 
 // Sandbox konfiguriert die Docker-Sandbox (doc/sandbox.md).
@@ -120,6 +132,7 @@ func Default() (*Config, error) {
 		Providers:     map[string]Provider{},
 		Defaults:      Defaults{Adapter: "claude", Sandbox: true},
 		IDE:           IDE{IdleTimeout: DefaultIDEIdleTimeout},
+		Approvals:     Approvals{Timeout: DefaultApprovalTimeout},
 	}, nil
 }
 
@@ -211,6 +224,9 @@ func (c *Config) validate() error {
 	}
 	if c.IDE.IdleTimeout < time.Minute {
 		return fmt.Errorf("ide.idle_timeout %s: mindestens 1m", c.IDE.IdleTimeout)
+	}
+	if t := c.Approvals.Timeout; t < 10*time.Second || t > 2*time.Hour {
+		return fmt.Errorf("approvals.timeout %s: zwischen 10s und 2h", t)
 	}
 	return nil
 }

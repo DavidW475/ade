@@ -45,9 +45,19 @@ type Options struct {
 	// SandboxEnv liefert sie für einen Adapter in der Sandbox: nie echte Keys, sondern
 	// Basis-URLs auf den Egress-Proxy, der die Keys einfügt (doc/sandbox.md#4-secrets).
 	SandboxEnv func(adapter string) []string
+	// Hooks liefert den Freigabe-Hook für Adapter mit Capabilities.Approvals (optional).
+	Hooks Hooks
 	// FlushInterval und StopTimeout überschreiben die Standardwerte (Tests).
 	FlushInterval time.Duration
 	StopTimeout   time.Duration
+}
+
+// Hooks stellt den Freigabe-Hook einer Session bereit (doc/architecture.md#43-freigaben).
+type Hooks interface {
+	// Prepare liefert Hook und zusätzliche Umgebung für eine Session (nil: kein Hook).
+	Prepare(sessionID string, sandbox bool) (*adapter.Hook, []string)
+	// Release gibt die Zugänge einer beendeten Session frei.
+	Release(sessionID string)
 }
 
 // Manager startet und überwacht Agent-Sessions.

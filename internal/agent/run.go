@@ -78,6 +78,9 @@ func (m *Manager) launch(sess *store.Session, a adapter.Adapter, ws *store.Works
 		defer m.wg.Done()
 		defer cancel()
 		status, msg, exit := r.execute(ctx, a, ws, spec)
+		if m.opts.Hooks != nil {
+			m.opts.Hooks.Release(r.id)
+		}
 		m.mu.Lock()
 		delete(m.runs, r.id)
 		m.mu.Unlock()
@@ -115,6 +118,11 @@ func (r *run) execute(ctx context.Context, a adapter.Adapter, ws *store.Workspac
 	}
 	if r.sandbox {
 		spec.Workdir = sandbox.Workdir
+	}
+	if r.caps.Approvals && m.opts.Hooks != nil {
+		hook, env := m.opts.Hooks.Prepare(r.id, r.sandbox)
+		spec.Hook = hook
+		extra = append(extra, env...)
 	}
 	c, err := a.Command(spec)
 	if err != nil {

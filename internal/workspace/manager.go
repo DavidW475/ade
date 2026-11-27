@@ -475,7 +475,15 @@ func (m *Manager) sandboxSpec(ctx context.Context, w *store.Workspace) (sandbox.
 			env = append(env, "GIT_AUTHOR_"+kv[1]+"="+v, "GIT_COMMITTER_"+kv[1]+"="+v)
 		}
 	}
-	return sandbox.Spec{Workspace: w.ID, Path: w.Path, Config: cfg, Env: env}, nil
+	grants, err := m.store.ListEgressGrants(ctx, w.ProjectID, w.ID)
+	if err != nil {
+		return sandbox.Spec{}, err
+	}
+	spec := sandbox.Spec{Workspace: w.ID, Path: w.Path, Config: cfg, Env: env}
+	for _, g := range grants {
+		spec.Grants = append(spec.Grants, g.Rule)
+	}
+	return spec, nil
 }
 
 // SandboxSpec liefert die aktuelle Container-Beschreibung eines Sandbox-Workspaces (Quelle

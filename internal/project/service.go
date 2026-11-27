@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/DavidW475/ade/internal/apperr"
+	"github.com/DavidW475/ade/internal/approval"
 	"github.com/DavidW475/ade/internal/git"
 	"github.com/DavidW475/ade/internal/sandbox"
 	"github.com/DavidW475/ade/internal/store"
@@ -30,6 +31,28 @@ type View struct {
 	SandboxError string `json:"sandbox_error,omitempty"`
 	// Warnings sind Hinweise wie "liegt unter /mnt".
 	Warnings []string `json:"warnings,omitempty"`
+	// Approvals sind die wirksamen Freigabe-Regeln (bei ungültiger project.yaml leer: alles
+	// braucht eine Freigabe).
+	Approvals Approvals `json:"approvals"`
+}
+
+// Approvals sind die wirksamen Regeln je Umgebung.
+type Approvals struct {
+	Sandbox approval.RuleSet `json:"sandbox"`
+	Local   approval.RuleSet `json:"local"`
+}
+
+// ApprovalConfig liefert den Abschnitt approvals der project.yaml eines Projekts; bei einer
+// ungültigen Datei einen Fehler (dann erlaubt keine Regel etwas).
+func (s *Service) ApprovalConfig(ctx context.Context, id string) (*approval.Config, error) {
+	v, err := s.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if v.ConfigError != "" {
+		return nil, errors.New(v.ConfigError)
+	}
+	return v.Config.Approvals, nil
 }
 
 // Service registriert und liest Projekte.
@@ -150,6 +173,8 @@ func (s *Service) view(p *store.Project, cfg *Config, cfgErr error) *View {
 	}
 	if cfgErr != nil {
 		v.ConfigError = cfgErr.Error()
+	} else {
+		v.Approvals = Approvals{Sandbox: cfg.Approvals.Effective(true), Local: cfg.Approvals.Effective(false)}
 	}
 	if strings.HasPrefix(p.RepoPath, "/mnt/") {
 		v.Warnings = append(v.Warnings,

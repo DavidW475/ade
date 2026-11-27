@@ -43,7 +43,6 @@ func TestParseConfig(t *testing.T) {
 		"egress:\n  presets: [unbekannt]\n",
 		"egress:\n  allow: [\"*\"]\n",
 		"egress:\n  deny: [\"http://x\"]\n",
-		"egress:\n  on_blocked: ask\n",
 		"egress:\n  on_blocked: vielleicht\n",
 		"egress:\n  bogus: 1\n",
 		"image: \"-v /:/host\"\n",
@@ -93,6 +92,13 @@ func TestCreateArgs(t *testing.T) {
 	if n := strings.Count(joined, "--mount"); n != 1 {
 		t.Errorf("%d Mounts, erwartet genau einen", n)
 	}
+
+	// Mit Proxy-Binary: zusätzlich nur lesend für den Freigabe-Hook.
+	m = New(Options{DataDir: "/data", Image: "img:1", ProxyBinary: "/data/sandbox/ade-proxy"})
+	joined = strings.Join(m.CreateArgs(Spec{Workspace: "abc", Path: "/ws/abc", Config: *withDefaults(&Config{})}), " ")
+	if !strings.Contains(joined, "--mount type=bind,source=/data/sandbox/ade-proxy,target=/opt/ade/ade,readonly") || strings.Count(joined, "--mount") != 2 {
+		t.Errorf("Hook-Binary: %s", joined)
+	}
 }
 
 func TestExecArgsKeepsValuesOutOfArgv(t *testing.T) {
@@ -136,7 +142,7 @@ func TestProxyCreateArgs(t *testing.T) {
 
 func TestPolicyFor(t *testing.T) {
 	m := New(Options{DataDir: "/data", Secrets: func() map[string]string { return map[string]string{"anthropic": "sk"} }})
-	p := m.policyFor(*withDefaults(&Config{}))
+	p := m.policyFor(Spec{Config: *withDefaults(&Config{})})
 	if !slices.Contains(p.Allow, "registry.npmjs.org") || !slices.Contains(p.Allow, "api.anthropic.com") || p.Secrets["anthropic"] != "sk" {
 		t.Fatalf("Policy: %+v", p)
 	}
@@ -144,8 +150,8 @@ func TestPolicyFor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p2 := m.policyFor(*c)
-	if !slices.Equal(p2.Allow, []string{"a.example"}) {
+	p2 := m.policyFor(Spec{Config: *c})
+	if !slices.Equal(p2.Allow, []string{"a.example"}) || p2.Ask {
 		t.Fatalf("Policy: %+v", p2)
 	}
 	if policyHash(p) == policyHash(p2) {
@@ -155,6 +161,22 @@ func TestPolicyFor(t *testing.T) {
 	p3.Secrets = map[string]string{"anthropic": "anderer"}
 	if policyHash(p2) == policyHash(p3) {
 		t.Fatal("geänderter Key ändert den Hash nicht")
+	}
+
+	// Ausnahmen aus Freigaben ergänzen die Allowlist; on_blocked: ask schaltet Rückfragen ein.
+	c, err = ParseConfig([]byte("egress:\n  allow: [a.example]\n  on_blocked: ask\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p4 := m.policyFor(Spec{Config: *c, Grants: []string{"a.example", "pypi.org"}})
+	if !slices.Equal(p4.Allow, []string{"a.example", "pypi.org"}) || !p4.Ask || p4.AskWaitSeconds != 120 {
+		t.Fatalf("Policy: %+v", p4)
+	}
+	if policyHash(p4) == policyHash(m.policyFor(Spec{Config: *c})) {
+		t.Fatal("Ausnahme ändert den Hash nicht")
+	}
+	if _, err := ParseConfig([]byte("egress:\n  on_blocked: vielleicht\n")); err == nil {
+		t.Fatal("ungültiges on_blocked angenommen")
 	}
 }
 

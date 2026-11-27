@@ -105,6 +105,7 @@ type Rules struct {
 // Gründe einer Entscheidung (Event.Reason).
 const (
 	ReasonAllowed    = "allowlist"
+	ReasonApproved   = "approval" // im Dashboard freigegeben (egress.on_blocked: ask)
 	ReasonNotAllowed = "not_allowed"
 	ReasonDenied     = "denylist"
 	ReasonInternal   = "internal_address"

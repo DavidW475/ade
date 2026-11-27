@@ -23,9 +23,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/DavidW475/ade/internal/proxy"
@@ -38,9 +40,10 @@ const (
 	ProxyAlias = "proxy"
 	// AgentAlias ist der Name des Agent-Containers im Workspace-Netz.
 	AgentAlias = "agent"
-	// NetVersion kennzeichnet Container mit dem Netz-Aufbau von M6; ältere werden neu angelegt.
-	NetVersion = "proxy-1"
-	// ProxyBinary ist der Pfad des ade-Binarys im Proxy-Container.
+	// NetVersion kennzeichnet den Aufbau der Container (proxy-1: Netz aus M6, proxy-2: dazu
+	// das ade-Binary für den Freigabe-Hook, M7); ältere werden beim nächsten Start neu angelegt.
+	NetVersion = "proxy-2"
+	// ProxyBinary ist der Pfad des ade-Binarys im Proxy- und im Agent-Container.
 	ProxyBinary = "/opt/ade/ade"
 	// noDNS ist der DNS-Server des Agent-Containers für externe Namen: eine Adresse aus
 	// TEST-NET-1, die im internen Netz nicht erreichbar ist. Container-Namen (proxy) löst
@@ -224,14 +227,23 @@ type proxyLink struct {
 	done      chan struct{}
 }
 
-// policyFor baut die Policy eines Workspaces aus seiner Konfiguration und den Secrets.
-func (m *Manager) policyFor(c Config) proxy.Policy {
-	e := c.Egress
+// policyFor baut die Policy eines Workspaces aus seiner Konfiguration, den Ausnahmen aus
+// Freigaben und den Secrets.
+func (m *Manager) policyFor(s Spec) proxy.Policy {
+	e := s.Config.Egress
 	if e == nil {
 		e = defaultEgress()
 	}
 	allow, deny := e.Rules()
+	for _, g := range s.Grants {
+		if !slices.Contains(allow, g) {
+			allow = append(allow, g)
+		}
+	}
 	p := proxy.Policy{Allow: allow, Deny: deny}
+	if e.OnBlocked == OnBlockedAsk {
+		p.Ask, p.AskWaitSeconds = true, int(m.opts.AskWait/time.Second)
+	}
 	if m.opts.Secrets != nil {
 		p.Secrets = m.opts.Secrets()
 	}
@@ -245,7 +257,7 @@ func policyHash(p proxy.Policy) string {
 	}
 	sort.Strings(keys)
 	h := sha256.New()
-	_ = json.NewEncoder(h).Encode([]any{p.Allow, p.Deny, keys})
+	_ = json.NewEncoder(h).Encode([]any{p.Allow, p.Deny, keys, p.Ask, p.AskWaitSeconds})
 	for _, k := range keys {
 		_, _ = io.WriteString(h, p.Secrets[k]+"\x00")
 	}
@@ -291,7 +303,14 @@ func (m *Manager) connectProxy(ctx context.Context, workspace string, pol proxy.
 	if old != nil {
 		old.cancel()
 	}
-	go m.collect(cctx, workspace, link)
+	go func() {
+		defer close(link.done)
+		var wg sync.WaitGroup
+		wg.Go(func() { m.answerQuestions(cctx, workspace, link) })
+		m.collect(cctx, workspace, link)
+		cancel() // Proxy weg: auch das Abholen der Fragen beenden
+		wg.Wait()
+	}()
 	return nil
 }
 
@@ -309,7 +328,6 @@ func (m *Manager) unlink(workspace string) {
 
 // collect holt Events per Long-Polling ab, bis ctx endet oder der Proxy dauerhaft weg ist.
 func (m *Manager) collect(ctx context.Context, workspace string, link *proxyLink) {
-	defer close(link.done)
 	defer func() {
 		m.mu.Lock()
 		if m.links[workspace] == link {
@@ -349,6 +367,84 @@ func (m *Manager) collect(ctx context.Context, workspace string, link *proxyLink
 		m.mu.Unlock()
 		if len(r.Events) > 0 && sink != nil {
 			sink(workspace, r.Events)
+		}
+	}
+}
+
+// QuestionHandler beantwortet eine Frage eines Proxys (siehe Options.OnQuestion).
+type QuestionHandler func(ctx context.Context, workspace string, q proxy.Question) proxy.Answer
+
+// SetQuestionHandler setzt den Handler für Fragen der Proxys.
+func (m *Manager) SetQuestionHandler(h QuestionHandler) {
+	m.mu.Lock()
+	m.opts.OnQuestion = h
+	m.mu.Unlock()
+}
+
+// answerQuestions holt offene Fragen per Long-Polling ab und beantwortet jede in einer eigenen
+// Goroutine. Verschwindet eine Frage beim Proxy (der Fragende hat aufgegeben), endet der
+// Kontext ihres Handlers.
+func (m *Manager) answerQuestions(ctx context.Context, workspace string, link *proxyLink) {
+	type running struct{ cancel context.CancelFunc }
+	active := map[string]running{}
+	var boot string
+	var version int64
+	failures := 0
+	var wg sync.WaitGroup
+	defer func() {
+		for _, r := range active {
+			r.cancel()
+		}
+		wg.Wait()
+	}()
+	for ctx.Err() == nil {
+		r, err := link.client.Questions(ctx, boot, version, 20*time.Second)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			failures++
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(min(failures, 10)) * time.Second):
+			}
+			continue
+		}
+		failures = 0
+		boot, version = r.Boot, r.Version
+		open := map[string]bool{}
+		for _, q := range r.Questions {
+			open[q.ID] = true
+			if _, ok := active[q.ID]; ok {
+				continue
+			}
+			qctx, cancel := context.WithCancel(ctx)
+			active[q.ID] = running{cancel}
+			wg.Go(func() {
+				defer cancel()
+				m.mu.Lock()
+				h := m.opts.OnQuestion
+				m.mu.Unlock()
+				a := proxy.Answer{Decision: proxy.AnswerDeny, Reason: "ADE: Freigaben sind nicht eingerichtet"}
+				if h != nil {
+					a = h(qctx, workspace, q)
+				}
+				if qctx.Err() != nil {
+					return
+				}
+				actx, acancel := context.WithTimeout(ctx, 5*time.Second)
+				defer acancel()
+				if err := link.client.Answer(actx, q.ID, a); err != nil {
+					m.log.Debug("Antwort an den Egress-Proxy", "workspace", workspace, "err", err)
+				}
+			})
+		}
+		for id, r := range active {
+			if !open[id] {
+				r.cancel()
+				delete(active, id)
+			}
 		}
 	}
 }
@@ -393,7 +489,7 @@ func (m *Manager) ReloadPolicies(ctx context.Context) {
 			}
 			continue
 		}
-		pol := m.policyFor(spec.Config)
+		pol := m.policyFor(spec)
 		h := policyHash(pol)
 		m.mu.Lock()
 		same := link.hash == h
@@ -443,6 +539,9 @@ func (m *Manager) SetEgressSink(fn func(workspace string, events []proxy.Event))
 	m.opts.OnEgress = fn
 	m.mu.Unlock()
 }
+
+// HookAvailable meldet, ob Agent-Container das ade-Binary für den Freigabe-Hook bekommen.
+func (m *Manager) HookAvailable() bool { return m.opts.ProxyBinary != "" }
 
 // IDEHostPort liefert den Port auf 127.0.0.1, unter dem die IDE eines Workspaces erreichbar
 // ist (über die Weiterleitung des Proxys).

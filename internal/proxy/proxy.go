@@ -9,9 +9,12 @@
 //   - Interne Adressen (Loopback, private Netze, Link-Local) sind immer gesperrt.
 //   - Ein weiterer Port leitet TCP an die IDE im Agent-Container weiter, weil Docker in
 //     internen Netzen keine Ports veröffentlicht.
+//   - /ade/hook/pretooluse nimmt Freigabe-Fragen des Hooks entgegen und reicht sie an den
+//     Daemon weiter (questions.go).
 //
 // Der Daemon steuert den Proxy über eine eigene Steuer-API (Token aus ADE_PROXY_TOKEN):
-// Policy und Secrets setzen, Egress-Events abholen. Ohne Policy ist alles gesperrt.
+// Policy und Secrets setzen, Egress-Events und Fragen abholen, Fragen beantworten. Ohne
+// Policy ist alles gesperrt.
 package proxy
 
 import (
@@ -50,6 +53,11 @@ type Policy struct {
 	Deny  []string `json:"deny"`
 	// Secrets sind API-Keys je Anbieter (siehe Providers).
 	Secrets map[string]string `json:"secrets,omitempty"`
+	// Ask: Anfragen an nicht freigegebene Ziele warten auf eine Freigabe im Dashboard
+	// (egress.on_blocked: ask), statt sofort zu scheitern.
+	Ask bool `json:"ask,omitempty"`
+	// AskWaitSeconds begrenzt das Warten auf die Freigabe (Standard 120).
+	AskWaitSeconds int `json:"ask_wait_seconds,omitempty"`
 }
 
 // Provider ist eine Anbieter-API, an die /p/<name>/… weitergeleitet wird.
@@ -132,14 +140,19 @@ type Server struct {
 	transport *http.Transport
 	boot      string
 
-	policy atomic.Pointer[compiled]
-	events eventLog
+	policy    atomic.Pointer[compiled]
+	events    eventLog
+	questions questions
 }
 
 type compiled struct {
 	rules   *Rules
 	secrets map[string]string
+	ask     time.Duration // 0: nicht fragen
 }
+
+// DefaultAskWait ist die Wartezeit auf eine Egress-Freigabe ohne AskWaitSeconds.
+const DefaultAskWait = 2 * time.Minute
 
 // New erzeugt einen Proxy.
 func New(opts Options) *Server {
@@ -169,6 +182,7 @@ func New(opts Options) *Server {
 		ExpectContinueTimeout: time.Second,
 	}
 	s.events.init(5000)
+	s.questions.init()
 	return s
 }
 
@@ -193,8 +207,15 @@ func (s *Server) SetPolicy(p Policy) error {
 			secrets[k] = v
 		}
 	}
-	s.policy.Store(&compiled{rules: rules, secrets: secrets})
-	s.log.Info("Policy gesetzt", "allow", len(p.Allow), "deny", len(p.Deny), "secrets", len(secrets))
+	c := &compiled{rules: rules, secrets: secrets}
+	if p.Ask {
+		c.ask = DefaultAskWait
+		if p.AskWaitSeconds > 0 {
+			c.ask = min(time.Duration(p.AskWaitSeconds)*time.Second, MaxQuestionWait)
+		}
+	}
+	s.policy.Store(c)
+	s.log.Info("Policy gesetzt", "allow", len(p.Allow), "deny", len(p.Deny), "secrets", len(secrets), "ask", p.Ask)
 	return nil
 }
 
@@ -307,6 +328,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodConnect:
 		s.connect(w, r)
+	case r.URL.Path == HookPath && (!r.URL.IsAbs() || s.isSelf(r.URL.Host)):
+		s.hook(w, r)
 	case r.URL.IsAbs() && r.URL.Host != "" && s.isSelf(r.URL.Host) && strings.HasPrefix(r.URL.Path, "/p/"):
 		s.provider(w, r)
 	case r.URL.IsAbs() && r.URL.Host != "":
@@ -335,17 +358,29 @@ func (s *Server) isSelf(authority string) bool {
 	return false
 }
 
-// decide prüft host:port gegen die aktuelle Policy.
-func (s *Server) decide(host string, port int) (bool, string) {
+// decide prüft host:port gegen die aktuelle Policy. Mit Ask wartet eine Anfrage an ein
+// nicht freigegebenes Ziel auf die Entscheidung im Dashboard (nie bei deny-Liste oder
+// internen Adressen). msg ist ein Zusatz für die Fehlermeldung.
+func (s *Server) decide(ctx context.Context, host string, port int) (ok bool, reason, msg string) {
 	p := s.policy.Load()
 	if p == nil {
-		return false, ReasonNoPolicy
+		return false, ReasonNoPolicy, ""
 	}
-	return p.rules.Decide(host, port)
+	ok, reason = p.rules.Decide(host, port)
+	if ok || reason != ReasonNotAllowed || p.ask <= 0 {
+		return ok, reason, ""
+	}
+	if ok, msg = s.askEgress(ctx, normalizeHost(host), port, p.ask); ok {
+		return true, ReasonApproved, ""
+	}
+	return false, ReasonNotAllowed, msg
 }
 
-func blockedMessage(host string, port int, reason string) string {
+func blockedMessage(host string, port int, reason, extra string) string {
 	target := net.JoinHostPort(host, strconv.Itoa(port))
+	if extra != "" {
+		return "ADE: " + target + " ist nicht freigegeben (" + extra + ")\n"
+	}
 	switch reason {
 	case ReasonDenied:
 		return "ADE: " + target + " ist gesperrt (egress.deny in .ade/sandbox.yaml)\n"
@@ -385,12 +420,12 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ev.Host, ev.Port = host, port
-	ok, reason := s.decide(host, port)
+	ok, reason, extra := s.decide(r.Context(), host, port)
 	ev.Reason = reason
 	if !ok {
 		ev.Status = http.StatusForbidden
 		s.record(ev, start)
-		http.Error(w, blockedMessage(host, port, reason), http.StatusForbidden)
+		http.Error(w, blockedMessage(host, port, reason, extra), http.StatusForbidden)
 		return
 	}
 	up, err := s.dial(r.Context(), "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
@@ -400,7 +435,7 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 			ev.Reason, ev.Status = ReasonInternal, http.StatusForbidden
 		}
 		s.record(ev, start)
-		http.Error(w, blockedMessage(host, port, ev.Reason), ev.Status)
+		http.Error(w, blockedMessage(host, port, ev.Reason, ""), ev.Status)
 		return
 	}
 	defer func() { _ = up.Close() }()
@@ -448,12 +483,12 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ev.Host, ev.Port = host, port
-	ok, reason := s.decide(host, port)
+	ok, reason, extra := s.decide(r.Context(), host, port)
 	ev.Reason = reason
 	if !ok {
 		ev.Status = http.StatusForbidden
 		s.record(ev, start)
-		http.Error(w, blockedMessage(host, port, reason), http.StatusForbidden)
+		http.Error(w, blockedMessage(host, port, reason, extra), http.StatusForbidden)
 		return
 	}
 	ev.Allowed = true
@@ -527,7 +562,7 @@ func (s *Server) reverse(w http.ResponseWriter, r *http.Request, ev *Event, star
 			if errors.Is(err, ErrInternal) {
 				ev.Allowed, ev.Reason, status = false, ReasonInternal, http.StatusForbidden
 			}
-			http.Error(w, blockedMessage(ev.Host, ev.Port, ev.Reason), status)
+			http.Error(w, blockedMessage(ev.Host, ev.Port, ev.Reason, ""), status)
 		},
 	}
 	rp.ServeHTTP(rec, r)
