@@ -4,7 +4,9 @@ import { Link, Route, Routes } from "react-router";
 import { fetchAuthenticated, fetchHealth } from "./api";
 import { Notice } from "./components/ui";
 import { errorMessage } from "./format";
+import { ApprovalsNavBadge } from "./components/approvals";
 import { AgentsPage } from "./pages/AgentsPage";
+import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { IdePage } from "./pages/IdePage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
@@ -27,6 +29,11 @@ export function App() {
         <nav>
           <Link to="/">Projekte</Link>
           <Link to="/agents">Agenten</Link>
+          {auth.data && (
+            <Link to="/approvals" className="navitem">
+              Freigaben <ApprovalsNavBadge />
+            </Link>
+          )}
         </nav>
         <div className="daemon" title={health.data ? `Schema ${health.data.schema}` : undefined}>
           {health.isError ? (
@@ -61,6 +68,7 @@ export function App() {
             <Route path="/projects/:id" element={<ProjectPage />} />
             <Route path="/workspaces/:id" element={<WorkspacePage />} />
             <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/ide/:id" element={<IdePage />} />
             <Route
               path="/sessions/:id"
