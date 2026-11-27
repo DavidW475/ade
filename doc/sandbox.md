@@ -255,6 +255,13 @@ sandbox:
 einrichten (`dockerd-rootless-setuptool.sh install`). ADE übernimmt `DOCKER_HOST` bzw. den aktiven
 Docker-Kontext aus der Umgebung des Daemons; läuft ADE als Dienst (`ade install-service`), gehört
 `DOCKER_HOST` in die Umgebung beim Installieren des Dienstes oder der Kontext per `docker context use rootless`.
+Für `enable_icc=false` im Egress-Netz braucht rootless Docker das Kernelmodul `br_netfilter`
+(rootful lädt Docker es selbst):
+
+```sh
+sudo modprobe br_netfilter
+echo br_netfilter | sudo tee /etc/modules-load.d/br_netfilter.conf   # dauerhaft
+```
 
 **Ressourcen-Grenzen:** Agent- und Proxy-Container haben immer Grenzen für Speicher, CPU und
 Prozesse. Rootless setzt das die cgroup-Controller `memory`, `cpu` und `pids` voraus, die systemd

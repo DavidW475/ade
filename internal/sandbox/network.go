@@ -124,6 +124,11 @@ func (m *Manager) ensureNetworks(ctx context.Context, workspace string) (created
 		args := append([]string{"network", "create", "--driver", "bridge", "--label", LabelManaged + "=true"}, m.egressNetworkOpts()...)
 		_, err := m.run(ctx, nil, append(args, EgressNetwork)...)
 		if err != nil && !strings.Contains(err.Error(), "already exists") {
+			if strings.Contains(err.Error(), "bridge-nf-call-iptables") {
+				// rootless Docker braucht das Modul für enable_icc=false.
+				return false, fmt.Errorf("Egress-Netz anlegen: Kernelmodul br_netfilter fehlt (sudo modprobe br_netfilter, "+
+					"siehe doc/sandbox.md#6-container-laufzeiten): %w", err)
+			}
 			return false, fmt.Errorf("Egress-Netz anlegen: %w", err)
 		}
 	}
