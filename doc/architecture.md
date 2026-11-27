@@ -511,6 +511,8 @@ ide:
 
 ## 7. Sicherheit
 
+Das vollständige Bedrohungsmodell mit Restrisiken steht in [threat-model.md](threat-model.md).
+
 | Risiko | Maßnahme |
 |---|---|
 | Fremde Webseiten greifen auf `localhost:7000` zu (CSRF, DNS-Rebinding) | Nur `127.0.0.1` binden; `Host`-Header muss `localhost`/`*.localhost` sein; `Origin`-Prüfung bei WebSockets; Session-Token (Start-URL mit Einmal-Token → HttpOnly-Cookie). |
