@@ -125,8 +125,10 @@ jobs:
           echo "DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock" >> "$GITHUB_ENV"
       - name: Laufzeit
         if: matrix.runtime == 'docker-rootless'
-        run: docker info --format '{{json .SecurityOptions}} mem={{.MemoryLimit}} cpu={{.CpuCfsQuota}} pids={{.PidsLimit}}'
+        run: docker info --format '{{json .SecurityOptions}} mem={{.MemoryLimit}} cpu={{.CPUCfsQuota}} pids={{.PidsLimit}}'
       - name: Sandbox-Tests
-        run: go test -race -count=1 ./internal/sandbox/... ./internal/agent/...
+        run: |
+          go test -race -count=1 -v ./internal/sandbox/...
+          go test -race -count=1 ./internal/agent/...
         env:
           ADE_TEST_DOCKER: "1"

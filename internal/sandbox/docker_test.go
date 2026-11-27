@@ -382,8 +382,11 @@ func TestEgressPolicy(t *testing.T) {
 	if out, err := e.m.Command(ctx, e.ws, sandbox.Exec{Argv: []string{"getent", "hosts", "example.com"}}).CombinedOutput(); err == nil {
 		t.Errorf("externer Name aufgelöst: %s", out)
 	}
-	if got := e.exec(t, "getent hosts proxy | wc -l"); got != "1" {
-		t.Errorf("proxy nicht auflösbar")
+	// Podman liefert je Adressfamilie bzw. Alias eine Zeile, Docker eine.
+	if got := e.exec(t, "getent hosts proxy || true"); !strings.Contains(got, "proxy") {
+		t.Errorf("proxy nicht auflösbar: %q", got)
+	} else {
+		t.Logf("getent hosts proxy: %q", got)
 	}
 	// Die Steuer-API des Proxys ist ohne Token zu.
 	if got := e.curl(t, "--noproxy", "*", "http://proxy:8081/healthz"); got != "401" {
