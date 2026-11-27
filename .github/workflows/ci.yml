@@ -110,17 +110,18 @@ jobs:
         if: matrix.runtime == 'podman'
         run: |
           podman version
-          podman info --format '{{json .host.security}} {{json .host.cgroupControllers}} {{.host.networkBackend}}'
+          podman info --format json | jq -c '{rootless: .host.security.rootless, cgroups: .host.cgroupControllers, net: .host.networkBackend}'
           echo "ADE_TEST_DOCKER_BIN=podman" >> "$GITHUB_ENV"
       - name: rootless Docker
         if: matrix.runtime == 'docker-rootless'
         run: |
           # Ubuntu 24.04 beschränkt unprivilegierte User-Namespaces per AppArmor (rootlesskit).
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          command -v dockerd-rootless-setuptool.sh || sudo apt-get install -y docker-ce-rootless-extras
           sudo systemctl disable --now docker.service docker.socket
           sudo rm -f /var/run/docker.sock
-          dockerd-rootless-setuptool.sh install
+          # Statische Binaries samt rootless-Extras nach ~/bin, Dienst im User-Manager.
+          curl -fsSL https://get.docker.com/rootless | FORCE_ROOTLESS_INSTALL=1 sh
+          echo "$HOME/bin" >> "$GITHUB_PATH"
           echo "DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock" >> "$GITHUB_ENV"
       - name: Laufzeit
         if: matrix.runtime == 'docker-rootless'
