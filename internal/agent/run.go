@@ -156,6 +156,10 @@ func (r *run) execute(ctx context.Context, a adapter.Adapter, ws *store.Workspac
 	case r.readOnly:
 		snap, err := m.prepareSnapshot(ctx, ws, r.id)
 		if err != nil {
+			if ctx.Err() != nil {
+				// Gestoppt, während der Schnappschuss entstand.
+				return r.endStatus(store.SessionStopped), "vor dem Start abgebrochen", nil
+			}
 			return store.SessionFailed, err.Error(), nil
 		}
 		workdir, spec.Workdir = snap, snap
