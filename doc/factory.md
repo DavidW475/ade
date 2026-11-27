@@ -76,6 +76,7 @@ flow:
     max_iterations: 3
   - step: final
     gate: human
+    on_deny: { goto: implement }   # Ablehnen mit Begründung = Feedback
   - step: deliver
     action: pull_request
 

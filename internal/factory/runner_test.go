@@ -183,19 +183,22 @@ func setup(t *testing.T) *env {
 	return e
 }
 
-// script ist der Fake-Agent: meldet eine Resume-ID, spiegelt jede Anweisung als Antwort,
-// schreibt eine Datei ins Arbeitsverzeichnis und beendet die Runde, wenn die Flag-Datei da ist.
+// script ist der Fake-Agent: meldet eine Resume-ID, schreibt eine Datei ins
+// Arbeitsverzeichnis, wartet, bis die Flag-Datei da ist (und keine Halte-Datei <schritt>.hold),
+// und antwortet dann mit der nächsten vorbereiteten Antwort seines Schritts oder spiegelt die
+// Anweisung. Den Schritt merkt er sich je Session (für Folgeanweisungen und Resume).
 func (e *env) script() []string {
 	return []string{"sh", "-c", `echo '{"type":"resume_id","payload":{"id":"r1"}}'
-step=""
+mem="$2/session-$ADE_SESSION_ID"
+step=$(cat "$mem" 2>/dev/null)
 while read -r l; do
   s=$(printf '%s' "$l" | sed -n 's/.*Du bist ein Schritt (\([a-z0-9_-]*\)).*/\1/p')
-  [ -n "$s" ] && step=$s
+  [ -n "$s" ] && step=$s && printf '%s' "$step" > "$mem"
   f="$2/$step"
   [ -n "$step" ] && printf '%s\n' "$l" >> "$f.log"
-  if [ -n "$step" ] && [ -s "$f" ]; then head -n 1 "$f"; sed -i 1d "$f"; else printf '%s\n' "$l"; fi
   echo "$ADE_SESSION_ID" > "touched-$ADE_SESSION_ID"
-  while [ ! -e "$1" ]; do sleep 0.05; done
+  while [ ! -e "$1" ] || [ -e "$2/$step.hold" ]; do sleep 0.05; done
+  if [ -n "$step" ] && [ -s "$f" ]; then head -n 1 "$f"; sed -i 1d "$f"; else printf '%s\n' "$l"; fi
   echo '{"type":"turn_done"}'
 done`, "sh", e.flag, e.resp}
 }
@@ -601,6 +604,42 @@ func TestRunParallel(t *testing.T) {
 	if len(impl) != 2 || !strings.Contains(impl[1], "TestX") || !strings.Contains(impl[1], "Artefakt review.json") {
 		t.Fatalf("zweiter Durchlauf ohne Test-Ergebnis:\n%s", impl[len(impl)-1])
 	}
+}
+
+func TestRunParallelRestart(t *testing.T) {
+	e := setup(t)
+	approve := `{"verdict": "approve", "comments": []}`
+	e.answer("review", approve)
+	e.answer("test", `{"failed": 0}`)
+	for _, step := range []string{"review", "test"} {
+		writeFile(t, filepath.Join(e.resp, step+".hold"), "")
+	}
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "p", Task: "Baue P"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.waitStep(v.ID, "review", store.StepRunning)
+	e.waitStep(v.ID, "test", store.StepRunning)
+	waitFor(t, "beide Rollen arbeiten", func() bool { return e.inputs("review") != "" && e.inputs("test") != "" })
+	e.shutdown()
+	for _, st := range e.run(v.ID).Steps[1:3] {
+		if s, _ := e.st.GetSession(e.ctx, st.SessionID); s.Status != store.SessionInterrupted {
+			t.Fatalf("%s nach Shutdown: %s", st.Name, s.Status)
+		}
+	}
+	for _, step := range []string{"review", "test"} {
+		if err := os.Remove(filepath.Join(e.resp, step+".hold")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.boot()
+	waitFor(t, "Run fertig", func() bool {
+		r := e.run(v.ID)
+		if r.Status == store.RunFailed {
+			t.Fatalf("Run gescheitert: %s", r.Error)
+		}
+		return r.Status == store.RunDone
+	})
 }
 
 func TestRunParallelFailure(t *testing.T) {
