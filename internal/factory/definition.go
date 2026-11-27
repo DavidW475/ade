@@ -6,6 +6,7 @@ package factory
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ const Dir = ".ade/factories"
 const (
 	maxFileSize   = 256 << 10
 	maxPromptSize = 64 << 10
+	maxSchemaSize = 64 << 10
 	maxSteps      = 50
 	// MaxBudgetUSD ist die größte erlaubte Budget-Angabe.
 	MaxBudgetUSD = 1e6
@@ -81,8 +83,8 @@ type Role struct {
 	// PromptText ist ihr Inhalt (beim Laden gelesen).
 	PromptText string   `yaml:"-" json:"prompt,omitempty"`
 	Inputs     []string `yaml:"inputs" json:"inputs,omitempty"`
-	// Outputs sind die Artefakte der Rolle; M9: höchstens eins, die letzte Antwort.
-	Outputs []string `yaml:"outputs" json:"outputs,omitempty"`
+	// Outputs sind die Artefakte der Rolle: höchstens eins, die letzte Antwort.
+	Outputs []Output `yaml:"outputs" json:"outputs,omitempty"`
 	// Sandbox gibt es nur für den ganzen Run (ein Workspace); hier nur für eine klare
 	// Fehlermeldung.
 	Sandbox any `yaml:"sandbox" json:"-"`
@@ -96,7 +98,60 @@ func (r *Role) Output() string {
 	if len(r.Outputs) == 0 {
 		return ""
 	}
-	return r.Outputs[0]
+	return r.Outputs[0].Name
+}
+
+// OutputSpec liefert das Artefakt der Rolle mit Schema (nil: keins).
+func (r *Role) OutputSpec() *Output {
+	if len(r.Outputs) == 0 {
+		return nil
+	}
+	return &r.Outputs[0]
+}
+
+// Output ist ein Artefakt einer Rolle. In YAML ein Dateiname oder {name, schema}.
+type Output struct {
+	Name string `yaml:"name" json:"name"`
+	// Schema ist eine Datei relativ zur Fabrik (JSON Schema, Teilmenge: Schema).
+	Schema string `yaml:"schema" json:"schema_file,omitempty"`
+	// SchemaDoc ist ihr Inhalt als JSON (beim Laden gelesen).
+	SchemaDoc json.RawMessage `yaml:"-" json:"schema,omitempty"`
+}
+
+// Structured meldet, ob das Artefakt JSON ist (Endung .json oder Schema).
+func (o *Output) Structured() bool {
+	return o != nil && (strings.HasSuffix(o.Name, ".json") || o.Schema != "")
+}
+
+// UnmarshalYAML nimmt einen Dateinamen oder ein Objekt {name, schema}.
+func (o *Output) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode {
+		*o = Output{Name: n.Value}
+		return nil
+	}
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("Zeile %d: ein Artefakt ist ein Dateiname oder {name, schema}", n.Line)
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		switch k := n.Content[i].Value; k {
+		case "name", "schema":
+		default:
+			return fmt.Errorf("Zeile %d: Feld %s gibt es bei einem Artefakt nicht (erlaubt: name, schema)", n.Content[i].Line, k)
+		}
+	}
+	type plain Output
+	return n.Decode((*plain)(o))
+}
+
+// UnmarshalJSON nimmt auch die Form vor M10 (nur der Name) an.
+func (o *Output) UnmarshalJSON(b []byte) error {
+	var name string
+	if json.Unmarshal(b, &name) == nil {
+		*o = Output{Name: name}
+		return nil
+	}
+	type plain Output
+	return json.Unmarshal(b, (*plain)(o))
 }
 
 // Step ist ein Schritt im Ablauf.
@@ -149,9 +204,9 @@ var (
 // ValidName meldet, ob name ein gültiger Name für Fabrik, Schritt oder Rolle ist.
 func ValidName(name string) bool { return nameRE.MatchString(name) }
 
-// Parse liest eine Fabrik aus data. path ist der Pfad für Fehlermeldungen; prompt liest eine
-// Prompt-Datei relativ zur Fabrik (nil: Prompts werden nicht gelesen).
-func Parse(path string, data []byte, prompt func(rel string) ([]byte, error)) (*Factory, error) {
+// Parse liest eine Fabrik aus data. path ist der Pfad für Fehlermeldungen; read liest eine
+// Datei (Prompt, Schema) relativ zur Fabrik (nil: Dateien werden nicht gelesen).
+func Parse(path string, data []byte, read func(rel string) ([]byte, error)) (*Factory, error) {
 	fail := func(format string, args ...any) error { return &Error{Path: path, Msg: fmt.Sprintf(format, args...)} }
 	if len(data) > maxFileSize {
 		return nil, fail("Datei ist zu groß (höchstens %d KiB)", maxFileSize>>10)
@@ -168,13 +223,16 @@ func Parse(path string, data []byte, prompt func(rel string) ([]byte, error)) (*
 	if msg := f.validate(); msg != "" {
 		return nil, fail("%s", msg)
 	}
-	if prompt != nil {
+	if read != nil {
 		for _, name := range f.roleNames() {
 			r := f.Roles[name]
+			if err := r.loadSchemas(name, read); err != nil {
+				return nil, fail("%v", err)
+			}
 			if r.Prompt == "" {
 				continue
 			}
-			b, err := prompt(r.Prompt)
+			b, err := read(r.Prompt)
 			if err != nil {
 				return nil, fail("roles.%s.prompt: %v", name, err)
 			}
@@ -185,6 +243,46 @@ func Parse(path string, data []byte, prompt func(rel string) ([]byte, error)) (*
 		}
 	}
 	return &f, nil
+}
+
+// loadSchemas liest und prüft die Schemas der Artefakte einer Rolle.
+func (r *Role) loadSchemas(name string, read func(rel string) ([]byte, error)) error {
+	for i := range r.Outputs {
+		o := &r.Outputs[i]
+		if o.Schema == "" {
+			continue
+		}
+		at := fmt.Sprintf("roles.%s.outputs.%s.schema", name, o.Name)
+		b, err := read(o.Schema)
+		if err != nil {
+			return fmt.Errorf("%s: %w", at, err)
+		}
+		if len(b) > maxSchemaSize {
+			return fmt.Errorf("%s: Datei ist zu groß (höchstens %d KiB)", at, maxSchemaSize>>10)
+		}
+		doc, err := schemaJSON(b)
+		if err != nil {
+			return fmt.Errorf("%s: %w", at, err)
+		}
+		if _, err := CompileSchema(doc); err != nil {
+			return fmt.Errorf("%s: %w", at, err)
+		}
+		o.SchemaDoc = doc
+	}
+	return nil
+}
+
+// schemaJSON liest ein Schema in JSON oder YAML und liefert es als JSON.
+func schemaJSON(b []byte) ([]byte, error) {
+	var v any
+	if err := yaml.Unmarshal(b, &v); err != nil {
+		return nil, fmt.Errorf("weder JSON noch YAML: %s", strings.TrimPrefix(err.Error(), "yaml: "))
+	}
+	out, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("lässt sich nicht als JSON darstellen: %w", err)
+	}
+	return out, nil
 }
 
 func (f *Factory) roleNames() []string {
@@ -254,16 +352,24 @@ func (f *Factory) validate() string {
 			}
 		}
 		if len(r.Outputs) > 1 {
-			return at + ".outputs: mehrere Artefakte je Rolle erst ab M10 (M9: die letzte Antwort der Rolle)"
+			return at + ".outputs: höchstens ein Artefakt je Rolle (die letzte Antwort der Rolle)"
 		}
 		for _, o := range r.Outputs {
-			if !artifactRE.MatchString(o) {
-				return fmt.Sprintf("%s.outputs: %q ist kein gültiger Dateiname", at, o)
+			if !artifactRE.MatchString(o.Name) {
+				return fmt.Sprintf("%s.outputs: %q ist kein gültiger Dateiname", at, o.Name)
 			}
-			if other, ok := outputs[o]; ok {
-				return fmt.Sprintf("%s.outputs: %s erzeugt schon die Rolle %s", at, o, other)
+			if other, ok := outputs[o.Name]; ok {
+				return fmt.Sprintf("%s.outputs: %s erzeugt schon die Rolle %s", at, o.Name, other)
 			}
-			outputs[o] = name
+			if o.Schema != "" {
+				if !strings.HasSuffix(o.Name, ".json") {
+					return fmt.Sprintf("%s.outputs: %s hat ein Schema und muss auf .json enden", at, o.Name)
+				}
+				if msg := checkRel(o.Schema); msg != "" {
+					return fmt.Sprintf("%s.outputs.%s.schema: %s", at, o.Name, msg)
+				}
+			}
+			outputs[o.Name] = name
 		}
 		for _, in := range r.Inputs {
 			if !artifactRE.MatchString(in) {
@@ -326,7 +432,7 @@ func (f *Factory) validate() string {
 				}
 			}
 			for _, o := range r.Outputs {
-				produced[o] = true
+				produced[o.Name] = true
 			}
 		case KindGate:
 			if s.Gate != GateHuman {

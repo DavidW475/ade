@@ -69,18 +69,20 @@ type Run struct {
 
 // RunStep ist ein Schritt eines Runs.
 type RunStep struct {
-	Index      int        `json:"index"`
-	Name       string     `json:"name"`
-	Kind       string     `json:"kind"`
-	Role       string     `json:"role,omitempty"`
-	ReadOnly   bool       `json:"read_only,omitempty"`
-	Status     string     `json:"status"`
-	SessionID  string     `json:"session_id,omitempty"`
-	ApprovalID string     `json:"approval_id,omitempty"`
-	Output     string     `json:"output,omitempty"`
-	Error      string     `json:"error,omitempty"`
-	StartedAt  *time.Time `json:"started_at,omitempty"`
-	EndedAt    *time.Time `json:"ended_at,omitempty"`
+	Index      int    `json:"index"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Role       string `json:"role,omitempty"`
+	ReadOnly   bool   `json:"read_only,omitempty"`
+	Status     string `json:"status"`
+	SessionID  string `json:"session_id,omitempty"`
+	ApprovalID string `json:"approval_id,omitempty"`
+	Output     string `json:"output,omitempty"`
+	Error      string `json:"error,omitempty"`
+	// Fixes zählt die Korrektur-Runden für ein ungültiges strukturiertes Artefakt.
+	Fixes     int        `json:"fixes,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty"`
+	EndedAt   *time.Time `json:"ended_at,omitempty"`
 }
 
 const runCols = `r.id, r.project_id, r.workspace_id, r.factory, r.source, r.definition, r.inputs, r.task, r.sandbox,
@@ -169,7 +171,7 @@ func (s *Store) GetRun(ctx context.Context, id string) (*Run, error) {
 
 func (s *Store) runSteps(ctx context.Context, runID string) ([]RunStep, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT idx, name, kind, role, read_only, status, session_id, approval_id,
-		output, error, started_at, ended_at FROM run_steps WHERE run_id = ? ORDER BY idx`, runID)
+		output, error, fixes, started_at, ended_at FROM run_steps WHERE run_id = ? ORDER BY idx`, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +181,7 @@ func (s *Store) runSteps(ctx context.Context, runID string) ([]RunStep, error) {
 		var st RunStep
 		var started, ended sql.NullString
 		if err := rows.Scan(&st.Index, &st.Name, &st.Kind, &st.Role, &st.ReadOnly, &st.Status, &st.SessionID,
-			&st.ApprovalID, &st.Output, &st.Error, &started, &ended); err != nil {
+			&st.ApprovalID, &st.Output, &st.Error, &st.Fixes, &started, &ended); err != nil {
 			return nil, err
 		}
 		st.StartedAt, st.EndedAt = nullTime(started), nullTime(ended)
@@ -280,6 +282,7 @@ type StepUpdate struct {
 	SessionID  *string
 	ApprovalID *string
 	Error      *string
+	Fixes      *int
 	// Started bzw. Ended setzen started_at bzw. ended_at auf jetzt.
 	Started bool
 	Ended   bool
@@ -293,8 +296,9 @@ func (s *Store) UpdateRunStep(ctx context.Context, runID string, idx int, u Step
 		approval_id = COALESCE(?3, approval_id),
 		error       = COALESCE(?4, error),
 		started_at  = CASE WHEN ?5 THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE started_at END,
-		ended_at    = CASE WHEN ?6 THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE ended_at END
-		WHERE run_id = ?7 AND idx = ?8`, u.Status, u.SessionID, u.ApprovalID, u.Error, u.Started, u.Ended, runID, idx)
+		ended_at    = CASE WHEN ?6 THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE ended_at END,
+		fixes       = COALESCE(?9, fixes)
+		WHERE run_id = ?7 AND idx = ?8`, u.Status, u.SessionID, u.ApprovalID, u.Error, u.Started, u.Ended, runID, idx, u.Fixes)
 	if err != nil {
 		return err
 	}
