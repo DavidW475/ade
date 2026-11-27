@@ -7,7 +7,9 @@ import { SandboxBadge, SandboxToggle } from "../components/sandbox";
 import { sandboxDefault, useSandboxInfo } from "../sandbox";
 import { useSessions } from "../sessions";
 import { LineStats, Notice, WorkspaceStatusBadge } from "../components/ui";
-import { errorMessage, formatTime, shortCommit } from "../format";
+import { errorMessage, formatTime, formatUSD, shortCommit } from "../format";
+import { MonthlyBudget, UsageAmount } from "../components/usage";
+import { useUsage } from "../hooks/useUsage";
 
 export function ProjectPage() {
   const { id = "" } = useParams();
@@ -20,6 +22,7 @@ export function ProjectPage() {
   });
 
   const sessions = useSessions({ project_id: id, limit: 50 });
+  const usage = useUsage(id);
 
   if (project.isPending) return <p className="muted">Lade Projekt …</p>;
   if (project.isError) return <Notice tone="bad">{errorMessage(project.error)}</Notice>;
@@ -49,6 +52,18 @@ export function ProjectPage() {
             <dd>{p.config.adapter}</dd>
           </>
         )}
+        <dt>Kosten</dt>
+        <dd>
+          <UsageAmount total={usage.data?.month} empty="0.00 $" /> <span className="muted">diesen Monat</span>
+          {usage.data && usage.data.total.count > usage.data.month.count && (
+            <span className="muted">
+              {" "}
+              · gesamt <UsageAmount total={usage.data.total} />
+            </span>
+          )}
+          {p.config.budget?.session_usd ? <span className="muted"> · Budget je Session {formatUSD(p.config.budget.session_usd)}</span> : null}
+          <MonthlyBudget spent={usage.data?.month.cost_usd ?? 0} budget={p.config.budget?.monthly_usd} />
+        </dd>
         <dt>Setup</dt>
         <dd>
           {p.config.setup?.length ? (

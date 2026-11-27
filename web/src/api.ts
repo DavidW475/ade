@@ -12,6 +12,7 @@ export interface ProjectConfig {
   base_branch?: string;
   adapter?: string;
   setup?: string[];
+  budget?: { session_usd?: number; monthly_usd?: number };
 }
 
 export interface Project {
@@ -111,15 +112,15 @@ export interface EgressGrant {
 export type ApprovalStatus = "pending" | "approved" | "denied" | "expired" | "canceled";
 export type ApprovalDecision = "allow" | "allow_workspace" | "allow_project" | "deny";
 
-/** Freigabe-Anfrage (Werkzeug-Aufruf eines Agenten oder geblocktes Netzwerk-Ziel). */
+/** Freigabe-Anfrage (Werkzeug-Aufruf eines Agenten, geblocktes Netzwerk-Ziel oder überschrittenes Budget). */
 export interface Approval {
   id: string;
-  kind: "tool" | "egress";
+  kind: "tool" | "egress" | "budget";
   project_id: string;
   workspace_id: string;
   session_id?: string;
   title: string;
-  detail: ToolApprovalDetail | EgressApprovalDetail;
+  detail: ToolApprovalDetail | EgressApprovalDetail | BudgetApprovalDetail;
   sandbox: boolean;
   status: ApprovalStatus;
   decision?: ApprovalDecision;
@@ -127,6 +128,14 @@ export interface Approval {
   created_at: string;
   expires_at: string;
   decided_at?: string;
+}
+
+export interface BudgetApprovalDetail {
+  scope: "session" | "monthly";
+  limit_usd: number;
+  spent_usd: number;
+  /** Betrag, um den „Erlauben“ das Budget erhöht. */
+  step_usd: number;
 }
 
 export interface ToolApprovalDetail {
@@ -253,7 +262,7 @@ export interface Diff {
   deletions: number;
 }
 
-export type SessionStatus = "starting" | "running" | "idle" | "done" | "failed" | "stopped" | "interrupted";
+export type SessionStatus = "starting" | "running" | "idle" | "done" | "failed" | "stopped" | "interrupted" | "paused";
 
 export interface Capabilities {
   terminal: boolean;
@@ -277,6 +286,18 @@ export interface Session {
   exit_code?: number;
   resume_id?: string;
   cost_usd: number;
+  /** Aufgelöste Modell-ID, wenn model ein Alias ist. */
+  model_id?: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  /** Für einen Teil der Tokens war kein Preis bekannt. */
+  unpriced?: boolean;
+  /** Der Egress-Proxy misst die Nutzung. */
+  metered?: boolean;
+  /** Budget der Session in USD (fehlt: keins). */
+  budget_usd?: number;
   created_at: string;
   updated_at: string;
   ended_at?: string;
@@ -290,10 +311,41 @@ export interface AdapterInfo {
   capabilities: Capabilities;
 }
 
+export interface ModelAlias {
+  name: string;
+  provider: string;
+  id: string;
+}
+
 export interface Adapters {
   adapters: AdapterInfo[];
   permission_modes: string[];
+  /** Werte für permission_mode je Adapter. */
+  modes?: Record<string, string[]>;
+  /** Anbieter je Adapter. */
+  providers?: Record<string, string>;
+  models?: ModelAlias[];
   default: string;
+}
+
+export interface UsageTotal {
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  unpriced?: boolean;
+  count: number;
+}
+
+export interface Usage {
+  total: UsageTotal;
+  month: UsageTotal;
+  month_start: string;
+  monthly_budget_usd?: number;
+  projects?: Record<string, UsageTotal>;
+  workspaces?: Record<string, UsageTotal>;
+  prices_as_of: string;
 }
 
 export interface StartAgentRequest {
@@ -306,6 +358,8 @@ export interface StartAgentRequest {
   permission_mode?: string;
   /** Nur für einen neuen Workspace; ohne Angabe gilt defaults.sandbox. */
   sandbox?: boolean;
+  /** Budget der Session in USD (ohne Angabe: budget.session_usd, 0: keins). */
+  budget_usd?: number;
 }
 
 // Event-Payloads (internal/agent/adapter/events.go, Schema in event.schema.json).
@@ -344,6 +398,23 @@ export interface CostPayload {
   cache_write_tokens?: number;
   duration_ms?: number;
   turns?: number;
+  model?: string;
+  /** ADE hat die Kosten aus Tokens und Preistabelle berechnet. */
+  estimated?: boolean;
+  /** Vom Egress-Proxy gemessen. */
+  metered?: boolean;
+  budget_usd?: number;
+}
+/** Vom Egress-Proxy gemessene Nutzung einer Anfrage (nicht in der Timeline). */
+export interface UsagePayload {
+  provider?: string;
+  model?: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  priced: boolean;
+  total_usd: number;
+  budget_usd?: number;
 }
 export interface ErrorPayload {
   message: string;
@@ -356,6 +427,7 @@ export type SessionEvent =
   | EventOf<"tool_call", ToolCallPayload>
   | EventOf<"tool_result", ToolResultPayload>
   | EventOf<"cost", CostPayload>
+  | EventOf<"usage", UsagePayload>
   | EventOf<"error", ErrorPayload>;
 
 interface EventOf<T extends string, P> {
@@ -475,6 +547,8 @@ export const api = {
   feedback: (id: string, req: FeedbackRequest) =>
     request<Session>("POST", `/api/workspaces/${encodeURIComponent(id)}/feedback`, req),
   adapters: () => request<Adapters>("GET", "/api/adapters"),
+  usage: (projectId?: string) =>
+    request<Usage>("GET", `/api/usage${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ""}`),
   approvals: (filter: { status?: ApprovalStatus; session_id?: string; workspace_id?: string; limit?: number } = {}) => {
     const q = new URLSearchParams();
     for (const [k, v] of Object.entries(filter)) if (v !== undefined && v !== "") q.set(k, String(v));

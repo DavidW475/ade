@@ -9,7 +9,7 @@ import { SandboxBadge } from "../components/sandbox";
 import { Terminal } from "../components/Terminal";
 import { Timeline } from "../components/Timeline";
 import { Notice, SessionStatusBadge } from "../components/ui";
-import { errorMessage, formatTime, formatUSD } from "../format";
+import { errorMessage, formatTime, formatTokens, formatUSD } from "../format";
 import { useSessionEvents } from "../hooks/useSessionEvents";
 
 export function SessionPage() {
@@ -95,13 +95,21 @@ function SessionHeader({ session: s }: { session: Session }) {
         <dt>Adapter</dt>
         <dd>
           {s.adapter}
-          {s.model && <span className="muted"> · Modell {s.model}</span>}
+          {s.model && (
+            <span className="muted">
+              {" "}
+              · Modell {s.model}
+              {s.model_id && ` (${s.model_id})`}
+            </span>
+          )}
           {s.permission_mode && <span className="muted"> · {s.permission_mode}</span>}
         </dd>
-        {!s.capabilities.terminal && (
+        {(!s.capabilities.terminal || s.cost_usd > 0) && (
           <>
             <dt>Kosten</dt>
-            <dd>{formatUSD(s.cost_usd)}</dd>
+            <dd>
+              <SessionCost session={s} />
+            </dd>
           </>
         )}
         <dt>Gestartet</dt>
@@ -110,12 +118,48 @@ function SessionHeader({ session: s }: { session: Session }) {
           {s.ended_at && <span className="muted"> · beendet {formatTime(s.ended_at)}</span>}
         </dd>
       </dl>
-      {s.error && (
-        <Notice tone={s.status === "interrupted" ? "warn" : s.status === "failed" ? "bad" : "info"}>
+      {s.status === "paused" ? (
+        <Notice tone="warn" title="Budget überschritten">
           {s.error}
-          {s.resumable && <p>Die Session lässt sich unten mit einer Anweisung fortsetzen.</p>}
+          <p>
+            Der Agent ist pausiert. Unter <Link to="/approvals">Freigaben</Link> lässt sich das Budget erhöhen; dann läuft er weiter.
+          </p>
         </Notice>
+      ) : (
+        s.error && (
+          <Notice tone={s.status === "interrupted" ? "warn" : s.status === "failed" ? "bad" : "info"}>
+            {s.error}
+            {s.resumable && <p>Die Session lässt sich unten mit einer Anweisung fortsetzen.</p>}
+          </Notice>
+        )
       )}
+    </>
+  );
+}
+
+function SessionCost({ session: s }: { session: Session }) {
+  const tokens = s.input_tokens + s.output_tokens + s.cache_read_tokens + s.cache_write_tokens;
+  const ratio = s.budget_usd ? Math.min(s.cost_usd / s.budget_usd, 1) : 0;
+  return (
+    <>
+      {formatUSD(s.cost_usd)}
+      {s.budget_usd ? <span className="muted"> von {formatUSD(s.budget_usd)} Budget</span> : null}
+      {tokens > 0 && (
+        <span
+          className="muted"
+          title={`Eingabe ${s.input_tokens}, Ausgabe ${s.output_tokens}, Cache gelesen ${s.cache_read_tokens}, Cache geschrieben ${s.cache_write_tokens}`}
+        >
+          {" "}
+          · {formatTokens(s.input_tokens + s.cache_read_tokens + s.cache_write_tokens)} ein / {formatTokens(s.output_tokens)} aus
+        </span>
+      )}
+      {s.metered && <span className="muted"> · gemessen am Egress-Proxy</span>}
+      {s.unpriced && <span className="muted"> · Preis für ein Modell unbekannt (pricing in config.yaml)</span>}
+      {s.budget_usd ? (
+        <div className="budgetbar" role="meter" aria-valuemin={0} aria-valuemax={s.budget_usd} aria-valuenow={s.cost_usd} aria-label="Budget">
+          <span className={ratio >= 1 ? "over" : ratio >= 0.8 ? "near" : ""} style={{ width: `${ratio * 100}%` }} />
+        </div>
+      ) : null}
     </>
   );
 }
@@ -125,7 +169,7 @@ function AgentView({ session: s }: { session: Session }) {
   // Statuswechsel im Stream → Session-Daten (Status, Kosten, live) neu laden.
   const onEvent = useCallback(
     (e: SessionEvent) => {
-      if (e.type === "status" || e.type === "cost") void qc.invalidateQueries({ queryKey: ["session", s.id] });
+      if (e.type === "status" || e.type === "cost" || e.type === "usage") void qc.invalidateQueries({ queryKey: ["session", s.id] });
     },
     [qc, s.id],
   );

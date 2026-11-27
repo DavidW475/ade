@@ -67,6 +67,7 @@ const sessionLabels: Record<SessionStatus, string> = {
   failed: "fehlgeschlagen",
   stopped: "gestoppt",
   interrupted: "unterbrochen",
+  paused: "pausiert (Budget)",
 };
 
 const sessionTone: Record<SessionStatus, Tone> = {
@@ -77,6 +78,7 @@ const sessionTone: Record<SessionStatus, Tone> = {
   failed: "bad",
   stopped: "neutral",
   interrupted: "warn",
+  paused: "warn",
 };
 
 export function SessionStatusBadge({ status, terminal = false }: { status: SessionStatus; terminal?: boolean }) {

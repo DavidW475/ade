@@ -64,6 +64,7 @@ const statusText: Record<StatusPayload["status"], string> = {
   failed: "Fehlgeschlagen",
   stopped: "Gestoppt",
   interrupted: "Unterbrochen",
+  paused: "Pausiert",
 };
 
 function EventItem({ ev }: { ev: SessionEvent }) {
@@ -103,6 +104,9 @@ function EventItem({ ev }: { ev: SessionEvent }) {
     }
     case "cost":
       return <CostItem cost={ev.payload} />;
+    case "usage":
+      // Einzelne API-Aufrufe (Egress-Proxy) nicht anzeigen; die Summe steht im cost-Event.
+      return null;
     case "error":
       return (
         <li className="tl-error" role="alert">
@@ -132,13 +136,17 @@ function EventItem({ ev }: { ev: SessionEvent }) {
 
 function CostItem({ cost: c }: { cost: CostPayload }) {
   const tokens = (c.input_tokens ?? 0) + (c.output_tokens ?? 0) + (c.cache_read_tokens ?? 0) + (c.cache_write_tokens ?? 0);
-  const parts = [`Durchgang beendet`, formatUSD(c.turn_usd)];
+  const parts = [`Durchgang beendet`, formatUSD(c.turn_usd) + (c.estimated ? " (geschätzt)" : c.metered ? " (gemessen)" : "")];
   if (tokens) parts.push(`${tokens.toLocaleString("de-DE")} Tokens`);
   if (c.duration_ms) parts.push(formatDuration(c.duration_ms));
   if (c.turns) parts.push(`${c.turns} ${c.turns === 1 ? "Schritt" : "Schritte"}`);
   return (
     <li className="tl-cost">
-      {parts.join(" · ")} <span className="muted">(gesamt {formatUSD(c.total_usd)})</span>
+      {parts.join(" · ")}{" "}
+      <span className="muted">
+        (gesamt {formatUSD(c.total_usd)}
+        {c.budget_usd ? ` von ${formatUSD(c.budget_usd)}` : ""})
+      </span>
     </li>
   );
 }

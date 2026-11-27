@@ -9,6 +9,8 @@ import { DiffView, ReviewPanel } from "../components/review";
 import { useSessions } from "../sessions";
 import { LineStats, Notice, WorkspaceStatusBadge } from "../components/ui";
 import { errorMessage, formatTime, shortCommit } from "../format";
+import { UsageAmount } from "../components/usage";
+import { useUsage } from "../hooks/useUsage";
 
 export function WorkspacePage() {
   const { id = "" } = useParams();
@@ -22,6 +24,7 @@ export function WorkspacePage() {
     queryFn: () => api.project(ws.data!.project_id),
     enabled: !!ws.data,
   });
+  const usage = useUsage(ws.data?.project_id ?? "-");
   const hasTree = ws.data && ws.data.status !== "creating" && ws.data.status !== "error";
   const diff = useQuery({
     queryKey: ["diff", id],
@@ -61,6 +64,10 @@ export function WorkspacePage() {
           {w.base_branch} @ {shortCommit(w.base_commit)}
         </dd>
         <SandboxFacts workspace={w} />
+        <dt>Kosten</dt>
+        <dd>
+          <UsageAmount total={usage.data?.workspaces?.[w.id]} empty="0.00 $" />
+        </dd>
         <dt>Angelegt</dt>
         <dd>{formatTime(w.created_at)}</dd>
       </dl>

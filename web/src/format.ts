@@ -16,6 +16,13 @@ export function formatUSD(usd: number): string {
   return `${usd < 0.01 && usd > 0 ? usd.toFixed(4) : usd.toFixed(2)} $`;
 }
 
+/** Tokens kompakt: 950, 12,3 k, 1,2 M. */
+export function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} k`;
+  return `${(n / 1_000_000).toLocaleString("de-DE", { maximumFractionDigits: 2 })} M`;
+}
+
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms} ms`;
   const s = ms / 1000;

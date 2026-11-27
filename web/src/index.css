@@ -245,6 +245,10 @@ select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset:
 .tl-thinking summary { cursor: pointer; }
 .tl-status { display: flex; gap: 0.3rem; align-items: baseline; font-size: 0.85rem; color: var(--muted); padding: 0.1rem 0.9rem; }
 .tl-status.failed, .tl-status.interrupted { color: var(--warn); }
+.budgetbar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 0.35rem; max-width: 18rem; }
+.budgetbar span { display: block; height: 100%; background: var(--ok); }
+.budgetbar span.near { background: var(--warn); }
+.budgetbar span.over { background: var(--bad); }
 .tl-cost { font-size: 0.82rem; color: var(--muted); padding: 0.1rem 0.9rem; border-left: 2px solid var(--border); }
 .tl-error pre { margin: 0; padding: 0.6rem 0.9rem; background: var(--bad-bg); color: var(--bad); border-radius: 8px; white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; }
 

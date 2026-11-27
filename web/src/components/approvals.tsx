@@ -6,10 +6,11 @@ import {
   type Approval,
   type ApprovalDecision,
   type ApprovalStatus,
+  type BudgetApprovalDetail,
   type EgressApprovalDetail,
   type ToolApprovalDetail,
 } from "../api";
-import { errorMessage, formatTime } from "../format";
+import { errorMessage, formatTime, formatUSD } from "../format";
 import { usePendingApprovals } from "../hooks/usePendingApprovals";
 import { Badge, Notice } from "./ui";
 
@@ -43,9 +44,11 @@ function Remaining({ until }: { until: string }) {
     return () => clearInterval(t);
   }, []);
   const s = Math.max(0, Math.round((new Date(until).getTime() - now) / 1000));
+  const text =
+    s >= 3600 ? `noch ${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min` : `noch ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} min`;
   return (
-    <span className="muted" title={`läuft ab um ${formatTime(until, true)}, dann gilt sie als abgelehnt`}>
-      noch {Math.floor(s / 60)}:{String(s % 60).padStart(2, "0")} min
+    <span className="muted" title={`läuft ab um ${formatTime(until)}, dann gilt sie als abgelehnt`}>
+      {text}
     </span>
   );
 }
@@ -97,11 +100,13 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
   const pending = a.status === "pending";
   const tool = a.kind === "tool" ? (a.detail as ToolApprovalDetail) : undefined;
   const egress = a.kind === "egress" ? (a.detail as EgressApprovalDetail) : undefined;
+  const budget = a.kind === "budget" ? (a.detail as BudgetApprovalDetail) : undefined;
+  const kindLabel = egress ? "Netzwerk" : budget ? "Budget" : (tool?.tool ?? "Werkzeug");
 
   return (
     <li className={`card approval ${pending ? "pending" : ""}`}>
       <div className="cardtitle">
-        <Badge tone={a.kind === "egress" ? "busy" : "neutral"}>{a.kind === "egress" ? "Netzwerk" : (tool?.tool ?? "Werkzeug")}</Badge>
+        <Badge tone={egress ? "busy" : budget ? "warn" : "neutral"}>{kindLabel}</Badge>
         <strong className="approvaltitle">
           {egress ? (
             <>
@@ -139,6 +144,13 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
           <ToolInput d={tool} />
         </details>
       )}
+      {budget && (
+        <p className="hint">
+          {budget.scope === "monthly" ? "Monatskosten des Projekts" : "Kosten der Session"}: {formatUSD(budget.spent_usd)} von{" "}
+          {formatUSD(budget.limit_usd)}. Der Agent ist pausiert.
+          {pending && ` „Budget erhöhen“ gibt weitere ${formatUSD(budget.step_usd)} frei und setzt ihn fort.`}
+        </p>
+      )}
       {!pending && a.reason && <p className="hint">Begründung: {a.reason}</p>}
       {pending && (
         <>
@@ -149,9 +161,9 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
               onChange={(e) => setReason(e.target.value)}
               aria-label="Begründung"
             />
-            {tool ? (
+            {tool || budget ? (
               <button type="button" className="primary" disabled={decide.isPending} onClick={() => decide.mutate("allow")}>
-                Erlauben
+                {budget ? "Budget erhöhen" : "Erlauben"}
               </button>
             ) : (
               <>
@@ -196,7 +208,9 @@ export function SessionApprovals({ sessionId }: { sessionId: string }) {
   return (
     <div className="sessionapprovals">
       <Notice tone="warn" title="Der Agent wartet auf eine Freigabe">
-        Erlauben oder ablehnen – der Agent macht danach weiter.
+        {mine.some((a) => a.kind === "budget")
+          ? "Budget erhöhen, damit der Agent weiterläuft, oder ablehnen, um ihn zu beenden."
+          : "Erlauben oder ablehnen – der Agent macht danach weiter."}
       </Notice>
       <ul className="approvals">
         {mine.map((a) => (
@@ -233,7 +247,7 @@ export function ApprovalsNavBadge() {
     for (const a of q.data) {
       if (before.has(a.id)) continue;
       const n = new Notification("ADE: Freigabe nötig", {
-        body: a.kind === "egress" ? `Agent will ${a.title} erreichen` : a.title,
+        body: a.kind === "egress" ? `Agent will ${a.title} erreichen` : a.kind === "budget" ? `Agent pausiert: ${a.title}` : a.title,
         tag: `ade-approval-${a.id}`,
       });
       n.onclick = () => {
