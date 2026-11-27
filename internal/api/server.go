@@ -14,6 +14,7 @@ import (
 	"github.com/DavidW475/ade/internal/ide"
 	"github.com/DavidW475/ade/internal/project"
 	"github.com/DavidW475/ade/internal/sandbox"
+	"github.com/DavidW475/ade/internal/store"
 	"github.com/DavidW475/ade/internal/workspace"
 )
 
@@ -42,6 +43,14 @@ type Options struct {
 	IDE *ide.Manager
 	// Sandbox ist optional; ohne sie fehlen die Sandbox-Routen.
 	Sandbox *sandbox.Manager
+	// Egress liefert die Egress-Events der Sandbox (optional, mit Sandbox).
+	Egress EgressStore
+}
+
+// EgressStore ist der Teil der Datenbank für die Netzwerk-Ansicht.
+type EgressStore interface {
+	ListEgress(ctx context.Context, workspaceID string, f store.EgressFilter) ([]store.EgressEvent, error)
+	EgressHosts(ctx context.Context, workspaceID string) ([]store.EgressHost, error)
 }
 
 // Server ist der HTTP-Handler des Daemons.

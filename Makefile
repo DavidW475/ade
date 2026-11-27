@@ -48,7 +48,7 @@ image-dev:
 
 ## dev: Daemon im Vordergrund mit go run (Frontend separat: cd web && npm run dev)
 dev:
-	go run ./cmd/ade serve --debug
+	CGO_ENABLED=0 go run ./cmd/ade serve --debug
 
 ## clean: Build-Artefakte entfernen
 clean:

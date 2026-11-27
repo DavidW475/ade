@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/DavidW475/ade/internal/project"
 	"github.com/DavidW475/ade/internal/sandbox"
@@ -44,9 +45,9 @@ func TestSandboxRoutes(t *testing.T) {
 	t.Cleanup(ws.Close)
 	sb := sandbox.New(sandbox.Options{Docker: docker, DataDir: dir, Image: "img:1", Logger: log})
 	ws.SetSandbox(sb, true)
-	s := New(Options{Version: "test", Port: "7000", Store: st, Auth: NewAuth(testSecret), Logger: log, Projects: ps, Workspaces: ws, Sandbox: sb})
+	s := New(Options{Version: "test", Port: "7000", Store: st, Auth: NewAuth(testSecret), Logger: log, Projects: ps, Workspaces: ws, Sandbox: sb, Egress: st})
 
-	for _, rt := range [][2]string{{"GET", "/api/sandbox"}, {"POST", "/api/sandbox/gc"}, {"GET", "/api/workspaces/x/sandbox"}} {
+	for _, rt := range [][2]string{{"GET", "/api/sandbox"}, {"POST", "/api/sandbox/gc"}, {"GET", "/api/workspaces/x/sandbox"}, {"GET", "/api/workspaces/x/egress"}} {
 		r := httptest.NewRequest(rt[0], rt[1], nil)
 		r.Host = "localhost:7000"
 		w := httptest.NewRecorder()
@@ -58,7 +59,8 @@ func TestSandboxRoutes(t *testing.T) {
 
 	var info SandboxInfo
 	api(t, s, "GET", "/api/sandbox", "", http.StatusOK, &info)
-	if info.Available || info.Error == "" || info.Image != "img:1" || !info.Default || info.Network != "open" {
+	if info.Available || info.Error == "" || info.Image != "img:1" || !info.Default || info.Network != NetworkProxy ||
+		len(info.Presets["npm"]) == 0 || len(info.DefaultPresets) == 0 {
 		t.Errorf("Info = %+v", info)
 	}
 	var gc GCResponse
@@ -83,6 +85,27 @@ func TestSandboxRoutes(t *testing.T) {
 	if wsb.Sandbox || wsb.Container != nil {
 		t.Errorf("Workspace-Sandbox = %+v", wsb)
 	}
+
+	// Netzwerk-Ansicht: Events und Zusammenfassung je Host.
+	now := time.Now()
+	if err := st.AppendEgress(context.Background(), w.ID, []store.EgressEvent{
+		{TS: now, Kind: "connect", Host: "registry.npmjs.org", Port: 443, Allowed: true, Reason: "allowlist", BytesIn: 100},
+		{TS: now, Kind: "connect", Host: "example.com", Port: 443, Allowed: false, Reason: "not_allowed"},
+		{TS: now, Kind: "connect", Host: "example.com", Port: 443, Allowed: false, Reason: "not_allowed"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var eg WorkspaceEgress
+	api(t, s, "GET", "/api/workspaces/"+w.ID+"/egress", "", http.StatusOK, &eg)
+	if len(eg.Events) != 3 || len(eg.Hosts) != 2 || eg.Hosts[0].Host != "example.com" || eg.Hosts[0].Blocked != 2 || eg.Hosts[0].Reason != "not_allowed" ||
+		eg.Hosts[1].Allowed != 1 || eg.Hosts[1].BytesIn != 100 {
+		t.Errorf("Egress = %+v", eg)
+	}
+	api(t, s, "GET", "/api/workspaces/"+w.ID+"/egress?blocked=1", "", http.StatusOK, &eg)
+	if len(eg.Events) != 2 || eg.Events[0].Allowed {
+		t.Errorf("nur geblockt: %+v", eg.Events)
+	}
+	api(t, s, "GET", "/api/workspaces/unbekannt/egress", "", http.StatusNotFound, nil)
 }
 
 func gitInit(t *testing.T, repo string) {
