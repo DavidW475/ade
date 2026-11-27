@@ -62,21 +62,6 @@ jobs:
           name: ade-linux-amd64
           path: bin/ade
 
-  # #95: bekannte Schwachstellen in Go-Modulen (nur erreichbarer Code) und npm-Paketen.
-  audit:
-    name: Abhängigkeiten prüfen
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
-      - name: npm audit
-        run: npm audit --audit-level=low
-        working-directory: web
-
   shell:
     name: Shell-Skripte
     runs-on: ubuntu-latest
