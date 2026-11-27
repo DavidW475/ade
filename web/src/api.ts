@@ -27,6 +27,8 @@ export interface Project {
   /** Wirksame .ade/sandbox.yaml (mit Voreinstellungen). */
   sandbox?: { image?: string; resources: { memory: string; cpus: number; pids: number }; egress?: Egress };
   sandbox_error?: string;
+  /** Wirksame Freigabe-Regeln (bei ungültiger project.yaml leer: alles braucht eine Freigabe). */
+  approvals: { sandbox: RuleSet; local: RuleSet };
 }
 
 export type WorkspaceStatus = "creating" | "setup" | "ready" | "setup_failed" | "error";
@@ -80,7 +82,8 @@ export interface Egress {
   presets: string[] | null;
   allow: string[] | null;
   deny: string[] | null;
-  on_blocked: "deny";
+  /** deny: sofort blocken; ask: Anfrage wartet auf eine Freigabe im Dashboard. */
+  on_blocked: "deny" | "ask";
   /** Kein egress-Abschnitt: es gelten die Voreinstellungen. */
   default: boolean;
 }
@@ -90,6 +93,59 @@ export interface WorkspaceEgress {
   events: EgressEvent[];
   hosts: EgressHost[];
   policy?: Egress & { effective_allow: string[] | null; error?: string; providers: string[] };
+  /** Ausnahmen aus Freigaben (projektweit und für diesen Workspace). */
+  grants: EgressGrant[];
+}
+
+/** Egress-Ausnahme aus einer Freigabe; ergänzt .ade/sandbox.yaml, ohne das Repo zu ändern. */
+export interface EgressGrant {
+  id: number;
+  project_id: string;
+  /** Leer: gilt für alle Workspaces des Projekts. */
+  workspace_id?: string;
+  rule: string;
+  approval_id?: string;
+  created_at: string;
+}
+
+export type ApprovalStatus = "pending" | "approved" | "denied" | "expired" | "canceled";
+export type ApprovalDecision = "allow" | "allow_workspace" | "allow_project" | "deny";
+
+/** Freigabe-Anfrage (Werkzeug-Aufruf eines Agenten oder geblocktes Netzwerk-Ziel). */
+export interface Approval {
+  id: string;
+  kind: "tool" | "egress";
+  project_id: string;
+  workspace_id: string;
+  session_id?: string;
+  title: string;
+  detail: ToolApprovalDetail | EgressApprovalDetail;
+  sandbox: boolean;
+  status: ApprovalStatus;
+  decision?: ApprovalDecision;
+  reason?: string;
+  created_at: string;
+  expires_at: string;
+  decided_at?: string;
+}
+
+export interface ToolApprovalDetail {
+  tool: string;
+  input: Record<string, unknown>;
+  tool_use_id?: string;
+  workdir: string;
+}
+
+export interface EgressApprovalDetail {
+  host: string;
+  port: number;
+}
+
+/** Regeln je Umgebung (approvals in .ade/project.yaml). */
+export interface RuleSet {
+  allow: string[] | null;
+  ask: string[] | null;
+  deny: string[] | null;
 }
 
 export interface EgressEvent {
@@ -203,6 +259,8 @@ export interface Capabilities {
   terminal: boolean;
   input: boolean;
   resume: boolean;
+  /** Die CLI fragt vor Werkzeug-Aufrufen bei ADE nach (Freigaben). */
+  approvals: boolean;
 }
 
 export interface Session {
@@ -417,6 +475,17 @@ export const api = {
   feedback: (id: string, req: FeedbackRequest) =>
     request<Session>("POST", `/api/workspaces/${encodeURIComponent(id)}/feedback`, req),
   adapters: () => request<Adapters>("GET", "/api/adapters"),
+  approvals: (filter: { status?: ApprovalStatus; session_id?: string; workspace_id?: string; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(filter)) if (v !== undefined && v !== "") q.set(k, String(v));
+    const qs = q.toString();
+    return request<Approval[]>("GET", `/api/approvals${qs ? `?${qs}` : ""}`);
+  },
+  decideApproval: (id: string, decision: ApprovalDecision, reason?: string) =>
+    request<Approval>("POST", `/api/approvals/${encodeURIComponent(id)}`, { decision, reason }),
+  addEgressGrant: (workspaceId: string, rule: string, scope: "workspace" | "project") =>
+    request<EgressGrant>("POST", `/api/workspaces/${encodeURIComponent(workspaceId)}/egress/grants`, { rule, scope }),
+  deleteEgressGrant: (id: number) => request<void>("DELETE", `/api/egress-grants/${id}`),
   startAgent: (req: StartAgentRequest) => request<Session>("POST", "/api/agents", req),
   sessions: (filter: { project_id?: string; workspace_id?: string; active?: boolean; limit?: number } = {}) => {
     const q = new URLSearchParams();

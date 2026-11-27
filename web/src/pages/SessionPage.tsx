@@ -3,6 +3,7 @@ import { useCallback, useState, type FormEvent, type KeyboardEvent } from "react
 import { Link, useNavigate, useParams } from "react-router";
 import { api, isActive, type Session, type SessionEvent } from "../api";
 import { sessionTitle } from "../sessions";
+import { SessionApprovals } from "../components/approvals";
 import { IdeButton } from "../components/ide";
 import { SandboxBadge } from "../components/sandbox";
 import { Terminal } from "../components/Terminal";
@@ -45,6 +46,7 @@ export function SessionPage() {
         / {s.id} {workspace.data && <SandboxBadge workspace={workspace.data} />}
       </div>
       <SessionHeader session={s} />
+      {s.live && <SessionApprovals sessionId={s.id} />}
       {s.capabilities.terminal ? <Terminal key={s.id} sessionId={s.id} onExit={refresh} /> : <AgentView key={s.id} session={s} />}
     </>
   );

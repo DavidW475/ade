@@ -392,3 +392,42 @@ dialog.modal::backdrop { background: rgb(15 17 21 / 0.45); }
 label.checkbox { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; font-size: 0.9rem; }
 label.checkbox input[type="checkbox"] { width: auto; min-width: 0; margin: 0; }
 .netevents td.wrap { word-break: break-all; }
+
+/* Freigaben (M7) */
+.navitem { display: inline-flex; align-items: center; gap: 0.35rem; }
+.navbadge {
+  display: inline-block;
+  min-width: 1.3rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--warn);
+  color: var(--card);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.3rem;
+}
+.approvals { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+.approval { padding: 0.9rem 1.1rem; margin: 0; }
+.approval.pending { border-color: var(--warn); }
+.approvaltitle { flex: 1; min-width: 12rem; word-break: break-word; }
+.approvalcode {
+  margin: 0.6rem 0 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--code-bg);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 18rem;
+  overflow: auto;
+  font-size: 0.85rem;
+}
+.approvalcode.del { background: var(--bad-bg); }
+.approvalcode.add { background: var(--ok-bg); }
+.approvalactions { margin-top: 0.75rem; }
+.approval details { margin-top: 0.4rem; }
+.approval details summary { cursor: pointer; font-size: 0.85rem; }
+.sessionapprovals { margin-bottom: 1rem; }
+.rowactions { display: inline-flex; gap: 0.35rem; flex-wrap: wrap; }
+.grant { display: inline-flex; align-items: center; gap: 0.3rem; }
+.pagehint { margin-bottom: 1rem; }

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type EgressEvent, type Workspace } from "../api";
 import { errorMessage, formatBytes, formatDuration, formatTime } from "../format";
@@ -6,6 +6,7 @@ import { Badge, Notice } from "./ui";
 
 const reasonLabels: Record<string, string> = {
   allowlist: "Allowlist",
+  approval: "im Dashboard freigegeben",
   provider: "API mit Key vom Proxy",
   not_allowed: "nicht freigegeben",
   denylist: "gesperrt (deny)",
@@ -32,9 +33,36 @@ function List({ items }: { items: string[] | null | undefined }) {
   );
 }
 
+/** Knöpfe, um einen geblockten Host dauerhaft zu erlauben (Ausnahme statt Eintrag in sandbox.yaml). */
+function AllowButtons({ workspaceId, host, onError }: { workspaceId: string; host: string; onError: (msg: string) => void }) {
+  const qc = useQueryClient();
+  const grant = useMutation({
+    mutationFn: (scope: "workspace" | "project") => api.addEgressGrant(workspaceId, host, scope),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["egress", workspaceId] }),
+    onError: (e) => onError(errorMessage(e)),
+  });
+  return (
+    <span className="rowactions">
+      <button type="button" className="small primary" disabled={grant.isPending} onClick={() => grant.mutate("project")} title="Für alle Workspaces des Projekts">
+        Erlauben (Projekt)
+      </button>
+      <button type="button" className="small" disabled={grant.isPending} onClick={() => grant.mutate("workspace")} title="Nur für diesen Workspace">
+        nur hier
+      </button>
+    </span>
+  );
+}
+
 /** Netzwerk-Ansicht eines Sandbox-Workspaces: Policy, Ziele und letzte Anfragen. */
 export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
+  const qc = useQueryClient();
   const [blockedOnly, setBlockedOnly] = useState(false);
+  const [grantError, setGrantError] = useState("");
+  const removeGrant = useMutation({
+    mutationFn: (id: number) => api.deleteEgressGrant(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["egress", w.id] }),
+    onError: (e) => setGrantError(errorMessage(e)),
+  });
   const q = useQuery({
     queryKey: ["egress", w.id, blockedOnly],
     queryFn: () => api.workspaceEgress(w.id, blockedOnly),
@@ -46,6 +74,10 @@ export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
   const pol = data?.policy;
   const hosts = (data?.hosts ?? []).filter((h) => !blockedOnly || h.blocked > 0);
   const blockedCount = (data?.hosts ?? []).reduce((n, h) => n + h.blocked, 0);
+  const grants = data?.grants ?? [];
+  const granted = new Set(grants.map((g) => g.rule));
+  // Ein Host gilt als erlaubt, wenn ihn eine Ausnahme oder die Allowlist ohne Platzhalter nennt.
+  const allowed = new Set([...(pol?.effective_allow ?? []), ...granted]);
 
   return (
     <>
@@ -84,6 +116,42 @@ export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
             <dd>
               <List items={pol.deny} />
             </dd>
+            <dt>Geblockte Ziele</dt>
+            <dd>
+              {pol.on_blocked === "ask" ? (
+                <>
+                  warten auf <a href="/approvals">Freigabe im Dashboard</a> (<code>on_blocked: ask</code>)
+                </>
+              ) : (
+                <span>
+                  sofort abgelehnt (<code>on_blocked: deny</code>)
+                </span>
+              )}
+            </dd>
+            <dt>Ausnahmen</dt>
+            <dd>
+              {grants.length ? (
+                <span className="netlist">
+                  {grants.map((g) => (
+                    <span key={g.id} className="grant" title={g.workspace_id ? "nur dieser Workspace" : "alle Workspaces des Projekts"}>
+                      <code>{g.rule}</code>
+                      <span className="muted">{g.workspace_id ? "Workspace" : "Projekt"}</span>
+                      <button
+                        type="button"
+                        className="small danger"
+                        aria-label={`Ausnahme ${g.rule} entfernen`}
+                        disabled={removeGrant.isPending}
+                        onClick={() => removeGrant.mutate(g.id)}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span className="muted">keine – geblockte Ziele lassen sich unten mit einem Klick erlauben</span>
+              )}
+            </dd>
             <dt>API-Keys vom Proxy</dt>
             <dd>
               {pol.providers.length ? (
@@ -105,6 +173,14 @@ export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
         </div>
       )}
 
+      {grantError && (
+        <Notice tone="bad">
+          {grantError}{" "}
+          <button type="button" className="small" onClick={() => setGrantError("")}>
+            OK
+          </button>
+        </Notice>
+      )}
       {q.isPending ? (
         <p className="muted">Lade Netzwerk-Ereignisse …</p>
       ) : !hosts.length ? (
@@ -119,6 +195,7 @@ export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
                 <th>Geblockt</th>
                 <th>Daten ↑ / ↓</th>
                 <th>Zuletzt</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -139,6 +216,13 @@ export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
                     {formatBytes(h.bytes_out)} / {formatBytes(h.bytes_in)}
                   </td>
                   <td className="muted">{formatTime(h.last)}</td>
+                  <td>
+                    {h.blocked > 0 && h.reason === "not_allowed" && !allowed.has(h.host) ? (
+                      <AllowButtons workspaceId={w.id} host={h.host} onError={setGrantError} />
+                    ) : granted.has(h.host) ? (
+                      <Badge tone="ok">Ausnahme</Badge>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>

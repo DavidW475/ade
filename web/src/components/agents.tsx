@@ -207,8 +207,10 @@ export function StartAgentForm({
           )}
           {chosen === "claude" && (
             <p className="hint wide">
-              <code>acceptEdits</code> erlaubt Dateiänderungen; Befehle, die eine Bestätigung bräuchten, werden abgelehnt.{" "}
-              <code>bypassPermissions</code> ohne Sandbox nur bei vertrauenswürdigen Repositories. In der Sandbox braucht Claude Code einen
+              Vor jedem Werkzeug-Aufruf fragt Claude Code bei ADE nach: Was die Regeln in <code>approvals</code>{" "}
+              (<code>.ade/project.yaml</code>) erlauben, läuft sofort, gesperrte Aufrufe werden abgelehnt, alles andere wartet auf eine{" "}
+              <Link to="/approvals">Freigabe</Link> im Dashboard. Voreinstellung: in der Sandbox alles erlaubt, lokal nur Lesen und
+              Dateiänderungen im Workspace. Der Berechtigungsmodus gilt nur, wenn der Hook nicht verfügbar ist. In der Sandbox braucht Claude Code einen
               API-Key in der Konfiguration (<code>providers.anthropic</code>); der Egress-Proxy fügt ihn ein, der Container sieht ihn nicht.
             </p>
           )}
