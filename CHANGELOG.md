@@ -52,6 +52,20 @@ Abschnitt der jeweiligen Version als Release-Notizen.
   auch beim Start. Bei Überschreitung pausiert der Agent (Status „pausiert“) und wartet auf eine
   Budget-Freigabe; „Budget erhöhen“ setzt ihn fort, „Ablehnen“ beendet ihn.
 
+- **Software-Fabrik** (M9): Fabriken in `.ade/factories/<name>.yaml` verketten Rollen-Agenten
+  (Adapter, Modell-Alias, Rechte, Prompt) zu einem Run: lineare Schritte, Gates
+  (`gate: human`) als Freigabe im Dashboard und `action: pull_request` am Ende. Die letzte
+  Antwort einer Rolle wird ihr Artefakt (z. B. `plan.md`) und geht an die folgenden Rollen.
+  Mitgeliefert ist die Vorlage `feature` (Planer → Freigabe → Entwickler → Reviewer → Freigabe
+  → PR). Runs überstehen einen Neustart des Daemons.
+- **Lese-Rollen** (`permissions: read`) können den Workspace nicht ändern: in der Sandbox ein
+  eigener Container mit `/workspace` nur lesend, ohne Sandbox ein Schnappschuss.
+- `ade run <fabrik> --task "…"` (mit `--wait`), Seiten **Runs** und Run-Ansicht mit Pipeline,
+  Gates, Artefakten und Kosten; Startdialog im Projekt. `budget.max_cost_usd` und
+  `budget.max_duration` je Fabrik.
+- API: `GET /api/factories`, `GET/POST /api/runs`, `GET /api/runs/{id}`,
+  `POST /api/runs/{id}/cancel`, `GET /api/runs/{id}/artifacts/{name}`.
+
 ### Behoben
 
 - `ade gc` und der Container-Abgleich scheitern nicht mehr, wenn ein Container zwischen

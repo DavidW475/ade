@@ -22,7 +22,8 @@ ade start  →  http://localhost:7000
 - **Sandbox:** Docker-Container pro Workspace, sieht nur seinen Workspace; Internet nur über
   einen Egress-Proxy mit Allowlist, API-Keys fügt der Proxy ein (der Container sieht sie nie)
 - **Review:** Diff ansehen, mergen, PR erstellen, Feedback geben oder verwerfen
-- **Software-Fabriken:** Planer, Entwickler, Reviewer und Tester als Pipeline, mit unterschiedlichen Modellen (ab M9)
+- **Software-Fabriken:** Planer, Entwickler und Reviewer als Pipeline mit Freigaben dazwischen,
+  je Rolle eigenes Modell und eigene Rechte (Planer und Reviewer nur lesend)
 
 ## Voraussetzungen
 
@@ -76,6 +77,20 @@ ade project add ~/git/mein-repo    # Repository registrieren (geht auch im Dashb
    - **PR erstellen** – Push nach `origin` und `gh pr create`,
    - **Feedback geben** – eine neue Agent-Session im selben Workspace setzt deinen Kommentar um,
    - **Verwerfen** – Workspace und Branch rückstandsfrei entfernen.
+
+### Software-Fabrik
+
+```sh
+cd ~/git/mein-repo
+ade run feature --task "Login mit GitHub ergänzen"
+```
+
+Die Fabrik `feature` lässt einen Planer (nur lesend) einen Plan schreiben, wartet auf deine
+Freigabe, lässt einen Entwickler umsetzen und einen Reviewer (nur lesend) prüfen und erstellt nach
+einer zweiten Freigabe einen PR. Fortschritt, Artefakte (Plan, Zusammenfassung, Review) und die
+Freigaben stehen im Dashboard unter **Runs**; ein Hinweis beim Freigeben geht an die nächste
+Rolle. Eigene Fabriken (andere Rollen, Modelle, Prompts) liegen in `.ade/factories/`, siehe
+[doc/factory.md](doc/factory.md) und [`examples/factories/`](examples/factories/).
 
 `ade start --no-browser` gibt die Anmelde-URL aus, statt den Browser zu öffnen.
 

@@ -276,3 +276,34 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
   laufende Anfrage wird nicht abgebrochen); ohne Proxy erst am Ende eines Durchgangs. Was am Proxy
   vorbei läuft (Abo-Login über CONNECT), kann er nicht zählen. Pausieren beendet den Prozess;
   fortsetzen können nur Adapter mit Resume.
+
+## ADR-018: Fabrik-Runs aus normalen Sessions, Artefakte außerhalb des Workspaces, Lese-Rollen über eigenen Container
+
+- **Kontext:** M9 verkettet Rollen-Agenten zu einem Run (doc/factory.md). Jede Rolle soll eine
+  normale Session bleiben (Timeline, Freigaben, Kosten, Sandbox), der Run einen Neustart des
+  Daemons überstehen, und Lese-Rollen dürfen den gemeinsamen Workspace nicht ändern. Ein
+  laufender Container lässt sich nicht nachträglich anders mounten; `docker exec` kann keine
+  Mounts hinzufügen.
+- **Entscheidung:**
+  1. Der Runner (`internal/factory`) hält den Zustand in `runs` und `run_steps` und schreibt ihn
+     unter einem Lock je Run fort. Auslöser sind Statuswechsel der Sessions (Listener am
+     Agent-Manager), Entscheidungen an Gates, ein Takt und der Start. Die Definition wird beim
+     Start als JSON gespeichert.
+  2. Eine Rolle ist fertig, wenn ihre Session `idle` oder `done` wird. Ihre letzte Antwort ist
+     das Artefakt; ADE speichert es unter `<data_dir>/runs/<id>/` (nicht `.ade/runs/` im
+     Workspace wie zuvor geplant) und gibt es den folgenden Rollen im Prompt mit. Ein wartender
+     Agent wird beendet, sobald der Schritt fertig ist; der Workspace wird dabei gesichert.
+  3. Gates sind Freigaben der Art `gate` (7 Tage). Nach einem Neustart legt der Runner offene
+     Gates neu an und setzt unterbrochene Sessions über Resume fort.
+  4. Lese-Rollen laufen in der Sandbox in einem zweiten Container je Workspace
+     (`ade-ws-<id>-ro`, Rolle `reader`) mit `/workspace` als Read-only-Bind-Mount, im selben
+     internen Netz hinter demselben Proxy. Ohne Sandbox arbeiten sie in einem Schnappschuss
+     (`git clone --shared` des Workspaces) unter `<data_dir>/snapshots/<session>`; die Adapter
+     sperren zusätzlich ihre Schreibwerkzeuge.
+  5. Sandbox gilt für den ganzen Run, nicht je Rolle (ein Workspace).
+- **Konsequenzen:** Artefakte sind in M9 Freitext; mehrere oder strukturierte Artefakte je Rolle
+  kommen mit M10. Ohne Sandbox ist „nur lesen“ eine Absprache, kein Schutz: Ein Agent mit
+  Bash-Zugriff kann außerhalb des Schnappschusses schreiben (wie jeder lokale Agent). Der
+  Lese-Container verdoppelt den Speicherbedarf eines Workspaces, solange eine Lese-Rolle läuft;
+  er bleibt bis zum Stoppen oder Verwerfen des Workspaces bestehen. Ein Zeitlimit lässt den Run
+  scheitern, statt nach einer Freigabe zu fragen.
