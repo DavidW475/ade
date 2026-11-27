@@ -57,6 +57,46 @@ Der Ablauf (Branch pro Meilenstein, `Closes #N` pro erledigtem Issue im PR, Prü
 Merge) ist in [AGENTS.md](AGENTS.md#arbeitsablauf-meilensteine-issues-und-prs) beschrieben und
 gilt für Menschen genauso.
 
+## Releases
+
+Releases macht der Maintainer. Ein Tag `vX.Y.Z` (oder `vX.Y.Z-rc.N` als Vorabversion) startet
+[`release.yml`](.github/workflows/release.yml):
+
+- **GoReleaser** baut `ade_linux_amd64.tar.gz` und `ade_linux_arm64.tar.gz` (Version `vX.Y.Z` im
+  Binary), `checksums.txt` und je Archiv eine SPDX-SBOM, lädt `install.sh` mit hoch und übernimmt
+  den passenden Abschnitt aus `CHANGELOG.md` als Release-Notizen. Für alle Dateien in
+  `checksums.txt` entsteht eine Build-Provenance-Attestierung.
+- **Images** (`images.yml`, parallel): `ghcr.io/davidw475/ade-agent-base` und `ade-dev` mit dem Tag
+  `X.Y.Z` (ohne `v`; bei Vollversionen zusätzlich `X.Y`), SBOM und Provenance. Das Binary nutzt
+  standardmäßig genau `ade-agent-base:X.Y.Z` (`sandbox.DefaultImage`), deshalb werden die Images
+  bei jedem Tag gebaut, auch ohne Änderung unter `images/`.
+
+Ablauf:
+
+1. In `CHANGELOG.md` den Abschnitt `[Unveröffentlicht]` in `## [X.Y.Z] – JJJJ-MM-TT` umbenennen
+   (bei Vorabversionen `## [X.Y.Z-rc.N] – …`), einen neuen leeren `[Unveröffentlicht]` anlegen
+   und die Vergleichslinks am Ende ergänzen; per PR nach `main`. Ohne passenden Abschnitt bricht
+   der Release-Workflow ab.
+2. Lokal prüfen (optional, braucht [GoReleaser](https://goreleaser.com/install/)):
+   `goreleaser check` und `goreleaser release --snapshot --clean --skip=sbom`. In PRs, die die
+   Release-Konfiguration ändern, läuft derselbe Snapshot samt `install.sh` in der CI
+   ([`release-snapshot.yml`](.github/workflows/release-snapshot.yml)).
+3. Tag auf dem gemergten Commit setzen und pushen:
+   ```sh
+   git switch main && git pull
+   git tag -a vX.Y.Z -m "ADE vX.Y.Z" && git push origin vX.Y.Z
+   ```
+4. Beide Jobs des Release-Laufs müssen grün sein (`gh run watch`). Danach prüfen:
+   ```sh
+   gh release view vX.Y.Z
+   gh release download vX.Y.Z -p 'ade_linux_amd64.tar.gz' -D /tmp/ade-rel
+   gh attestation verify /tmp/ade-rel/ade_linux_amd64.tar.gz --repo DavidW475/ade
+   gh attestation verify oci://ghcr.io/davidw475/ade-agent-base:X.Y.Z --repo DavidW475/ade
+   ADE_VERSION=vX.Y.Z sh install.sh && ade version
+   ```
+   Schlägt nur der Image-Build fehl, ist das Release schon veröffentlicht: Fehler beheben und den
+   Lauf über „Re-run failed jobs“ wiederholen.
+
 ## Konventionen
 
 - **Sprache:** Doku, Kommentare, Fehlermeldungen und UI-Texte auf Deutsch; Bezeichner auf Englisch.

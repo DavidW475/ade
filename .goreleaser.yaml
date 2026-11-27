@@ -19,7 +19,8 @@ builds:
     goarch: [amd64, arm64]
     flags: [-trimpath]
     ldflags:
-      - -s -w -X main.version={{ .Version }}
+      # Mit "v" wie `git describe` im Makefile; sandbox.DefaultImage leitet daraus den Image-Tag ab.
+      - -s -w -X main.version=v{{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
@@ -34,6 +35,10 @@ archives:
 
 checksum:
   name_template: checksums.txt
+
+# SPDX-SBOM je Archiv (braucht syft, im Workflow per anchore/sbom-action/download-syft).
+sboms:
+  - artifacts: archive
 
 # Die Release-Notizen kommen aus CHANGELOG.md (siehe Workflow).
 changelog:

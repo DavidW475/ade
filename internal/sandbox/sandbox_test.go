@@ -58,10 +58,12 @@ func TestParseConfig(t *testing.T) {
 }
 
 func TestDefaultImage(t *testing.T) {
-	if got := DefaultImage("v1.2.3"); got != ImageRepo+":1.2.3" {
-		t.Errorf("Release: %s", got)
+	for v, want := range map[string]string{"v1.2.3": "1.2.3", "v1.0.0-rc.1": "1.0.0-rc.1", "v2.0.0-beta.12": "2.0.0-beta.12"} {
+		if got := DefaultImage(v); got != ImageRepo+":"+want {
+			t.Errorf("%q: %s", v, got)
+		}
 	}
-	for _, v := range []string{"dev", "v1.2.3-4-gabc-dirty", ""} {
+	for _, v := range []string{"dev", "", "1.2.3", "v1.2.3-4-gabc-dirty", "v1.0.0-rc.1-2-gabc", "v1.0.0-SNAPSHOT-abc1234", "v1.0.0-rc1"} {
 		if got := DefaultImage(v); got != ImageRepo+":latest" {
 			t.Errorf("%q: %s", v, got)
 		}

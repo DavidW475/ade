@@ -1,16 +1,21 @@
 name: Images
 
+# Baut die Container-Images (images/). Bei Änderungen auf main → :latest und :sha-…; bei
+# einem Release-Tag ruft release.yml diesen Workflow immer auf (auch ohne Änderung unter
+# images/) → :X.Y.Z bzw. :X.Y.Z-rc.N passend zum Binary (sandbox.DefaultImage).
 on:
   push:
     branches: [main]
-    tags: ["v*"]
     paths: ["images/**", ".github/workflows/images.yml"]
   pull_request:
     paths: ["images/**", ".github/workflows/images.yml"]
+  workflow_call:
 
 permissions:
   contents: read
   packages: write
+  id-token: write
+  attestations: write
 
 jobs:
   agent-base:
@@ -30,20 +35,30 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/davidw475/ade-agent-base
+          # Vorabversionen (v1.0.0-rc.1) bekommen nur :1.0.0-rc.1, kein :1.0.
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: images/agent-base
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - uses: actions/attest-build-provenance@v4
+        if: github.event_name != 'pull_request'
+        with:
+          subject-name: ghcr.io/davidw475/ade-agent-base
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
 
   ade-dev:
     name: ade-dev
@@ -68,12 +83,30 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
-      - uses: docker/build-push-action@v6
+      - name: Basis-Image wählen
+        id: base
+        # Beim Release das eben gebaute Basis-Image derselben Version, sonst :latest.
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*) echo "image=ghcr.io/davidw475/ade-agent-base:${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT" ;;
+            *) echo "image=ghcr.io/davidw475/ade-agent-base:latest" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: images/ade-dev
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
+          build-args: BASE_IMAGE=${{ steps.base.outputs.image }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
           cache-from: type=gha,scope=ade-dev
           cache-to: type=gha,mode=max,scope=ade-dev
+      - uses: actions/attest-build-provenance@v4
+        if: github.event_name != 'pull_request'
+        with:
+          subject-name: ghcr.io/davidw475/ade-dev
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

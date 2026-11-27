@@ -11,8 +11,10 @@ Hier entstehen die Images für die Docker-Sandbox (ab Meilenstein M5, siehe
 
 ## ade-agent-base
 
-CI baut das Image bei Änderungen unter `images/` und pusht es von `main` (`:latest`) und von
-Release-Tags (`:<version>`) nach `ghcr.io/davidw475/ade-agent-base`. Lokal:
+CI baut das Image bei Änderungen unter `images/` und pusht es von `main` (`:latest`) nach
+`ghcr.io/davidw475/ade-agent-base`. Jeder Release-Tag `vX.Y.Z` baut es immer, auch ohne
+Änderung, als `:X.Y.Z` (Vorabversionen `:X.Y.Z-rc.N`) mit SBOM und Provenance; diesen Tag nutzt
+das gleich versionierte Binary als Standard-Image. Lokal:
 
 ```sh
 make image    # → ghcr.io/davidw475/ade-agent-base:dev

@@ -5,12 +5,16 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
     name: GoReleaser
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v5
         with:
@@ -23,6 +27,8 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
+      # GoReleaser erzeugt damit die SBOMs der Archive (sboms in .goreleaser.yaml).
+      - uses: anchore/sbom-action/download-syft@v0
       - run: go test -race ./...
         # Ohne Frontend-Build fehlt nur das eingebettete Dashboard; die Tests brauchen es nicht.
       - name: Release-Notizen aus CHANGELOG.md
@@ -44,3 +50,19 @@ jobs:
           args: release --clean --release-notes=${{ runner.temp }}/notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Provenance für alles in checksums.txt (Archive und ihre SBOMs);
+      # prüfen mit `gh attestation verify ade_linux_amd64.tar.gz --repo DavidW475/ade`.
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: dist/checksums.txt
+
+  # Images immer zum Tag bauen (:X.Y.Z), parallel zum Binary. Schlägt der Build fehl,
+  # ist der Release-Lauf rot, das Release selbst ist dann aber schon veröffentlicht.
+  images:
+    name: Images
+    uses: ./.github/workflows/images.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
