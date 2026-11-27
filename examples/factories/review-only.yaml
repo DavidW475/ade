@@ -1,0 +1,43 @@
+# Fabrik „review-only“: Zwei Reviewer mit verschiedenen Modellen prüfen einen Branch
+# unabhängig und parallel, ein Aggregator fasst zusammen. Ändert nichts, kein Pull Request;
+# das Ergebnis ist das Artefakt report.md. Aufbau: doc/factory.md.
+name: review-only
+description: Unabhängige Reviews eines Branches mit Zusammenfassung, ohne Änderungen
+
+inputs:
+  task: { type: text, required: true, description: "Was geprüft werden soll (Commits, Verzeichnis, Ziel der Änderung)" }
+  branch: { type: branch, description: Zu prüfender Branch (Standard Basis-Branch des Projekts) }
+
+roles:
+  reviewer-a:
+    adapter: claude
+    model: opus
+    permissions: read
+    prompt: prompts/review-only-reviewer.md
+    outputs: [{ name: review-a.json, schema: schemas/review.json }]
+
+  reviewer-b:
+    adapter: claude        # z. B. codex (ohne model oder mit einem Alias) für ein anderes Modell
+    model: sonnet
+    permissions: read
+    prompt: prompts/review-only-reviewer.md
+    outputs: [{ name: review-b.json, schema: schemas/review.json }]
+
+  aggregator:
+    adapter: claude
+    model: opus
+    permissions: read
+    prompt: prompts/review-only-aggregator.md
+    inputs: [review-a.json, review-b.json]
+    outputs: [report.md]
+
+flow:
+  - parallel:
+      - { step: review-a, role: reviewer-a }
+      - { step: review-b, role: reviewer-b }
+  - step: report
+    role: aggregator
+
+budget:
+  max_cost_usd: 5
+  max_duration: 1h

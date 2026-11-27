@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "required": ["verdict", "summary", "comments"],
+  "additionalProperties": false,
+  "properties": {
+    "verdict": { "enum": ["approve", "changes"], "description": "approve: freigeben; changes: Änderungen nötig" },
+    "summary": { "type": "string", "maxLength": 4000 },
+    "comments": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": ["severity", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "file": { "type": "string" },
+          "line": { "type": "integer", "minimum": 1 },
+          "severity": { "enum": ["blocker", "major", "minor"] },
+          "text": { "type": "string", "minLength": 1, "maxLength": 4000 }
+        }
+      }
+    }
+  }
+}

@@ -77,7 +77,15 @@ type Factory struct {
 	Budget      *Budget          `yaml:"budget" json:"budget,omitempty"`
 }
 
-// Input ist eine Eingabe eines Runs (M9: nur Text).
+// Arten von Eingaben.
+const (
+	InputText = "text"
+	// InputBranch ist ein Branch des Repos; der Workspace des Runs zweigt von ihm ab
+	// (Standard: Basis-Branch des Projekts). Höchstens eine je Fabrik.
+	InputBranch = "branch"
+)
+
+// Input ist eine Eingabe eines Runs.
 type Input struct {
 	Type        string `yaml:"type" json:"type"`
 	Required    bool   `yaml:"required" json:"required,omitempty"`
@@ -373,11 +381,17 @@ func (f *Factory) validate() string {
 			return fmt.Sprintf("inputs.%s: ungültiger Name", name)
 		}
 		if in.Type == "" {
-			in.Type = "text"
+			in.Type = InputText
 			f.Inputs[name] = in
 		}
-		if in.Type != "text" {
-			return fmt.Sprintf("inputs.%s.type: %q wird nicht unterstützt (erlaubt: text)", name, in.Type)
+		switch in.Type {
+		case InputText:
+		case InputBranch:
+			if b := f.BranchInput(); b != name {
+				return fmt.Sprintf("inputs.%s.type: höchstens eine Eingabe vom Typ branch (schon %s)", name, b)
+			}
+		default:
+			return fmt.Sprintf("inputs.%s.type: %q wird nicht unterstützt (erlaubt: text, branch)", name, in.Type)
 		}
 	}
 	if len(f.Roles) == 0 {
@@ -711,6 +725,16 @@ func checkRel(p string) string {
 	for _, part := range strings.Split(p, "/") {
 		if part == ".." {
 			return fmt.Sprintf("%q darf nicht aus %s herausführen", p, Dir)
+		}
+	}
+	return ""
+}
+
+// BranchInput liefert den Namen der Eingabe vom Typ branch (leer: keine).
+func (f *Factory) BranchInput() string {
+	for _, k := range sortedKeys(f.Inputs) {
+		if f.Inputs[k].Type == InputBranch {
+			return k
 		}
 	}
 	return ""

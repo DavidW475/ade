@@ -1,0 +1,56 @@
+# Fabrik „bugfix“: Fehler mit einem Test reproduzieren (muss fehlschlagen) → beheben → Tests
+# grün → Freigabe → Pull Request. Aufbau: doc/factory.md.
+name: bugfix
+description: Fehler reproduzieren, beheben und mit Test absichern
+
+inputs:
+  task: { type: text, required: true, description: "Fehlerbeschreibung (Verhalten, erwartet, Schritte)" }
+
+roles:
+  reproducer:
+    adapter: claude
+    model: sonnet
+    permissions: write     # schreibt den Test, keinen Produktionscode
+    prompt: prompts/bugfix-reproducer.md
+    outputs: [{ name: repro.json, schema: schemas/repro.json }]
+
+  fixer:
+    adapter: claude
+    model: sonnet
+    permissions: write
+    prompt: prompts/bugfix-fixer.md
+    inputs: [repro.json, test.json]
+    outputs: [fix.md]
+
+  tester:
+    adapter: claude
+    model: haiku
+    permissions: write
+    prompt: prompts/tester.md
+    inputs: [repro.json, fix.md]
+    outputs: [{ name: test.json, schema: schemas/test.json }]
+
+flow:
+  - step: reproduce
+    role: reproducer
+  - step: check-repro
+    when: "!reproduce.reproduced"
+    goto: reproduce
+    max_iterations: 2      # danach scheitert der Run: ohne Reproduktion kein Fix
+  - step: fix
+    role: fixer
+  - step: test
+    role: tester
+  - step: decide
+    when: "test.failed > 0"
+    goto: fix
+    max_iterations: 3
+  - step: final
+    gate: human
+    on_deny: { goto: fix }
+  - step: deliver
+    action: pull_request
+
+budget:
+  max_cost_usd: 5
+  max_duration: 90m
