@@ -40,7 +40,8 @@ eigene Konfiguration mit anderem Port und Datenverzeichnis verwenden (siehe
 | `internal/ide/` | openvscode-server je Workspace: Download mit Prüfsumme, Start, Inaktivitäts-Stopp |
 | `internal/gateway/` | Reverse-Proxy `ws-<id>.localhost` → IDE, Ticket-Anmeldung, Connection-Token |
 | `internal/sandbox/` | Docker-Container, internes Netz und Proxy-Container je Workspace über die Docker-CLI, `.ade/sandbox.yaml` (inkl. `egress`), GC |
-| `internal/proxy/` | Egress-Proxy `ade proxy`: Allowlist, Schutz vor internen Zielen, Secret-Injection, Steuer-API |
+| `internal/proxy/` | Egress-Proxy `ade proxy`: Allowlist, Schutz vor internen Zielen, Secret-Injection, Steuer-API, Rückfragen (Hook, `on_blocked: ask`) |
+| `internal/approval/` | Freigaben: Warteschlange, Regeln aus `approvals` in `project.yaml`, `ade hook pretooluse`, Egress-Ausnahmen |
 | `web/` | Dashboard (Vite + React + TypeScript, Monaco Diff Editor) |
 | `examples/`, `images/` | Beispielkonfigurationen, Container-Images (`images/agent-base`) |
 

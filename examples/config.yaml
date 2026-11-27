@@ -36,3 +36,9 @@ ide:
   binary: ""
   # Ohne offenen IDE-Tab wird die IDE nach dieser Zeit gestoppt (mindestens 1m).
   idle_timeout: 15m
+
+# Freigaben (doc/architecture.md#43-freigaben). Regeln je Projekt stehen in .ade/project.yaml
+# unter approvals.
+approvals:
+  # Wartezeit auf eine Entscheidung im Dashboard; danach gilt die Anfrage als abgelehnt (10s–2h).
+  timeout: 10m

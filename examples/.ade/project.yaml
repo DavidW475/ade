@@ -16,3 +16,17 @@ adapter: claude
 setup:
   - npm ci
   - go mod download
+
+# Freigaben (doc/architecture.md#43-freigaben): welche Werkzeuge der Agent ohne Rückfrage nutzt.
+# Einträge: Tool oder Tool(muster); Reihenfolge deny → ask → allow, alles andere wartet auf eine
+# Freigabe im Dashboard. Ein Abschnitt ersetzt die Voreinstellung seiner Umgebung.
+approvals:
+  # In der Sandbox (Voreinstellung: allow: ["*"]).
+  sandbox:
+    allow: ["*"]
+    deny: ["Bash(git push *)"]
+  # Ohne Sandbox (Voreinstellung: Lesen und Dateiänderungen im Workspace).
+  local:
+    allow: ["Read(**)", "Glob(**)", "Grep(**)", "Edit(**)", "Write(**)", "TodoWrite", "Bash(go test *)", "Bash(npm test)"]
+    ask: ["Edit(.github/**)"]
+    deny: ["Read(**/.env)"]

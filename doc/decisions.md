@@ -212,3 +212,39 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
   beim Start. Ohne TLS-Interception gilt die Allowlist nur auf Host-Ebene. Hängen andere
   Programme als Agent-Sessions (IDE-Terminal) an der Anthropic-API, nutzen sie die eigene
   Anmeldung der CLI über die Allowlist.
+
+## ADR-016: Freigaben über einen PreToolUse-Hook, in der Sandbox über den Egress-Proxy
+
+- **Kontext:** M7 lässt einen Menschen über kritische Werkzeug-Aufrufe und Netzwerk-Ausnahmen
+  entscheiden, asynchron im Dashboard. Claude Code läuft im Print-Modus (ADR-011) und lehnt
+  Werkzeuge, die eine Rückfrage bräuchten, ohne Hook ab. Der Proxy-Container erreicht den Daemon
+  nicht (er lauscht nur auf `127.0.0.1` des Hosts), der Daemon erreicht den Proxy aber über die
+  Steuer-API (ADR-015). Das Haupt-Repo eines Projekts ändert der Daemon nur bei der Übernahme.
+- **Entscheidung:**
+  1. Der Claude-Adapter bindet `ade hook pretooluse` per `--settings` als `PreToolUse`-Hook für
+     alle Werkzeuge ein. Der Hook antwortet immer mit `allow` oder `deny`, bei jedem Fehler `deny`
+     (fail closed). Sein Timeout ist `approvals.timeout` plus Spielraum.
+  2. Der Daemon entscheidet: zuerst die Regeln aus `approvals` in `.ade/project.yaml`
+     (deny → ask → allow, getrennt für Sandbox und lokal, Voreinstellung: Sandbox alles, lokal
+     Lesen und Dateiänderungen im Workspace), sonst eine Freigabe in der Warteschlange, die bis
+     zur Entscheidung oder zum Timeout blockiert. Bash-Allow-Regeln passen nie auf
+     zusammengesetzte Befehle; Pfadmuster gelten relativ zum Workspace, lokal nach Auflösen von
+     Symlinks. Bei ungültiger `project.yaml` erlaubt keine Regel etwas.
+  3. Lokal ruft der Hook `POST /api/hook/pretooluse` mit einem Token je Session auf (nur für
+     Fragen dieser Session gültig, endet mit dem Prozess).
+  4. In der Sandbox wird das ade-Binary nur lesend nach `/opt/ade/ade` gemountet; der Hook fragt
+     `http://proxy:8080/ade/hook/pretooluse`. Der Proxy hält die Frage fest, der Daemon holt
+     offene Fragen per Long-Polling über die Steuer-API ab (`GET /questions`) und beantwortet sie
+     (`POST /questions/{id}`). Dieselbe Warteschlange trägt Egress-Fragen bei
+     `egress.on_blocked: ask`: Die Anfrage wartet (Standard 2 min), gleiche Ziele teilen sich eine
+     Frage, nach „Ablehnen“ fragt der Proxy bis zu seinem Neustart nicht erneut.
+  5. Egress-Freigaben „für diesen Workspace“ und „immer (Projekt)“ speichert der Daemon als
+     Ausnahmen in SQLite und fügt sie der Policy hinzu, statt `.ade/sandbox.yaml` im Haupt-Repo
+     zu ändern. Platzhalter gehören weiter in die Datei.
+  6. Offene Freigaben eines früheren Daemon-Laufs gelten beim Start als abgelaufen.
+- **Konsequenzen:** Jeder Werkzeug-Aufruf kostet einen Prozessstart und eine lokale HTTP-Anfrage.
+  Container ohne Hook-Binary werden einmal neu angelegt (`ade.net=proxy-2`); dabei geht der
+  Zustand im Container-Dateisystem verloren (z. B. ein Abo-Login unter `/home/ade`). Der
+  Berechtigungsmodus der CLI gilt nur noch, wenn kein Hook verfügbar ist. Terminal-Sessions
+  (`pty`) haben keinen Hook. Ausnahmen aus dem Dashboard stehen nicht im Repo; die Netzwerk-
+  Ansicht zeigt sie an und kann sie entfernen.
