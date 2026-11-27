@@ -426,3 +426,26 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
   Agent erreicht trotzdem nur seinen eigenen Proxy, der interne Ziele ablehnt. Unter rootless
   Docker laufen Agent-CLIs als root im Container. Bestehende Container müssen nicht neu angelegt
   werden: `docker exec --user` folgt der erkannten Laufzeit.
+
+## ADR-024: Automatische Releases aus dem CHANGELOG
+
+- **Kontext:** Bisher setzte der Maintainer nach dem CHANGELOG-PR den Tag von Hand (ADR-022). Der
+  Abschnitt im CHANGELOG ist ohnehin Pflicht (Release-Notizen) und nennt Version und Datum; der
+  Tag ist ein zweiter, fehleranfälliger Schritt.
+- **Entscheidung:**
+  1. Maßgeblich ist die oberste Versionsüberschrift `## [X.Y.Z] – JJJJ-MM-TT` in `CHANGELOG.md`
+     (auch `X.Y.Z-rc.N`). `scripts/changelog-version.sh` liest sie per Regex und prüft Format,
+     Datum und dass die Version neuer ist als die darunter (SemVer, `rc` vor der Vollversion).
+  2. `auto-release.yml` läuft bei jedem Push auf `main`, der `CHANGELOG.md` ändert. Fehlt der Tag
+     `vX.Y.Z`, setzt der Workflow ihn (annotiert) auf genau diesen Commit und ruft `release.yml`
+     als wiederverwendbaren Workflow auf. Gibt es den Tag schon, passiert nichts.
+  3. Der direkte Aufruf ist nötig, weil ein mit `GITHUB_TOKEN` gepushter Tag keine Workflows
+     startet; so braucht es weder PAT noch GitHub-App. `release.yml` und `images.yml` nehmen die
+     Version deshalb aus `inputs.tag` statt aus `github.ref`.
+  4. Der Weg über einen von Hand gepushten Tag bleibt bestehen. Ein manueller Start von
+     `auto-release.yml` holt ein Release nach, wenn der Tag existiert, das Release aber fehlt.
+  5. Die CI prüft die CHANGELOG-Überschriften schon im PR.
+- **Konsequenzen:** Wer eine Versionsüberschrift nach `main` mergt, veröffentlicht. Das ist der
+  Freigabeschritt: Der CHANGELOG-PR braucht dieselbe Sorgfalt wie früher der Tag. Eine falsche
+  Überschrift lässt sich nach dem Merge nicht mehr zurücknehmen, nur durch eine neue Version
+  ersetzen. Tag-Schutzregeln im Repo müssen `github-actions[bot]` Tags erlauben.

@@ -67,7 +67,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: shellcheck install.sh
+      - run: shellcheck install.sh scripts/*.sh
+      # Eine neue Version oben im CHANGELOG wird nach dem Merge automatisch released
+      # (auto-release.yml); Format und Reihenfolge hier schon prüfen.
+      - name: CHANGELOG-Version
+        run: |
+          v=$(scripts/changelog-version.sh CHANGELOG.md)
+          echo "Neueste Version im CHANGELOG: ${v:-keine}"
 
   release-config:
     name: GoReleaser-Konfiguration

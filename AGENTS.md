@@ -67,6 +67,9 @@ Neue Module folgen der Struktur in [architecture.md](doc/architecture.md#10-repo
 - **UI prüfen:** Unter WSL lässt sich das Dashboard mit Edge headless fotografieren
   (`msedge.exe --headless=new --screenshot=… "http://localhost:<port>/auth/login?ticket=…&next=/pfad"`,
   Ticket per `POST /api/auth/tickets` mit dem Daemon-Secret).
+- **CHANGELOG:** Änderungen unter `[Unveröffentlicht]` eintragen. Eine Versionsüberschrift
+  `## [X.Y.Z] – …` nur auf ausdrücklichen Wunsch des Maintainers: Ihr Merge nach `main`
+  veröffentlicht automatisch ein Release (ADR-024).
 - **Architekturentscheidungen** als neues ADR in `doc/decisions.md` anhängen.
 
 ## Arbeitsablauf: Meilensteine, Issues und PRs
