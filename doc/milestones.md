@@ -215,7 +215,7 @@ flowchart LR
 - Vorlagen `bugfix`, `review-only`, `refactor`
 
 **Fertig, wenn:**
-- [ ] Reviewer lehnt ab → Entwickler bekommt Kommentare → zweiter Durchlauf → Freigabe
+- [x] Reviewer lehnt ab → Entwickler bekommt Kommentare → zweiter Durchlauf → Freigabe
 - [ ] Ein gelabeltes GitHub-Issue startet automatisch einen Run und endet als PR
 
 ---
