@@ -69,6 +69,15 @@ Abschnitt der jeweiligen Version als Release-Notizen.
   `budget.max_duration` je Fabrik.
 - API: `GET /api/factories`, `GET/POST /api/runs`, `GET /api/runs/{id}`,
   `POST /api/runs/{id}/cancel`, `GET /api/runs/{id}/artifacts/{name}`.
+- **Fabrik v2** (M10): strukturierte Artefakte (JSON, optional mit Schema; ungültige Antworten
+  korrigiert die Rolle bis zu zweimal), Bedingungen (`when`), Entscheidungen mit Rücksprung
+  (`goto`, `max_iterations`), Gates mit `on_deny` (Ablehnen mit Begründung springt zurück) und
+  parallele Schritte (`parallel`). Frühere Durchläufe bleiben in `history` sichtbar.
+- **Auslöser** (M10): `triggers` in `.ade/project.yaml` starten Runs automatisch – je offenem
+  GitHub-Issue mit Label (Polling über `gh`, Kommentar bei Start und Ende, der PR schließt das
+  Issue) oder nach Zeitplan (Cron). Ausgelöste Runs laufen standardmäßig in der Sandbox und
+  brauchen ein Fabrik-Budget. API: `GET /api/projects/{id}/triggers`,
+  `POST /api/projects/{id}/triggers/{name}/pause|resume`.
 
 ### Behoben
 

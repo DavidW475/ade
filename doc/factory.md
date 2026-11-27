@@ -194,8 +194,49 @@ eine OpenAI-kompatible Schnittstelle zu bündeln.
 |---|---|
 | Manuell im Dashboard (Prompt eingeben) | M9 |
 | API / CLI (`ade run feature --task "…" [--wait]`) | M9 |
-| GitHub-Issue mit Label (Polling oder Webhook) | M10 |
+| GitHub-Issue mit Label (Polling über `gh`) | M10 |
 | Zeitplan (z. B. nächtlicher Dependency-Update-Run) | M10 |
+
+Automatische Auslöser stehen unter `triggers` in `.ade/project.yaml` (aus dem Haupt-Repo):
+
+```yaml
+triggers:
+  - name: features                 # eindeutig im Projekt
+    factory: feature
+    inputs: { area: backend }      # feste Eingaben (task kommt bei Issues aus dem Issue)
+    sandbox: true                  # Standard: true
+    allow_unbudgeted: false        # Standard: Fabrik braucht budget.max_cost_usd
+    github_issues:
+      label: "ade:feature"
+      authors: [octocat]           # optional: nur Issues dieser Nutzer
+      interval: 5m                 # Abstand der Abfragen (1m–24h)
+      comment: true                # Kommentar bei Start und Ende
+  - name: nightly
+    factory: deps
+    inputs: { task: "Abhängigkeiten aktualisieren" }
+    schedule:
+      cron: "0 3 * * 1-5"          # 5 Felder oder @daily, @hourly, …; Zeitzone des Systems
+      catch_up: true               # verpassten Termin nach einer Pause nachholen (nur den letzten)
+```
+
+- **GitHub-Issues:** Der Daemon fragt im Takt `gh issue list --label …` im Haupt-Repo ab (kein
+  Webhook: ADE ist von außen nicht erreichbar). Jedes offene Issue startet höchstens einen Run,
+  auch über Neustarts hinweg; Titel, URL und Text werden die Aufgabe (`task`). ADE kommentiert
+  den Start und das Ende (Link zum PR oder Fehler), die PR-Beschreibung beginnt mit
+  `Closes #<nr>`. Je Abfrage startet ADE höchstens fünf Runs; ein gescheiterter Start (z. B.
+  Fabrik ohne Budget) wird bei der nächsten Abfrage erneut versucht und im Dashboard angezeigt.
+- **Zeitplan:** Ein neuer Auslöser zählt ab dem ersten Sehen (nichts wird nachgeholt). War der
+  Daemon zum Termin aus, holt ADE nur den letzten verpassten Termin nach (`catch_up: false`:
+  keinen). Läuft der vorige Run desselben Auslösers noch, fällt der Termin aus.
+- **Sicherheit:** Der Text eines Issues ist fremde Eingabe und kann versuchen, den Agenten zu
+  steuern (Prompt-Injection). Deshalb laufen ausgelöste Runs standardmäßig in der Sandbox (mit
+  Egress-Allowlist) und nur mit Budget. Labels setzen auf GitHub nur Nutzer mit mindestens
+  Triage-Rechten; in öffentlichen Repos trotzdem `authors` angeben, denn jeder kann ein Issue
+  eröffnen, das später gelabelt wird – geprüft wird, wer das Issue geschrieben hat, nicht wer
+  das Label gesetzt hat. Gates (`gate: human`) vor dem PR bleiben die wichtigste Bremse.
+- Auslöser lassen sich pausieren (`POST /api/projects/{id}/triggers/{name}/pause`, `…/resume`);
+  `GET /api/projects/{id}/triggers` liefert Zustand, nächste Abfrage bzw. nächsten Termin und
+  die zuletzt ausgelösten Runs. Runs tragen ihren Auslöser (`trigger`, `trigger_ref`).
 
 ## 6. Vorlagen
 

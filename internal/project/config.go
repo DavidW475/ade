@@ -39,6 +39,8 @@ type Config struct {
 	Approvals *approval.Config `yaml:"approvals" json:"approvals,omitempty"`
 	// Budget begrenzt die Kosten der Agenten (M8).
 	Budget *Budget `yaml:"budget" json:"budget,omitempty"`
+	// Triggers starten Fabrik-Runs automatisch (M10).
+	Triggers []Trigger `yaml:"triggers" json:"triggers,omitempty"`
 }
 
 // Budget sind Kostengrenzen in USD; 0 heißt keine Grenze.
@@ -122,6 +124,9 @@ func (c *Config) validate(ctx context.Context) string {
 	}
 	if err := c.Approvals.Validate(); err != nil {
 		return err.Error()
+	}
+	if msg := validateTriggers(c.Triggers); msg != "" {
+		return msg
 	}
 	if b := c.Budget; b != nil {
 		for _, v := range []struct {

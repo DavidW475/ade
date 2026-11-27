@@ -17,6 +17,7 @@ import (
 	"github.com/DavidW475/ade/internal/project"
 	"github.com/DavidW475/ade/internal/sandbox"
 	"github.com/DavidW475/ade/internal/store"
+	"github.com/DavidW475/ade/internal/trigger"
 	"github.com/DavidW475/ade/internal/workspace"
 )
 
@@ -53,6 +54,8 @@ type Options struct {
 	Usage UsageStore
 	// Runs ist der Fabrik-Runner (optional; ohne ihn fehlen /api/factories und /api/runs).
 	Runs *factory.Runner
+	// Triggers sind die Auslöser der Fabriken (optional).
+	Triggers *trigger.Service
 }
 
 // UsageStore ist der Teil der Datenbank für Kosten.
@@ -95,6 +98,7 @@ func New(opts Options) *Server {
 	s.routesApprovals(mux)
 	s.routesUsage(mux)
 	s.routesRuns(mux)
+	s.routesTriggers(mux)
 	unknown := func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "unbekannter API-Pfad")
 	}

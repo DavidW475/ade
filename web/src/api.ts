@@ -522,6 +522,10 @@ export interface Run {
   /** Frühere Durchläufe (Schleifen). */
   history?: RunStep[];
   cost_usd: number;
+  /** Auslöser (leer: von Hand), Verweis (z. B. Issue-URL), geschlossenes Issue. */
+  trigger?: string;
+  trigger_ref?: string;
+  closes?: number;
   artifacts: { name: string; step: string; role: string; size: number; iterations?: number[] }[];
   pr_url?: string;
   workspace_gone?: boolean;

@@ -216,7 +216,7 @@ flowchart LR
 
 **Fertig, wenn:**
 - [x] Reviewer lehnt ab → Entwickler bekommt Kommentare → zweiter Durchlauf → Freigabe
-- [ ] Ein gelabeltes GitHub-Issue startet automatisch einen Run und endet als PR
+- [x] Ein gelabeltes GitHub-Issue startet automatisch einen Run und endet als PR
 
 ---
 

@@ -19,6 +19,7 @@ import (
 	"github.com/DavidW475/ade/internal/factory"
 	"github.com/DavidW475/ade/internal/project"
 	"github.com/DavidW475/ade/internal/store"
+	"github.com/DavidW475/ade/internal/trigger"
 	"github.com/DavidW475/ade/internal/workspace"
 )
 
@@ -58,7 +59,8 @@ func TestRunsAPI(t *testing.T) {
 	}
 	srv := httptest.NewUnstartedServer(nil)
 	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
-	h := New(Options{Version: "test", Port: port, Store: st, Auth: NewAuth(testSecret), Logger: log, Projects: ps, Workspaces: ws, Agents: am, Approvals: approvals, Runs: runs})
+	h := New(Options{Version: "test", Port: port, Store: st, Auth: NewAuth(testSecret), Logger: log, Projects: ps, Workspaces: ws, Agents: am, Approvals: approvals, Runs: runs,
+		Triggers: trigger.New(trigger.Options{Store: st, Projects: ps, Runs: runs, Logger: log})})
 	srv.Config.Handler = h
 	srv.Start()
 	t.Cleanup(srv.Close)
@@ -113,4 +115,21 @@ func TestRunsAPI(t *testing.T) {
 	}
 	a.call(t, "POST", "/api/runs/"+v.ID+"/cancel", "", http.StatusConflict, nil)
 	a.call(t, "GET", "/api/runs/gibtsnicht", "", http.StatusNotFound, nil)
+
+	// Auslöser: ohne Anmeldung nichts; ohne triggers in project.yaml eine leere Liste.
+	req, _ = http.NewRequest(http.MethodGet, a.base+"/api/projects/"+p.ID+"/triggers", nil)
+	if res, err = http.DefaultClient.Do(req); err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("Auslöser ohne Auth: %d", res.StatusCode)
+	}
+	var triggers []trigger.View
+	a.call(t, "GET", "/api/projects/"+p.ID+"/triggers", "", http.StatusOK, &triggers)
+	if triggers == nil || len(triggers) != 0 {
+		t.Fatalf("Auslöser %+v", triggers)
+	}
+	a.call(t, "POST", "/api/projects/"+p.ID+"/triggers/x/pause", "", http.StatusNotFound, nil)
+	a.call(t, "GET", "/api/projects/gibtsnicht/triggers", "", http.StatusNotFound, nil)
 }

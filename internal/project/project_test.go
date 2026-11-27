@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DavidW475/ade/internal/apperr"
 	"github.com/DavidW475/ade/internal/store"
@@ -208,6 +209,44 @@ func TestApprovalsConfig(t *testing.T) {
 	for _, bad := range []string{"approvals:\n  local:\n    allow: [\"Bash(\"]\n", "approvals:\n  remote: {}\n"} {
 		if _, err := ParseConfig(context.Background(), []byte(bad)); err == nil {
 			t.Errorf("%q angenommen", bad)
+		}
+	}
+}
+
+func TestTriggersConfig(t *testing.T) {
+	ctx := context.Background()
+	cfg, err := ParseConfig(ctx, []byte(`triggers:
+  - name: features
+    factory: feature
+    github_issues: { label: "ade:feature", authors: [octo-cat, "dependabot[bot]"], interval: 10m, comment: false }
+  - name: nightly
+    factory: deps
+    sandbox: false
+    inputs: { task: "Abhängigkeiten aktualisieren" }
+    schedule: { cron: "0 3 * * 1-5" }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, s := cfg.Triggers[0], cfg.Triggers[1]
+	if g.Kind() != "github_issues" || g.GitHubIssues.IssueInterval() != 10*time.Minute || g.GitHubIssues.Comments() || !g.SandboxOn() {
+		t.Fatalf("Issue-Auslöser %+v", g)
+	}
+	if s.Kind() != "schedule" || s.SandboxOn() || !s.Schedule.CatchUpOn() || s.Inputs["task"] == "" {
+		t.Fatalf("Zeitplan %+v", s)
+	}
+	for bad, want := range map[string]string{
+		"triggers:\n  - { name: X, factory: f, schedule: { cron: '@daily' } }\n":                                                            "name",
+		"triggers:\n  - { name: a, factory: f }\n":                                                                                          "genau eins",
+		"triggers:\n  - { name: a, factory: f, schedule: { cron: '1 2 3' } }\n":                                                             "5 Felder",
+		"triggers:\n  - { name: a, factory: f, github_issues: { label: 'a,b' } }\n":                                                         "ohne Komma",
+		"triggers:\n  - { name: a, factory: f, github_issues: { label: x, interval: 10s } }\n":                                              "interval",
+		"triggers:\n  - { name: a, factory: f, github_issues: { label: x }, inputs: { task: y } }\n":                                        "aus dem Issue",
+		"triggers:\n  - { name: a, factory: f, github_issues: { label: x, authors: ['a b'] } }\n":                                           "GitHub-Name",
+		"triggers:\n  - { name: a, factory: f, schedule: { cron: '@daily' } }\n  - { name: a, factory: g, schedule: { cron: '@daily' } }\n": "gibt es schon",
+	} {
+		if _, err := ParseConfig(ctx, []byte(bad)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v, erwartet %q", bad, err, want)
 		}
 	}
 }
