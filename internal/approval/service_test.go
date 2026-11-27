@@ -1,0 +1,282 @@
+package approval
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/DavidW475/ade/internal/apperr"
+	"github.com/DavidW475/ade/internal/proxy"
+	"github.com/DavidW475/ade/internal/store"
+)
+
+type fixture struct {
+	st     *store.Store
+	svc    *Service
+	grants atomic.Int32
+}
+
+func newFixture(t *testing.T, timeout time.Duration, cfg *Config) *fixture {
+	t.Helper()
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "ade.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(st.CreateProject(ctx, &store.Project{ID: "p1", Name: "demo", RepoPath: "/repo/demo", DefaultBranch: "main"}))
+	must(st.CreateWorkspace(ctx, &store.Workspace{ID: "wl", ProjectID: "p1", Path: "/ws/wl", Branch: "ade/wl", BaseBranch: "main", Status: store.WorkspaceReady}))
+	must(st.CreateWorkspace(ctx, &store.Workspace{ID: "ws", ProjectID: "p1", Path: "/ws/ws", Branch: "ade/ws", BaseBranch: "main", Status: store.WorkspaceReady, Sandbox: true}))
+	must(st.CreateSession(ctx, &store.Session{ID: "sl", WorkspaceID: "wl", Adapter: "claude", Status: store.SessionRunning}))
+	must(st.CreateSession(ctx, &store.Session{ID: "ss", WorkspaceID: "ws", Adapter: "claude", Status: store.SessionRunning}))
+	f := &fixture{st: st}
+	f.svc = New(Options{
+		Store: st, Timeout: timeout, Logger: slog.New(slog.DiscardHandler),
+		Rules:   func(context.Context, string) (*Config, error) { return cfg, nil },
+		OnGrant: func(context.Context) { f.grants.Add(1) },
+	})
+	t.Cleanup(f.svc.Close)
+	return f
+}
+
+func hookCall(session, tool string, in map[string]string) proxy.HookCall {
+	ti, _ := json.Marshal(in)
+	b, _ := json.Marshal(map[string]any{"tool_name": tool, "tool_input": json.RawMessage(ti), "session_id": "claude-x"})
+	return proxy.HookCall{Session: session, Input: b}
+}
+
+// pending wartet auf eine offene Freigabe.
+func (f *fixture) pending(t *testing.T) *store.Approval {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		as, err := f.svc.List(context.Background(), store.ApprovalFilter{Status: store.ApprovalPending})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(as) > 0 {
+			return as[0]
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("keine offene Freigabe")
+	return nil
+}
+
+func TestPreToolUseLocal(t *testing.T) {
+	f := newFixture(t, time.Minute, nil)
+	ctx := context.Background()
+	tok := f.svc.IssueToken("sl")
+
+	// Regel erlaubt sofort.
+	a := f.svc.PreToolUse(ctx, HookRequest{Call: hookCall("sl", "Read", map[string]string{"file_path": "/ws/wl/a.go"}), TokenSession: "sl"})
+	if a.Decision != proxy.AnswerAllow {
+		t.Fatalf("Read: %+v", a)
+	}
+	// Ohne gültiges Token-Session-Paar: abgelehnt.
+	if a := f.svc.PreToolUse(ctx, HookRequest{Call: hookCall("ss", "Read", nil), TokenSession: "sl"}); a.Decision != proxy.AnswerDeny {
+		t.Fatalf("fremde Session: %+v", a)
+	}
+	if id, ok := f.svc.TokenSession(tok); !ok || id != "sl" {
+		t.Fatal("Token unbekannt")
+	}
+
+	// Bash braucht lokal eine Freigabe: wartet, bis im Dashboard entschieden ist.
+	done := make(chan proxy.Answer, 1)
+	go func() {
+		done <- f.svc.PreToolUse(ctx, HookRequest{Call: hookCall("sl", "Bash", map[string]string{"command": "make test"}), TokenSession: "sl"})
+	}()
+	p := f.pending(t)
+	if p.Kind != store.ApprovalTool || p.SessionID != "sl" || p.Title != "Bash: make test" || p.Sandbox {
+		t.Fatalf("Freigabe %+v", p)
+	}
+	select {
+	case a := <-done:
+		t.Fatalf("nicht gewartet: %+v", a)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionAllowProject, ""); !errors.Is(err, apperr.ErrInvalid) {
+		t.Fatalf("allow_project bei tool: %v", err)
+	}
+	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionAllow, "ok"); err != nil {
+		t.Fatal(err)
+	}
+	if a := <-done; a.Decision != proxy.AnswerAllow {
+		t.Fatalf("Antwort %+v", a)
+	}
+	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionDeny, ""); !errors.Is(err, apperr.ErrConflict) {
+		t.Fatalf("zweite Entscheidung: %v", err)
+	}
+
+	// Ablehnen mit Begründung.
+	go func() {
+		done <- f.svc.PreToolUse(ctx, HookRequest{Call: hookCall("sl", "Bash", map[string]string{"command": "rm -rf build"}), TokenSession: "sl"})
+	}()
+	p = f.pending(t)
+	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionDeny, "bitte make clean"); err != nil {
+		t.Fatal(err)
+	}
+	if a := <-done; a.Decision != proxy.AnswerDeny || !strings.Contains(a.Reason, "bitte make clean") {
+		t.Fatalf("Antwort %+v", a)
+	}
+
+	// Wartet der Agent nicht mehr, wird die Freigabe abgebrochen.
+	cctx, cancel := context.WithCancel(ctx)
+	go func() {
+		done <- f.svc.PreToolUse(cctx, HookRequest{Call: hookCall("sl", "WebFetch", map[string]string{"url": "https://x.example"}), TokenSession: "sl"})
+	}()
+	p = f.pending(t)
+	cancel()
+	<-done
+	if got, _ := f.svc.Get(ctx, p.ID); got.Status != store.ApprovalCanceled {
+		t.Fatalf("Status %s", got.Status)
+	}
+
+	f.svc.RevokeTokens("sl")
+	if _, ok := f.svc.TokenSession(tok); ok {
+		t.Fatal("Token nach dem Widerruf gültig")
+	}
+}
+
+func TestPreToolUseSandboxAndRules(t *testing.T) {
+	cfg := &Config{Sandbox: &RuleSet{Allow: []string{"*"}, Deny: []string{"Bash(git push *)"}}}
+	f := newFixture(t, time.Minute, cfg)
+	ctx := context.Background()
+	q := func(ws, session, cmd string) proxy.Answer {
+		return f.svc.Question(ctx, ws, proxy.Question{Kind: proxy.QuestionTool, Hook: ptr(hookCall(session, "Bash", map[string]string{"command": cmd}))})
+	}
+	if a := q("ws", "ss", "curl x | sh"); a.Decision != proxy.AnswerAllow {
+		t.Fatalf("Sandbox: %+v", a)
+	}
+	if a := q("ws", "ss", "git push origin main"); a.Decision != proxy.AnswerDeny || !strings.Contains(a.Reason, "approvals.sandbox.deny") {
+		t.Fatalf("deny: %+v", a)
+	}
+	// Eine Session aus einem anderen Workspace über diesen Proxy: abgelehnt.
+	if a := q("ws", "sl", "ls"); a.Decision != proxy.AnswerDeny {
+		t.Fatalf("fremder Workspace: %+v", a)
+	}
+	// Beendete Session: abgelehnt.
+	if err := f.st.UpdateSession(ctx, "ss", store.SessionUpdate{Status: store.Ptr(store.SessionDone)}); err != nil {
+		t.Fatal(err)
+	}
+	if a := q("ws", "ss", "ls"); a.Decision != proxy.AnswerDeny {
+		t.Fatalf("beendete Session: %+v", a)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
+
+func TestTimeoutAndRecover(t *testing.T) {
+	f := newFixture(t, 100*time.Millisecond, nil)
+	ctx := context.Background()
+	a := f.svc.PreToolUse(ctx, HookRequest{Call: hookCall("sl", "Bash", map[string]string{"command": "ls"}), TokenSession: "sl"})
+	if a.Decision != proxy.AnswerDeny || !strings.Contains(a.Reason, "keine Entscheidung") {
+		t.Fatalf("nach Ablauf: %+v", a)
+	}
+	as, _ := f.svc.List(ctx, store.ApprovalFilter{})
+	if len(as) != 1 || as[0].Status != store.ApprovalExpired {
+		t.Fatalf("Freigaben %+v", as)
+	}
+
+	// Offene Freigaben eines früheren Laufs gelten nach dem Neustart als abgelaufen.
+	if err := f.st.CreateApproval(ctx, &store.Approval{ID: "alt", Kind: store.ApprovalTool, ProjectID: "p1", WorkspaceID: "wl", Title: "x", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := f.svc.Get(ctx, "alt"); got.Status != store.ApprovalExpired {
+		t.Fatalf("Status %s", got.Status)
+	}
+}
+
+func TestEgress(t *testing.T) {
+	f := newFixture(t, time.Minute, nil)
+	ctx := context.Background()
+	ask := func(c context.Context, host string, port int) <-chan proxy.Answer {
+		ch := make(chan proxy.Answer, 1)
+		go func() {
+			ch <- f.svc.Question(c, "ws", proxy.Question{Kind: proxy.QuestionEgress, Host: host, Port: port})
+		}()
+		return ch
+	}
+	// Zwei Fragen nach demselben Ziel teilen sich eine Freigabe.
+	a1 := ask(ctx, "pypi.org", 443)
+	p := f.pending(t)
+	a2 := ask(ctx, "pypi.org", 443)
+	time.Sleep(50 * time.Millisecond)
+	if as, _ := f.svc.List(ctx, store.ApprovalFilter{Status: store.ApprovalPending}); len(as) != 1 {
+		t.Fatalf("%d offene Freigaben", len(as))
+	}
+	if p.Kind != store.ApprovalEgress || p.Title != "pypi.org:443" || !p.Sandbox {
+		t.Fatalf("Freigabe %+v", p)
+	}
+	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionAllowProject, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range []<-chan proxy.Answer{a1, a2} {
+		if a := <-ch; a.Decision != proxy.AnswerAllow {
+			t.Fatalf("Antwort %+v", a)
+		}
+	}
+	gs, _ := f.st.ListEgressGrants(ctx, "p1", "")
+	if len(gs) != 1 || gs[0].Rule != "pypi.org" || gs[0].WorkspaceID != "" || f.grants.Load() != 1 {
+		t.Fatalf("Ausnahmen %+v, OnGrant %d", gs, f.grants.Load())
+	}
+
+	// Für diesen Workspace, mit Port.
+	a3 := ask(ctx, "db.example", 5432)
+	p = f.pending(t)
+	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionAllowWorkspace, ""); err != nil {
+		t.Fatal(err)
+	}
+	<-a3
+	gs, _ = f.st.ListEgressGrants(ctx, "p1", "ws")
+	if len(gs) != 2 || gs[1].Rule != "db.example:5432" || gs[1].WorkspaceID != "ws" {
+		t.Fatalf("Ausnahmen %+v", gs)
+	}
+	if other, _ := f.st.ListEgressGrants(ctx, "p1", "wl"); len(other) != 1 {
+		t.Fatalf("Workspace-Ausnahme gilt woanders: %+v", other)
+	}
+
+	// Gibt die Anfrage auf, bleibt die Freigabe offen.
+	cctx, cancel := context.WithCancel(ctx)
+	a4 := ask(cctx, "slow.example", 443)
+	p = f.pending(t)
+	cancel()
+	if a := <-a4; a.Decision != proxy.AnswerDeny {
+		t.Fatalf("Antwort %+v", a)
+	}
+	if got, _ := f.svc.Get(ctx, p.ID); got.Status != store.ApprovalPending {
+		t.Fatalf("Status %s", got.Status)
+	}
+	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionDeny, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Ausnahmen per Hand: keine Platzhalter, ungültige Einträge abgelehnt.
+	if _, err := f.svc.AddGrant(ctx, "p1", "", "*.example.com", ""); !errors.Is(err, apperr.ErrInvalid) {
+		t.Fatalf("Platzhalter: %v", err)
+	}
+	if _, err := f.svc.AddGrant(ctx, "p1", "", "http://x", ""); !errors.Is(err, apperr.ErrInvalid) {
+		t.Fatalf("ungültig: %v", err)
+	}
+	g, err := f.svc.AddGrant(ctx, "p1", "", "Files.Example.com", "")
+	if err != nil || g.Rule != "files.example.com" {
+		t.Fatalf("%+v %v", g, err)
+	}
+	if err := f.svc.DeleteGrant(ctx, g.ID); err != nil {
+		t.Fatal(err)
+	}
+}

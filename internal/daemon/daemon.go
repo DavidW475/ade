@@ -20,6 +20,7 @@ import (
 	"github.com/DavidW475/ade/internal/agent/adapter/pty"
 	"github.com/DavidW475/ade/internal/api"
 	"github.com/DavidW475/ade/internal/apperr"
+	"github.com/DavidW475/ade/internal/approval"
 	"github.com/DavidW475/ade/internal/config"
 	"github.com/DavidW475/ade/internal/ide"
 	"github.com/DavidW475/ade/internal/project"
@@ -59,6 +60,17 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	sb.SetEgressSink(func(ws string, evs []proxy.Event) { storeEgress(st, log, ws, evs) })
 	sb.SetSpecSource(workspaces.SandboxSpec)
 	defer sb.Close()
+
+	approvals := approval.New(approval.Options{
+		Store: st, Timeout: cfg.Approvals.Timeout, Logger: log, Rules: projects.ApprovalConfig,
+		OnGrant: sb.ReloadPolicies,
+	})
+	if err := approvals.Recover(ctx); err != nil {
+		return err
+	}
+	// Läuft vor sb.Close (defer-Reihenfolge): Wartende wecken, bevor die Proxys getrennt werden.
+	defer approvals.Close()
+	sb.SetQuestionHandler(approvals.Question)
 	workspaces.SetSandbox(sb, cfg.Defaults.Sandbox)
 	// Abgleich vor dem ersten Agenten, damit er keinen frisch gestarteten Container stoppt.
 	rctx, rcancel := context.WithTimeout(ctx, 30*time.Second)
@@ -84,6 +96,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		DefaultAdapter: cfg.Defaults.Adapter,
 		AdapterEnv:     adapterEnv(cfg, log),
 		SandboxEnv:     sandboxAdapterEnv(cfg),
+		Hooks:          newHooks(cfg, approvals, sb.HookAvailable(), log),
 	})
 	if err := agents.Recover(ctx); err != nil {
 		return err
@@ -153,6 +166,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 			IDE:        ides,
 			Sandbox:    sb,
 			Egress:     st,
+			Approvals:  approvals,
 			// Wie der Manager: ohne Konfiguration gilt claude.
 			DefaultAdapter: defaultAdapter(cfg),
 		}),
@@ -296,6 +310,46 @@ func newSandbox(cfg *config.Config, version string, log *slog.Logger) *sandbox.M
 		}
 	}
 	return sandbox.New(opts)
+}
+
+// hooks stellt Claude-Sessions den Freigabe-Hook bereit (agent.Hooks): lokal das laufende
+// ade-Binary mit Token je Session, in der Sandbox das gemountete Binary, das über den
+// Egress-Proxy fragt.
+type hooks struct {
+	svc       *approval.Service
+	local     string // Shell-Befehl lokal (leer: kein Hook)
+	localURL  string
+	sandboxOK bool
+}
+
+func newHooks(cfg *config.Config, svc *approval.Service, sandboxOK bool, log *slog.Logger) *hooks {
+	h := &hooks{svc: svc, localURL: "http://" + cfg.Listen + "/api/hook/pretooluse", sandboxOK: sandboxOK}
+	if exe, err := os.Executable(); err == nil {
+		h.local = approval.ShellQuote(exe) + " hook pretooluse"
+	} else {
+		log.Warn("Freigabe-Hook für lokale Agenten nicht verfügbar", "err", err)
+	}
+	return h
+}
+
+func (h *hooks) Prepare(sessionID string, sandboxed bool) (*adapter.Hook, []string) {
+	if sandboxed {
+		if !h.sandboxOK {
+			return nil, nil
+		}
+		return &adapter.Hook{Command: sandbox.ProxyBinary + " hook pretooluse", Timeout: h.svc.Timeout()},
+			[]string{approval.EnvHookURL + "=" + sandbox.ProxyURL + proxy.HookPath}
+	}
+	if h.local == "" {
+		return nil, nil
+	}
+	return &adapter.Hook{Command: h.local, Timeout: h.svc.Timeout()},
+		[]string{approval.EnvHookURL + "=" + h.localURL, approval.EnvHookToken + "=" + h.svc.IssueToken(sessionID)}
+}
+
+func (h *hooks) Release(sessionID string) {
+	h.svc.RevokeTokens(sessionID)
+	h.svc.CancelSession(context.Background(), sessionID)
 }
 
 // storeEgress speichert Egress-Events eines Proxys.

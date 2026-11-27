@@ -434,7 +434,7 @@ func TestControlAPI(t *testing.T) {
 	if err := c.SetPolicy(context.Background(), Policy{Allow: []string{"example.com"}}); err != nil {
 		t.Fatal(err)
 	}
-	if ok, _ := s.decide("example.com", 443); !ok {
+	if ok, _, _ := s.decide(context.Background(), "example.com", 443); !ok {
 		t.Fatal("Policy nicht wirksam")
 	}
 

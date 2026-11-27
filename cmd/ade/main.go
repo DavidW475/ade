@@ -35,6 +35,7 @@ Befehle:
   project   Projekte verwalten (add, list, remove)
   gc        Verwaiste Sandbox-Container entfernen
   proxy     Egress-Proxy der Sandbox (startet der Daemon im Container)
+  hook      Freigabe-Hook für Agent-CLIs (bindet der Daemon selbst ein)
   version   Version ausgeben
   help      Diese Hilfe anzeigen
 
@@ -101,6 +102,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return cmdGC(rest, stdout, stderr)
 	case "proxy":
 		return cmdProxy(rest, stderr)
+	case "hook":
+		return cmdHook(rest, os.Stdin, stdout, stderr)
 	case "version", "--version":
 		_, _ = fmt.Fprintln(stdout, versionString())
 		return nil

@@ -14,6 +14,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/DavidW475/ade/internal/approval"
 	"github.com/DavidW475/ade/internal/git"
 )
 
@@ -34,6 +35,8 @@ type Config struct {
 	Adapter string `yaml:"adapter" json:"adapter,omitempty"`
 	// Setup sind Shell-Befehle, die nach dem Anlegen eines Workspaces darin laufen.
 	Setup []string `yaml:"setup" json:"setup,omitempty"`
+	// Approvals legt fest, welche Werkzeuge ohne Rückfrage laufen (Sandbox/lokal).
+	Approvals *approval.Config `yaml:"approvals" json:"approvals,omitempty"`
 }
 
 // ConfigError ist eine ungültige project.yaml.
@@ -87,6 +90,9 @@ func (c *Config) validate(ctx context.Context) string {
 		if strings.TrimSpace(cmd) == "" {
 			return fmt.Sprintf("setup[%d]: leerer Befehl", i)
 		}
+	}
+	if err := c.Approvals.Validate(); err != nil {
+		return err.Error()
 	}
 	return ""
 }

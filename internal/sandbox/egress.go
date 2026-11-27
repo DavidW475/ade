@@ -38,7 +38,7 @@ type Egress struct {
 	Presets []string `yaml:"presets" json:"presets"`
 	Allow   []string `yaml:"allow" json:"allow"`
 	Deny    []string `yaml:"deny" json:"deny"`
-	// OnBlocked: deny (Standard); ask kommt mit M7.
+	// OnBlocked: deny (Standard) oder ask (Freigabe im Dashboard, M7).
 	OnBlocked string `yaml:"on_blocked" json:"on_blocked"`
 	// Default: kein egress-Abschnitt, es gelten DefaultPresets.
 	Default bool `yaml:"-" json:"default"`
@@ -68,11 +68,9 @@ func (e *Egress) validate() string {
 		return "egress." + err.Error()
 	}
 	switch e.OnBlocked {
-	case "", OnBlockedDeny:
-	case OnBlockedAsk:
-		return "egress.on_blocked: ask (Freigabe im Dashboard) kommt mit M7 – bis dahin nur deny"
+	case "", OnBlockedDeny, OnBlockedAsk:
 	default:
-		return fmt.Sprintf("egress.on_blocked: %q ist ungültig (deny)", e.OnBlocked)
+		return fmt.Sprintf("egress.on_blocked: %q ist ungültig (deny oder ask)", e.OnBlocked)
 	}
 	return ""
 }

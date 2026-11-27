@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/DavidW475/ade/internal/approval"
 	"github.com/DavidW475/ade/internal/project"
 	"github.com/DavidW475/ade/internal/sandbox"
 	"github.com/DavidW475/ade/internal/store"
@@ -45,7 +47,9 @@ func TestSandboxRoutes(t *testing.T) {
 	t.Cleanup(ws.Close)
 	sb := sandbox.New(sandbox.Options{Docker: docker, DataDir: dir, Image: "img:1", Logger: log})
 	ws.SetSandbox(sb, true)
-	s := New(Options{Version: "test", Port: "7000", Store: st, Auth: NewAuth(testSecret), Logger: log, Projects: ps, Workspaces: ws, Sandbox: sb, Egress: st})
+	reloads := 0
+	appr := approval.New(approval.Options{Store: st, Logger: log, OnGrant: func(context.Context) { reloads++ }})
+	s := New(Options{Version: "test", Port: "7000", Store: st, Auth: NewAuth(testSecret), Logger: log, Projects: ps, Workspaces: ws, Sandbox: sb, Egress: st, Approvals: appr})
 
 	for _, rt := range [][2]string{{"GET", "/api/sandbox"}, {"POST", "/api/sandbox/gc"}, {"GET", "/api/workspaces/x/sandbox"}, {"GET", "/api/workspaces/x/egress"}} {
 		r := httptest.NewRequest(rt[0], rt[1], nil)
@@ -106,6 +110,29 @@ func TestSandboxRoutes(t *testing.T) {
 		t.Errorf("nur geblockt: %+v", eg.Events)
 	}
 	api(t, s, "GET", "/api/workspaces/unbekannt/egress", "", http.StatusNotFound, nil)
+
+	// Geblockten Host mit einem Klick dauerhaft erlauben (Projekt) bzw. nur für den Workspace.
+	var g store.EgressGrant
+	api(t, s, "POST", "/api/workspaces/"+w.ID+"/egress/grants", `{"rule":"example.com","scope":"project"}`, http.StatusCreated, &g)
+	if g.Rule != "example.com" || g.WorkspaceID != "" || g.ProjectID != p.ID || reloads != 1 {
+		t.Errorf("Ausnahme %+v, reloads %d", g, reloads)
+	}
+	api(t, s, "POST", "/api/workspaces/"+w.ID+"/egress/grants", `{"rule":"db.example:5432"}`, http.StatusCreated, &g)
+	if g.WorkspaceID != w.ID {
+		t.Errorf("Ausnahme %+v", g)
+	}
+	api(t, s, "POST", "/api/workspaces/"+w.ID+"/egress/grants", `{"rule":"*.example.com"}`, http.StatusBadRequest, nil)
+	api(t, s, "POST", "/api/workspaces/"+w.ID+"/egress/grants", `{"rule":"x.example","scope":"welt"}`, http.StatusBadRequest, nil)
+	api(t, s, "GET", "/api/workspaces/"+w.ID+"/egress", "", http.StatusOK, &eg)
+	if len(eg.Grants) != 2 {
+		t.Errorf("Ausnahmen %+v", eg.Grants)
+	}
+	api(t, s, "DELETE", "/api/egress-grants/"+strconv.FormatInt(g.ID, 10), "", http.StatusNoContent, nil)
+	api(t, s, "DELETE", "/api/egress-grants/"+strconv.FormatInt(g.ID, 10), "", http.StatusNotFound, nil)
+	api(t, s, "GET", "/api/workspaces/"+w.ID+"/egress", "", http.StatusOK, &eg)
+	if len(eg.Grants) != 1 {
+		t.Errorf("Ausnahmen nach dem Löschen %+v", eg.Grants)
+	}
 }
 
 func gitInit(t *testing.T, repo string) {

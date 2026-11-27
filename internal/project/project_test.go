@@ -177,3 +177,21 @@ func TestExampleProjectConfig(t *testing.T) {
 		t.Fatalf("examples/.ade/project.yaml: %v, %#v", err, cfg)
 	}
 }
+
+func TestApprovalsConfig(t *testing.T) {
+	cfg, err := ParseConfig(context.Background(), []byte("approvals:\n  local:\n    allow: [\"Bash(make *)\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs := cfg.Approvals.Effective(false); len(rs.Allow) != 1 || rs.Allow[0] != "Bash(make *)" {
+		t.Fatalf("local: %+v", rs)
+	}
+	if rs := cfg.Approvals.Effective(true); len(rs.Allow) != 1 || rs.Allow[0] != "*" {
+		t.Fatalf("sandbox: %+v", rs)
+	}
+	for _, bad := range []string{"approvals:\n  local:\n    allow: [\"Bash(\"]\n", "approvals:\n  remote: {}\n"} {
+		if _, err := ParseConfig(context.Background(), []byte(bad)); err == nil {
+			t.Errorf("%q angenommen", bad)
+		}
+	}
+}

@@ -77,6 +77,8 @@ func (s *Server) ControlHandler() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, EventsResponse{Boot: s.boot, Events: evs, Next: next})
 	})
+	mux.HandleFunc("GET /questions", s.handleQuestions)
+	mux.HandleFunc("POST /questions/{id}", s.handleAnswer)
 	return s.requireToken(mux)
 }
 

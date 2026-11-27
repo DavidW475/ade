@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"time"
 )
 
 // Capabilities beschreibt, was ein Adapter kann.
@@ -24,6 +25,16 @@ type Capabilities struct {
 	Input bool `json:"input"`
 	// Resume: Eine beendete oder unterbrochene Session lässt sich mit Spec.ResumeID fortsetzen.
 	Resume bool `json:"resume"`
+	// Approvals: Die CLI fragt vor Werkzeug-Aufrufen über Spec.Hook bei ADE nach (M7).
+	Approvals bool `json:"approvals"`
+}
+
+// Hook ist der Freigabe-Hook einer Session (ade hook pretooluse).
+type Hook struct {
+	// Command ist der Shell-Befehl, den die CLI vor jedem Werkzeug-Aufruf ausführt.
+	Command string
+	// Timeout ist die Wartezeit auf eine Freigabe.
+	Timeout time.Duration
 }
 
 // Spec beschreibt einen Prozessstart.
@@ -43,6 +54,8 @@ type Spec struct {
 	// Sandbox: Der Prozess läuft im Docker-Container des Workspaces (Workdir /workspace).
 	// Programme werden dann im Image gesucht, nicht auf dem Host.
 	Sandbox bool
+	// Hook ist der Freigabe-Hook (nil: keiner, die CLI entscheidet über PermissionMode).
+	Hook *Hook
 }
 
 // Cmd ist ein Prozessaufruf. Path wird über $PATH aufgelöst.

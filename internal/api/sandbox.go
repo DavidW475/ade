@@ -135,6 +135,8 @@ type WorkspaceEgress struct {
 	Events []store.EgressEvent `json:"events"`
 	Hosts  []store.EgressHost  `json:"hosts"`
 	Policy *EgressPolicy       `json:"policy,omitempty"`
+	// Grants sind Ausnahmen aus Freigaben (projektweit und für diesen Workspace).
+	Grants []store.EgressGrant `json:"grants"`
 }
 
 func (s *Server) handleWorkspaceEgress(w http.ResponseWriter, r *http.Request) {
@@ -152,6 +154,10 @@ func (s *Server) handleWorkspaceEgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if out.Hosts, err = s.opts.Egress.EgressHosts(r.Context(), ws.ID); err != nil {
+		s.writeAppError(w, err)
+		return
+	}
+	if out.Grants, err = s.opts.Egress.ListEgressGrants(r.Context(), ws.ProjectID, ws.ID); err != nil {
 		s.writeAppError(w, err)
 		return
 	}

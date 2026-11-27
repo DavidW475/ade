@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DavidW475/ade/internal/agent/adapter"
 )
@@ -203,5 +204,39 @@ func TestCommand(t *testing.T) {
 	}
 	if _, err := a.EncodeInput("  "); err == nil {
 		t.Error("leere Anweisung ohne Fehler")
+	}
+}
+
+func TestCommandWithHook(t *testing.T) {
+	a := &Adapter{Binary: "sh"}
+	c, err := a.Command(adapter.Spec{Task: "x", Hook: &adapter.Hook{Command: "/opt/ade/ade hook pretooluse", Timeout: 10 * time.Minute}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.Index(c.Args, "--settings")
+	if i < 0 || i+1 >= len(c.Args) {
+		t.Fatalf("kein --settings in %q", c.Args)
+	}
+	var s struct {
+		Hooks struct {
+			PreToolUse []struct {
+				Matcher string
+				Hooks   []struct {
+					Type, Command string
+					Timeout       int
+				}
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(c.Args[i+1]), &s); err != nil {
+		t.Fatal(err)
+	}
+	pt := s.Hooks.PreToolUse
+	if len(pt) != 1 || pt[0].Matcher != "*" || len(pt[0].Hooks) != 1 || pt[0].Hooks[0].Command != "/opt/ade/ade hook pretooluse" ||
+		pt[0].Hooks[0].Type != "command" || pt[0].Hooks[0].Timeout != 630 {
+		t.Fatalf("Settings %s", c.Args[i+1])
+	}
+	if c, _ := a.Command(adapter.Spec{Task: "x"}); slices.Contains(c.Args, "--settings") {
+		t.Error("--settings ohne Hook")
 	}
 }
