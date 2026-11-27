@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -45,6 +46,32 @@ func TestOpenMigratesAndIsIdempotent(t *testing.T) {
 	var n int
 	if err := s.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("projects = %d, %v", n, err)
+	}
+}
+
+func TestOpenMakesDatabasePrivate(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "ade.db")
+	// Eine ältere Version legte die Datei mit den Rechten der umask an.
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB().ExecContext(ctx, `INSERT INTO projects (id, name, repo_path, default_branch) VALUES ('p1', 'demo', '/repo', 'main')`); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m := fi.Mode().Perm(); m != 0o600 {
+			t.Errorf("%s: Rechte %o, want 600", filepath.Base(p), m)
+		}
 	}
 }
 

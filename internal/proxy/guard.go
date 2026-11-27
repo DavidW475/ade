@@ -27,8 +27,8 @@ var blockedPrefixes = func() []netip.Prefix {
 		"198.18.0.0/15",      // Benchmark-Netze
 		"224.0.0.0/4",        // Multicast
 		"240.0.0.0/4",        // reserviert, Broadcast
-		"::/128",             // unspezifiziert
-		"::1/128",            // Loopback
+		"::/96",              // unspezifiziert, Loopback, IPv4-kompatibel (veraltet, z. B. ::127.0.0.1)
+		"fec0::/10",          // Site-Local (veraltet)
 		"64:ff9b:1::/48",     // lokales NAT64
 		"fc00::/7",           // Unique Local
 		"fe80::/10",          // Link-Local
