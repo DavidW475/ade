@@ -124,13 +124,21 @@ func proxyClient(ts *httptest.Server) *http.Client {
 	return &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(u)}, Timeout: 5 * time.Second}
 }
 
+// lastEvent wartet kurz auf das letzte Event: Der Proxy zeichnet es erst auf, nachdem er die
+// Antwort fertig kopiert hat; der Client kann den Body da schon gelesen haben.
 func lastEvent(t *testing.T, s *Server) Event {
 	t.Helper()
-	evs, _, _ := s.events.since(0, 10000)
-	if len(evs) == 0 {
-		t.Fatal("kein Event")
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		evs, _, _ := s.events.since(0, 10000)
+		if len(evs) > 0 {
+			return evs[len(evs)-1]
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("kein Event")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	return evs[len(evs)-1]
 }
 
 func TestNoPolicyBlocksEverything(t *testing.T) {
