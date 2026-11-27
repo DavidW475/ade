@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { api, type Run, type RunStatus, type RunStep, type StepStatus } from "../api";
+import { api, type Run, type RunStatus, type RunStep, type StepPlan, type StepStatus } from "../api";
 import { errorMessage, formatTime, formatUSD } from "../format";
 import { runTitle } from "../runs";
 import { sandboxDefault, useSandboxInfo } from "../sandbox";
@@ -53,27 +53,121 @@ function currentStep(r: Run): string {
   return st ? `${st.name} (${stepKindLabel(st)})` : "";
 }
 
-/** Pipeline-Ansicht: alle Schritte in Reihenfolge mit Status. */
+/** Positionen des Ablaufs in Einheiten: ein Schritt oder eine parallele Gruppe. */
+function units(steps: RunStep[]): RunStep[][] {
+  const out: RunStep[][] = [];
+  for (const st of steps) {
+    const last = out[out.length - 1];
+    if (st.group !== undefined && last && last[0]?.group === st.group) last.push(st);
+    else out.push([st]);
+  }
+  return out;
+}
+
+function kindIcon(st: RunStep): string {
+  return st.kind === "gate" ? "◆" : st.kind === "action" ? "⇪" : st.kind === "decision" ? "↺" : st.read_only ? "◎" : "●";
+}
+
+/** Bedingung und Rücksprung eines Schritts, kurz (für Pipeline und Startdialog). */
+export function PlanNote({ step, plan }: { step: Pick<RunStep, "kind">; plan?: StepPlan }) {
+  if (!plan) return null;
+  return (
+    <>
+      {plan.when && step.kind !== "decision" && (
+        <span className="pcond" title="Bedingung: sonst übersprungen">
+          wenn <code>{plan.when}</code>
+        </span>
+      )}
+      {plan.goto && step.kind === "decision" && (
+        <span className="pcond loop" title={`höchstens ${plan.max_iterations ?? "?"} Durchläufe`}>
+          ↺ zurück zu <strong>{plan.goto}</strong>
+          {plan.when && (
+            <>
+              , wenn <code>{plan.when}</code>
+            </>
+          )}
+        </span>
+      )}
+      {plan.goto && step.kind === "gate" && (
+        <span className="pcond loop" title={`höchstens ${plan.max_iterations ?? "?"} Durchläufe`}>
+          Ablehnen ↺ zurück zu <strong>{plan.goto}</strong>
+        </span>
+      )}
+    </>
+  );
+}
+
+function PipelineStep({ run, st, selected, onSelect }: { run: Run; st: RunStep; selected?: number; onSelect?: (i: number) => void }) {
+  const current = st.index === run.current && (st.status === "running" || st.status === "waiting");
+  const running = st.group !== undefined && st.status === "running";
+  const plan = run.plan?.[st.index];
+  return (
+    <div className={`pstep ${st.status} ${current || running ? "current" : ""} ${selected === st.index ? "selected" : ""}`}>
+      <button type="button" onClick={() => onSelect?.(st.index)} aria-current={current ? "step" : undefined} aria-pressed={selected === st.index}>
+        <span className="pkind">
+          {kindIcon(st)} {st.index + 1}
+        </span>
+        <span className="pname">
+          {st.name}
+          {st.iteration > 1 && (
+            <span className="piter" title={`Durchlauf ${st.iteration}`}>
+              {" "}
+              ×{st.iteration}
+            </span>
+          )}
+        </span>
+        <span className="prole">{stepKindLabel(st)}</span>
+        <PlanNote step={st} plan={plan} />
+        <StepStatusBadge status={st.status} />
+      </button>
+    </div>
+  );
+}
+
+/** Pipeline-Ansicht: Schritte in Reihenfolge, parallele Gruppen nebeneinander, Bedingungen und Rücksprünge. */
 export function Pipeline({ run, selected, onSelect }: { run: Run; selected?: number; onSelect?: (i: number) => void }) {
   return (
     <ol className="pipeline" aria-label="Schritte">
-      {run.steps.map((st) => {
-        const current = st.index === run.current && (st.status === "running" || st.status === "waiting");
-        return (
-          <li key={st.index} className={`pstep ${st.status} ${current ? "current" : ""} ${selected === st.index ? "selected" : ""}`}>
-            <button type="button" onClick={() => onSelect?.(st.index)} aria-current={current ? "step" : undefined}>
-              <span className="pkind">{st.kind === "gate" ? "◆" : st.kind === "action" ? "⇪" : st.kind === "decision" ? "↺" : st.read_only ? "◎" : "●"}</span>
-              <span className="pname">
-                {st.name}
-                {st.iteration > 1 && <span className="muted"> ×{st.iteration}</span>}
-              </span>
-              <span className="prole">{stepKindLabel(st)}</span>
-              <StepStatusBadge status={st.status} />
-            </button>
+      {units(run.steps).map((u) => {
+        const [first] = u;
+        if (!first) return null;
+        return first.group === undefined ? (
+          <li key={first.index} className="punit">
+            <PipelineStep run={run} st={first} selected={selected} onSelect={onSelect} />
+          </li>
+        ) : (
+          <li key={first.index} className="punit pgroup" aria-label="parallele Gruppe">
+            <span className="pgrouplabel">parallel</span>
+            <div className="pgroupmembers">
+              {u.map((st) => (
+                <PipelineStep key={st.index} run={run} st={st} selected={selected} onSelect={onSelect} />
+              ))}
+            </div>
           </li>
         );
       })}
     </ol>
+  );
+}
+
+/** Auslöser eines Runs: Name und Verweis (Issue-Link oder Termin). */
+export function RunTrigger({ run }: { run: Pick<Run, "trigger" | "trigger_ref" | "closes"> }) {
+  if (!run.trigger) return null;
+  const ref = run.trigger_ref ?? "";
+  return (
+    <span className="runtrigger">
+      ⚡ <code>{run.trigger}</code>
+      {ref.startsWith("https://") ? (
+        <>
+          {" "}
+          <a href={ref} target="_blank" rel="noreferrer">
+            {run.closes ? `Issue #${run.closes}` : ref}
+          </a>
+        </>
+      ) : ref ? (
+        <span className="muted"> {ref}</span>
+      ) : null}
+    </span>
   );
 }
 
@@ -97,6 +191,11 @@ export function RunTable({ runs, showProject = false }: { runs: Run[]; showProje
             <tr key={r.id}>
               <td className="wrap">
                 <Link to={`/runs/${r.id}`}>{runTitle(r)}</Link>
+                {r.trigger && (
+                  <div className="hint">
+                    <RunTrigger run={r} />
+                  </div>
+                )}
               </td>
               <td className="mono">{r.factory}</td>
               <td>
@@ -269,18 +368,50 @@ export function StartRun({ projectId, disabled }: { projectId: string; disabled?
   );
 }
 
-/** Inhalt eines Artefakts als Text (Markdown wird nicht gerendert: Inhalt stammt vom Agenten). */
-export function ArtifactView({ runId, name }: { runId: string; name: string }) {
-  const q = useQuery({ queryKey: ["artifact", runId, name], queryFn: () => api.artifact(runId, name) });
+/** Formatiert JSON eingerückt; null, wenn der Text kein JSON ist. */
+function prettyJSON(text: string): string | null {
+  const t = text.trim();
+  if (!t.startsWith("{") && !t.startsWith("[")) return null;
+  try {
+    return JSON.stringify(JSON.parse(t), null, 2);
+  } catch {
+    return null;
+  }
+}
+
+/** Inhalt eines Artefakts als Text (Markdown wird nicht gerendert: Inhalt stammt vom Agenten); JSON eingerückt. */
+export function ArtifactView({ runId, name, iteration }: { runId: string; name: string; iteration?: number }) {
+  const q = useQuery({ queryKey: ["artifact", runId, name, iteration ?? 0], queryFn: () => api.artifact(runId, name, iteration) });
   if (q.isPending) return <p className="muted">Lade {name} …</p>;
   if (q.isError) return <Notice tone="bad">{errorMessage(q.error)}</Notice>;
-  let text = q.data;
-  if (name.endsWith(".json")) {
-    try {
-      text = JSON.stringify(JSON.parse(q.data), null, 2);
-    } catch {
-      // kein gültiges JSON: roh zeigen
-    }
+  const json = prettyJSON(q.data);
+  if (json === null && name.endsWith(".json")) {
+    return (
+      <>
+        <Notice tone="warn">Kein gültiges JSON – roh angezeigt.</Notice>
+        <pre className="artifact">{q.data}</pre>
+      </>
+    );
   }
-  return <pre className="artifact">{text}</pre>;
+  return <pre className={`artifact ${json !== null ? "json" : ""}`}>{json ?? q.data}</pre>;
+}
+
+/** Artefakt mit Auswahl des Durchlaufs (jüngster Stand vorausgewählt). */
+export function ArtifactVersions({ runId, artifact }: { runId: string; artifact: Run["artifacts"][number] }) {
+  const its = artifact.iterations ?? [];
+  const [it, setIt] = useState<number | undefined>(undefined);
+  return (
+    <>
+      {its.length > 1 && (
+        <div className="itertabs" role="group" aria-label="Durchlauf">
+          {its.map((n) => (
+            <button key={n} type="button" className={(it ?? its[its.length - 1]) === n ? "active" : ""} onClick={() => setIt(n)}>
+              Durchlauf {n}
+            </button>
+          ))}
+        </div>
+      )}
+      <ArtifactView runId={runId} name={artifact.name} iteration={it} />
+    </>
+  );
 }

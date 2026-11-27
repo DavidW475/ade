@@ -145,6 +145,10 @@ export interface GateApprovalDetail {
   step: string;
   task?: string;
   artifacts?: string[];
+  /** Ablehnen springt zurück zu diesem Schritt (leer: Ablehnen bricht den Run ab). */
+  on_deny?: string;
+  iteration?: number;
+  max_iterations?: number;
 }
 
 export interface ToolApprovalDetail {
@@ -483,6 +487,8 @@ export interface RunStep {
   row: number;
   /** Durchlauf (1, 2, … nach Rücksprüngen). */
   iteration: number;
+  /** Bei Mitgliedern einer parallelen Gruppe die Position des ersten Mitglieds. */
+  group?: number;
   name: string;
   kind: StepKind;
   role?: string;
@@ -529,6 +535,34 @@ export interface Run {
   artifacts: { name: string; step: string; role: string; size: number; iterations?: number[] }[];
   pr_url?: string;
   workspace_gone?: boolean;
+  /** Je Position (wie steps) Bedingung und Rücksprung aus der Definition. */
+  plan?: StepPlan[];
+}
+
+export interface StepPlan {
+  /** Bedingung: sonst übersprungen (bei einer Entscheidung: Rücksprung, wenn wahr). */
+  when?: string;
+  /** Ziel eines Rücksprungs (Entscheidung: goto, Gate: on_deny.goto). */
+  goto?: string;
+  max_iterations?: number;
+  on_exhausted?: string;
+}
+
+// --- Auslöser (M10) ---
+
+export interface TriggerView {
+  name: string;
+  factory: string;
+  inputs?: Record<string, string>;
+  sandbox?: boolean;
+  allow_unbudgeted?: boolean;
+  github_issues?: { label: string; authors?: string[]; interval_ns?: number; comment?: boolean };
+  schedule?: { cron: string; catch_up?: boolean };
+  kind: "github_issues" | "schedule";
+  state: { paused: boolean; last_check?: string; last_fire?: string; last_error?: string };
+  /** Nächste Abfrage bzw. nächster Termin (fehlt bei pausierten Auslösern). */
+  next?: string;
+  runs: { trigger: string; key: string; run_id: string; reported: boolean; created_at: string }[];
 }
 
 export interface FactoryInput {
@@ -692,8 +726,11 @@ export const api = {
   run: (id: string) => request<Run>("GET", `/api/runs/${encodeURIComponent(id)}`),
   startRun: (req: StartRunRequest) => request<Run>("POST", "/api/runs", req),
   cancelRun: (id: string) => request<Run>("POST", `/api/runs/${encodeURIComponent(id)}/cancel`),
-  artifact: (id: string, name: string) =>
-    requestText(`/api/runs/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(name)}`),
+  artifact: (id: string, name: string, iteration?: number) =>
+    requestText(`/api/runs/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(name)}${iteration ? `?iteration=${iteration}` : ""}`),
+  triggers: (projectId: string) => request<TriggerView[]>("GET", `/api/projects/${encodeURIComponent(projectId)}/triggers`),
+  pauseTrigger: (projectId: string, name: string, paused: boolean) =>
+    request<TriggerView>("POST", `/api/projects/${encodeURIComponent(projectId)}/triggers/${encodeURIComponent(name)}/${paused ? "pause" : "resume"}`),
   sessions: (filter: { project_id?: string; workspace_id?: string; active?: boolean; limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (filter.project_id) q.set("project_id", filter.project_id);

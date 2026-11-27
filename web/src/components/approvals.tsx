@@ -103,6 +103,8 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
   const egress = a.kind === "egress" ? (a.detail as EgressApprovalDetail) : undefined;
   const budget = a.kind === "budget" ? (a.detail as BudgetApprovalDetail) : undefined;
   const gate = a.kind === "gate" ? (a.detail as GateApprovalDetail) : undefined;
+  // Gate mit on_deny: Ablehnen schickt den Run mit Begründung zurück.
+  const back = gate?.on_deny;
   const kindLabel = egress ? "Netzwerk" : budget ? "Budget" : gate ? "Fabrik" : (tool?.tool ?? "Werkzeug");
 
   return (
@@ -157,7 +159,17 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
         <p className="hint">
           Run <Link to={`/runs/${gate.run_id}`} className="mono">{gate.run_id}</Link> wartet vor dem Schritt <code>{gate.step}</code>.
           {gate.artifacts?.length ? <> Zu prüfen: {gate.artifacts.map((n) => <code key={n}>{n} </code>)}</> : null}
-          {pending && " Ein Hinweis im Begründungsfeld geht an die nächste Rolle; Ablehnen bricht den Run ab."}
+          {gate.iteration && gate.max_iterations ? ` · Durchlauf ${gate.iteration} von höchstens ${gate.max_iterations}.` : ""}
+          {pending &&
+            (back ? (
+              <>
+                {" "}
+                Freigeben setzt den Run fort, ein Hinweis geht an die nächste Rolle. „Zurück zu {back}“ springt mit deiner Begründung als Feedback zurück –
+                die Begründung ist dafür Pflicht.
+              </>
+            ) : (
+              " Ein Hinweis im Begründungsfeld geht an die nächste Rolle; Ablehnen bricht den Run ab."
+            ))}
         </p>
       )}
       {!pending && a.reason && <p className="hint">Begründung: {a.reason}</p>}
@@ -165,7 +177,9 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
         <>
           <div className="inline-form approvalactions">
             <input
-              placeholder={tool || gate ? "Begründung / Hinweis an den Agenten (optional)" : "Begründung (optional)"}
+              placeholder={
+                back ? `Hinweis an die nächste Rolle – bzw. Feedback für ${back} (Pflicht beim Zurückschicken)` : tool || gate ? "Begründung / Hinweis an den Agenten (optional)" : "Begründung (optional)"
+              }
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               aria-label="Begründung"
@@ -198,8 +212,14 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
                 </button>
               </>
             )}
-            <button type="button" className="danger" disabled={decide.isPending} onClick={() => decide.mutate("deny")}>
-              Ablehnen
+            <button
+              type="button"
+              className="danger"
+              disabled={decide.isPending || (!!back && !reason.trim())}
+              title={back && !reason.trim() ? "Erst eine Begründung eingeben – sie geht als Feedback zurück" : undefined}
+              onClick={() => decide.mutate("deny")}
+            >
+              {back ? `Zurück zu ${back}` : "Ablehnen"}
             </button>
           </div>
           {decide.isError && <Notice tone="bad">{errorMessage(decide.error)}</Notice>}

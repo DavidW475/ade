@@ -3,6 +3,7 @@ package factory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/DavidW475/ade/internal/agent"
 	"github.com/DavidW475/ade/internal/agent/adapter"
 	"github.com/DavidW475/ade/internal/agent/adapter/fake"
+	"github.com/DavidW475/ade/internal/apperr"
 	"github.com/DavidW475/ade/internal/approval"
 	"github.com/DavidW475/ade/internal/project"
 	"github.com/DavidW475/ade/internal/store"
@@ -521,7 +523,26 @@ func TestRunLoop(t *testing.T) {
 	e.shutdown()
 	e.boot()
 	waitFor(t, "neue Freigabe", func() bool { return e.run(v.ID).Steps[4].ApprovalID != final.ApprovalID })
-	e.decide(e.run(v.ID).Steps[4].ApprovalID, store.DecisionDeny, "Bitte Doku ergänzen")
+	gateID := e.run(v.ID).Steps[4].ApprovalID
+	ga, err := e.st.GetApproval(e.ctx, gateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gd gateDetail
+	if err := json.Unmarshal(ga.Detail, &gd); err != nil || gd.OnDeny != "implement" || gd.Iteration != 1 || gd.MaxIterations != DefaultMaxIterations {
+		t.Fatalf("Gate-Detail %s %v", ga.Detail, err)
+	}
+	if _, err := e.approvals.Decide(e.ctx, gateID, store.DecisionDeny, " "); !errors.Is(err, apperr.ErrInvalid) {
+		t.Fatalf("Ablehnen ohne Begründung trotz on_deny: %v", err)
+	}
+	pv, err := e.runner.Get(e.ctx, v.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pv.Plan) != len(pv.Steps) || pv.Plan[4].Goto != "implement" || pv.Plan[2].Goto != "implement" || pv.Plan[2].When == "" || pv.Plan[0].Goto != "" {
+		t.Fatalf("Plan %+v", pv.Plan)
+	}
+	e.decide(gateID, store.DecisionDeny, "Bitte Doku ergänzen")
 	waitFor(t, "dritter Durchlauf am Gate", func() bool {
 		r := e.run(v.ID)
 		return r.Steps[4].Iteration == 2 && r.Steps[4].Status == store.StepWaiting

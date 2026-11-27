@@ -137,7 +137,8 @@ stateDiagram-v2
 - **Gates** (`gate: human`) erzeugen eine Freigabe (Art `gate`, 7 Tage gültig); der Run wartet.
   Eine Begründung beim Freigeben geht als Hinweis an die folgenden Rollen, „Ablehnen“ bricht den
   Run ab. Mit `on_deny: { goto: implement }` springt das Gate beim Ablehnen stattdessen zurück;
-  die Begründung steht im Prompt des nächsten Durchlaufs.
+  die Begründung ist dann Pflicht (der Button heißt „Zurück zu implement“) und steht im Prompt
+  des nächsten Durchlaufs.
 - **Bedingungen** (`when`): Ist sie an einem Schritt mit `role`, `gate` oder `action` falsch,
   wird der Schritt übersprungen. Pfade beginnen mit dem Namen eines früheren Schritts und lesen
   Felder aus seinem strukturierten Artefakt (`review.verdict`, `test.suite.failed`); fehlende
@@ -234,7 +235,8 @@ triggers:
   Triage-Rechten; in öffentlichen Repos trotzdem `authors` angeben, denn jeder kann ein Issue
   eröffnen, das später gelabelt wird – geprüft wird, wer das Issue geschrieben hat, nicht wer
   das Label gesetzt hat. Gates (`gate: human`) vor dem PR bleiben die wichtigste Bremse.
-- Auslöser lassen sich pausieren (`POST /api/projects/{id}/triggers/{name}/pause`, `…/resume`);
+- Auslöser lassen sich in der Projektansicht des Dashboards pausieren und fortsetzen (API:
+  `POST /api/projects/{id}/triggers/{name}/pause`, `…/resume`);
   `GET /api/projects/{id}/triggers` liefert Zustand, nächste Abfrage bzw. nächsten Termin und
   die zuletzt ausgelösten Runs. Runs tragen ihren Auslöser (`trigger`, `trigger_ref`).
 

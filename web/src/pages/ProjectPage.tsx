@@ -12,6 +12,7 @@ import { MonthlyBudget, UsageAmount } from "../components/usage";
 import { useUsage } from "../hooks/useUsage";
 import { RunTable, StartRun } from "../components/runs";
 import { useRuns } from "../runs";
+import { TriggerList } from "../components/triggers";
 
 export function ProjectPage() {
   const { id = "" } = useParams();
@@ -108,6 +109,11 @@ export function ProjectPage() {
           </p>
         </div>
       )}
+
+      <div className="sectionhead">
+        <h2>Auslöser</h2>
+      </div>
+      <TriggerList projectId={p.id} />
 
       <div className="sectionhead">
         <h2>Agenten</h2>
