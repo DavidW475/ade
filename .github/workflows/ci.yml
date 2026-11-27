@@ -117,6 +117,8 @@ jobs:
         run: |
           # Ubuntu 24.04 beschränkt unprivilegierte User-Namespaces per AppArmor (rootlesskit).
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          # enable_icc=false für ade-egress (doc/sandbox.md#6-container-laufzeiten).
+          sudo modprobe br_netfilter
           sudo systemctl disable --now docker.service docker.socket
           sudo rm -f /var/run/docker.sock
           # Statische Binaries samt rootless-Extras nach ~/bin, Dienst im User-Manager.
