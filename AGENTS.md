@@ -35,16 +35,17 @@ eigene Konfiguration mit anderem Port und Datenverzeichnis verwenden (siehe
 | `internal/git/` | Aufrufe des git-Binarys, Diff über temporären Index, Commit/Fetch/Merge/Push |
 | `internal/project/` | Projekte registrieren, `.ade/project.yaml` |
 | `internal/workspace/` | Workspaces: Clone, Setup, Diff, Übernahme (Collect, Merge, PR), Verwerfen |
-| `internal/agent/` | Agent-Sessions: Prozesse (PTY/Pipes), Event-Hub mit Replay, Neustart-Aufräumen, Kosten und Budgets |
+| `internal/agent/` | Agent-Sessions: Prozesse (PTY/Pipes), Event-Hub mit Replay, Neustart-Aufräumen, Kosten und Budgets, Lese-Rollen (Schnappschuss) |
 | `internal/agent/adapter/` | Adapter-Interface, Event-Typen + JSON-Schema; `claude/`, `codex/`, `pty/`, `fake/` (Tests) |
 | `internal/provider/` | Adapter → Anbieter, Modell-Aliase, Preistabelle, Kostenberechnung |
 | `internal/ide/` | openvscode-server je Workspace: Download mit Prüfsumme, Start, Inaktivitäts-Stopp |
 | `internal/gateway/` | Reverse-Proxy `ws-<id>.localhost` → IDE, Ticket-Anmeldung, Connection-Token |
-| `internal/sandbox/` | Docker-Container, internes Netz und Proxy-Container je Workspace über die Docker-CLI, `.ade/sandbox.yaml` (inkl. `egress`), GC |
+| `internal/sandbox/` | Docker-Container (Agent, Lese-Container), internes Netz und Proxy-Container je Workspace über die Docker-CLI, `.ade/sandbox.yaml` (inkl. `egress`), GC |
 | `internal/proxy/` | Egress-Proxy `ade proxy`: Allowlist, Schutz vor internen Zielen, Secret-Injection, Token-Zählung, Steuer-API, Rückfragen (Hook, `on_blocked: ask`) |
 | `internal/approval/` | Freigaben: Warteschlange, Regeln aus `approvals` in `project.yaml`, `ade hook pretooluse`, Egress-Ausnahmen, Budget-Freigaben |
+| `internal/factory/` | Software-Fabrik: Definitionen (`.ade/factories`, Vorlagen aus `examples/factories`), Runner (Runs, Gates, Artefakte, Fortsetzen nach Neustart) |
 | `web/` | Dashboard (Vite + React + TypeScript, Monaco Diff Editor) |
-| `examples/`, `images/` | Beispielkonfigurationen, Container-Images (`images/agent-base`) |
+| `examples/`, `images/` | Beispielkonfigurationen, Fabrik-Vorlagen (`examples/factories`, eingebettet), Container-Images (`images/agent-base`) |
 
 Neue Module folgen der Struktur in [architecture.md](doc/architecture.md#10-repo-struktur).
 

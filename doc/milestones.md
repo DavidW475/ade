@@ -202,8 +202,8 @@ flowchart LR
 - Vorlage `feature`
 
 **Fertig, wenn:**
-- [ ] `feature`-Fabrik: Planer → (Gate) → Entwickler → Reviewer → (Gate) → PR läuft durch
-- [ ] Planer/Reviewer können keine Dateien im Workspace ändern
+- [x] `feature`-Fabrik: Planer → (Gate) → Entwickler → Reviewer → (Gate) → PR läuft durch
+- [x] Planer/Reviewer können keine Dateien im Workspace ändern
 
 ---
 

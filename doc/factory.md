@@ -14,6 +14,16 @@ Jede Rolle kann ein **anderes Modell** und **andere Rechte** haben.
 
 ## 2. Definition (`.ade/factories/<name>.yaml`)
 
+Fabriken liegen im Repo unter `.ade/factories/<name>.yaml`, Prompts relativ dazu (nicht
+außerhalb von `.ade/factories/`). ADE liest sie aus dem Haupt-Repo, nie aus einem Workspace.
+Ohne eigene Datei gilt die gleichnamige mitgelieferte Vorlage (`examples/factories/`).
+
+Umfang in **M9**: lineare Schritte mit `role`, `gate: human` und `action: pull_request` (als
+letzter Schritt), je Rolle höchstens ein Artefakt (ihre letzte Antwort), Eingaben vom Typ `text`,
+`budget.max_cost_usd` und `budget.max_duration`. `parallel`, `when`, `goto`/`max_iterations` und
+strukturierte Artefakte mit Schema folgen mit **M10**; ADE lehnt sie bis dahin mit einer
+Fehlermeldung ab. Das Beispiel zeigt das Ziel nach M10:
+
 ```yaml
 name: feature
 description: Feature von Issue/Prompt bis zum PR
@@ -32,7 +42,6 @@ roles:
     adapter: claude
     model: sonnet
     permissions: write
-    sandbox: default
     prompt: prompts/implementer.md
     inputs: [plan.md]
 
@@ -94,17 +103,32 @@ stateDiagram-v2
     deliver --> [*]
 ```
 
-- Ein **Run** ist eine Zustandsmaschine in SQLite; der Daemon kann nach Neustart fortsetzen.
+- Ein **Run** ist eine Zustandsmaschine in SQLite (`runs`, `run_steps`); die Definition wird
+  beim Start gespeichert. Nach einem Neustart setzt der Daemon fort: unterbrochene Sessions über
+  Resume, offene Gates mit einer neuen Freigabe.
 - Jeder Schritt mit `role` startet eine **normale Agent-Session** – alles aus Dashboard,
-  Sandbox, IDE und Freigaben gilt unverändert.
-- Alle Rollen eines Runs arbeiten im **selben Workspace** (ein Branch), Lese-Rollen bekommen
-  ihn read-only gemountet.
-- **Artefakte** liegen unter `.ade/runs/<run-id>/` im Workspace (`plan.md`, `review.json`, …)
-  und werden der nächsten Rolle im Prompt referenziert. Strukturierte Artefakte (JSON) haben ein
-  Schema; der Daemon validiert sie, bevor `when`-Bedingungen ausgewertet werden.
-- **Gates** (`gate: human`) erzeugen eine Freigabe im Dashboard; der Run wartet.
-- **Budgets** werden vom Proxy (Tokens) und Daemon (Zeit) überwacht; bei Überschreitung pausiert
-  der Run mit Freigabe-Anfrage.
+  Sandbox, IDE, Freigaben und Kosten gilt unverändert. Der Schritt ist fertig, wenn der Agent
+  seine Runde beendet; endet die Session mit Fehler oder wird gestoppt, scheitert der Run.
+- Alle Rollen eines Runs arbeiten im **selben Workspace** (ein Branch). Sandbox oder nicht
+  wählt man beim Start für den ganzen Run.
+- **Lese-Rollen** (`permissions: read`) können den Workspace nicht ändern: In der Sandbox laufen
+  sie in einem zweiten Container mit `/workspace` nur lesend gemountet (gleiches Netz, gleicher
+  Egress-Proxy). Ohne Sandbox arbeiten sie in einem Schnappschuss (Klon des Workspace-Stands mit
+  Basis-Branch), der danach gelöscht wird; Claude Code bekommt dort kein `Edit`/`Write`, Codex
+  läuft mit `--sandbox read-only`. Echten Schutz bietet nur die Sandbox.
+- **Artefakte:** Die letzte Antwort einer Rolle wird ihr Artefakt (`outputs`, z. B. `plan.md`).
+  ADE speichert es außerhalb des Workspaces (`<data_dir>/runs/<run-id>/`), damit es weder im
+  Branch landet noch von einer späteren Rolle verändert werden kann, und gibt es den Rollen, die
+  es unter `inputs` nennen, im Prompt mit. Im Dashboard und in der PR-Beschreibung sind alle
+  Artefakte zu sehen. Strukturierte Artefakte (JSON mit Schema, Grundlage für `when`) folgen
+  mit M10.
+- **Gates** (`gate: human`) erzeugen eine Freigabe (Art `gate`, 7 Tage gültig); der Run wartet.
+  Eine Begründung beim Freigeben geht als Hinweis an die folgenden Rollen, „Ablehnen“ bricht den
+  Run ab (bis M10, dann mit Rücksprung).
+- **Budgets:** `max_cost_usd` gilt für alle Sessions des Runs zusammen; jede Rolle startet mit dem
+  Rest als Session-Budget und pausiert bei Überschreitung mit Budget-Freigabe (wie in M8).
+  `max_duration` begrenzt die Arbeitszeit der Rollen (Warten an Gates zählt nicht); danach
+  scheitert der Run.
 
 ## 4. Modelle und Anbieter
 
@@ -129,7 +153,7 @@ eine OpenAI-kompatible Schnittstelle zu bündeln.
 | Auslöser | Meilenstein |
 |---|---|
 | Manuell im Dashboard (Prompt eingeben) | M9 |
-| API / CLI (`ade run feature --task "…"`) | M9 |
+| API / CLI (`ade run feature --task "…" [--wait]`) | M9 |
 | GitHub-Issue mit Label (Polling oder Webhook) | M10 |
 | Zeitplan (z. B. nächtlicher Dependency-Update-Run) | M10 |
 
@@ -137,7 +161,8 @@ eine OpenAI-kompatible Schnittstelle zu bündeln.
 
 Mitgelieferte Fabriken (in `examples/factories/`):
 
-- **feature** – Plan → Implementierung → Review/Test → PR (oben)
+- **feature** – Plan → Freigabe → Implementierung → Review → Freigabe → PR (ab M9; Review/Test
+  parallel und Rücksprung ab M10)
 - **bugfix** – Reproduzieren (Test schreiben, muss fehlschlagen) → Fix → Test grün → PR
 - **review-only** – Mehrere Reviewer-Modelle prüfen einen bestehenden Branch/PR parallel,
   ein Aggregator fasst zusammen

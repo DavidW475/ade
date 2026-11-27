@@ -201,6 +201,7 @@ erDiagram
         string adapter
         string model
         string role
+        bool read_only
         string status
         float cost_usd
         float budget_usd
@@ -235,9 +236,24 @@ erDiagram
     FACTORY_RUN {
         string id
         string project_id
+        string workspace_id
         string factory
-        string state
-        json context
+        json definition
+        json inputs
+        string status
+        int current
+    }
+    FACTORY_RUN ||--o{ RUN_STEP : hat
+    RUN_STEP {
+        int idx
+        string name
+        string kind
+        string role
+        bool read_only
+        string status
+        string session_id
+        string approval_id
+        string output
     }
 ```
 
@@ -389,6 +405,34 @@ Freigabe der Art `budget` an (24 h gültig). „Budget erhöhen“ gibt einen we
 (Session-Budget bzw. 10 % des Monatsbudgets) und setzt die Session fort, „Ablehnen“ beendet sie.
 Ein von Hand fortgesetzter, pausierter Agent pausiert sofort wieder und fragt neu.
 
+### 4.5 Fabrik-Runs
+
+Ein Run (`internal/factory`, Tabellen `runs` und `run_steps`) speichert beim Start die
+Definition der Fabrik und legt einen Workspace an. Der Runner schreibt ihn Schritt für Schritt
+fort; Auslöser sind Statuswechsel seiner Sessions, Entscheidungen an Gates, ein Takt (30 s,
+Zeitlimit) und der Daemon-Start:
+
+1. **Rolle:** startet eine normale Agent-Session im Workspace (Rolle, Adapter, Modell-Alias,
+   Rest-Budget des Runs als Session-Budget). Die Anweisung besteht aus Rollen-Prompt, Aufgabe,
+   Hinweisen aus den Gates und den Artefakten, die die Rolle als `inputs` nennt. Ist der Agent
+   fertig (`idle`/`done`), wird seine letzte Antwort das Artefakt der Rolle
+   (`<data_dir>/runs/<run>/<name>`), ein wartender Agent beendet und der Stand des Workspaces
+   gesichert. `paused` (Budget) pausiert den Run, `failed`/`stopped` lässt ihn scheitern.
+2. **Gate** (`gate: human`): legt eine Freigabe der Art `gate` an (7 Tage). „Freigeben“ setzt
+   fort, eine Begründung geht als Hinweis an die nächsten Rollen; „Ablehnen“ bricht den Run ab.
+3. **Pull Request** (`action: pull_request`): Push und `gh pr create` wie bei der Übernahme
+   (4.2); die Beschreibung enthält die Artefakte.
+
+**Lese-Rollen** (`permissions: read`) ändern den Workspace nicht: In der Sandbox laufen sie in
+einem zweiten Container des Workspaces (`ade-ws-<id>-ro`, gleiches internes Netz und gleicher
+Proxy), der `/workspace` nur lesend mountet. Ohne Sandbox arbeiten sie in einem Schnappschuss
+(`git clone --shared` des Workspaces samt Basis-Branch unter `<data_dir>/snapshots/<session>`),
+der mit der Session gelöscht wird; zusätzlich sperrt Claude Code `Edit`/`Write`, Codex läuft mit
+`--sandbox read-only`.
+
+**Neustart:** Beim Start setzt der Runner aktive Runs fort: unterbrochene Sessions über Resume,
+Gates mit einer neuen Freigabe (die alte ist mit dem Neustart abgelaufen).
+
 ## 5. API-Skizze
 
 | Methode | Pfad | Zweck |
@@ -414,11 +458,15 @@ Ein von Hand fortgesetzter, pausierter Agent pausiert sofort wieder und fragt ne
 | `WS` | `/ws/sessions/{id}/events` | Event-Stream (mit `?since=<seq>` für Replay) |
 | `WS` | `/ws/sessions/{id}/pty` | Terminal |
 | `GET` | `/api/approvals[?status&session_id&workspace_id]`, `/api/approvals/{id}` | Freigaben |
-| `POST` | `/api/approvals/{id}` | Entscheiden (`decision`: `allow`, `deny`, bei egress auch `allow_workspace`, `allow_project`; `reason`); Arten `tool`, `egress`, `budget` |
+| `POST` | `/api/approvals/{id}` | Entscheiden (`decision`: `allow`, `deny`, bei egress auch `allow_workspace`, `allow_project`; `reason`); Arten `tool`, `egress`, `budget`, `gate` |
 | `POST` | `/api/hook/pretooluse` | Frage des Hooks lokaler Agenten (Token der Session statt Anmeldung) |
 | `POST` | `/api/workspaces/{id}/egress/grants`, `DELETE /api/egress-grants/{id}` | Egress-Ausnahmen (`rule`, `scope`: `workspace`/`project`) |
 | `GET` | `/api/workspaces/{id}/egress[?blocked=1]` | Egress-Events, Zusammenfassung je Host, wirksame Policy (bearbeitet wird `.ade/sandbox.yaml`) |
-| `POST` | `/api/projects/{id}/factories/{name}/runs` | Fabrik-Run starten |
+| `GET` | `/api/factories?project_id=` | Fabriken eines Projekts (eigene und Vorlagen, mit Prüffehlern) |
+| `GET/POST` | `/api/runs[?project_id&workspace_id&active=1]` | Runs auflisten / starten (`project_id`, `factory`, `task`, `inputs`, `sandbox`) |
+| `GET` | `/api/runs/{id}` | Run mit Schritten, Artefakten und PR |
+| `POST` | `/api/runs/{id}/cancel` | Run abbrechen (laufende Session stoppen, Gate zurückziehen) |
+| `GET` | `/api/runs/{id}/artifacts/{name}` | Artefakt als Text |
 
 ## 6. Konfiguration
 
@@ -510,7 +558,7 @@ ade/
 │   ├── proxy/               # Egress-Proxy (ade proxy), Allowlist, Steuer-API
 │   ├── ide/                 # openvscode-server
 │   ├── approval/
-│   ├── factory/
+│   ├── factory/             # Fabrik-Definitionen, Runner (Runs, Gates, Artefakte)
 │   ├── provider/
 │   ├── store/               # SQLite + migrations/
 │   └── config/
@@ -518,7 +566,7 @@ ade/
 ├── images/
 │   ├── agent-base/          # Dockerfile: Debian, git, node, Agent-CLIs, openvscode-server
 │   └── proxy/               # Dockerfile: ade proxy
-├── examples/                # Beispiel-.ade/-Konfigurationen
+├── examples/                # Beispiel-Konfigurationen, Fabrik-Vorlagen (factories/, eingebettet)
 ├── doc/
 ├── LICENSE
 └── README.md
