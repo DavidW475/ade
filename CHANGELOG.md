@@ -8,6 +8,10 @@ Abschnitt der jeweiligen Version als Release-Notizen.
 
 ### Neu
 
+- **Fabrik-Vorlagen** (M10): `bugfix` (Fehler per Test reproduzieren, beheben, Tests grün),
+  `review-only` (zwei Reviewer parallel, Zusammenfassung, kein PR) und `refactor` (schrittweise
+  mit Test nach jedem Schritt); `feature` mit Review und Test parallel und Rücksprung bei
+  Änderungswünschen. Neuer Eingabetyp `branch`: Der Workspace des Runs zweigt davon ab.
 - **Docker-Sandbox** (M5): Workspaces lassen sich mit Sandbox anlegen (Schalter beim Agent-Start
   und beim Anlegen, Standard `defaults.sandbox`). Ein Container pro Workspace sieht nur das
   Workspace-Verzeichnis (`/workspace`), läuft mit deiner UID, ohne Capabilities und mit Grenzen

@@ -131,6 +131,7 @@ export function StartRunForm({ projectId, onCancel }: { projectId: string; onCan
   const factories = useQuery({ queryKey: ["factories", projectId], queryFn: () => api.factories(projectId) });
   const [name, setName] = useState("");
   const [task, setTask] = useState("");
+  const [inputs, setInputs] = useState<Record<string, string>>({});
   const sandboxInfo = useSandboxInfo();
   const [sandboxChoice, setSandbox] = useState<boolean | null>(null);
   const sandbox = sandboxChoice ?? sandboxDefault(sandboxInfo.data);
@@ -138,10 +139,21 @@ export function StartRunForm({ projectId, onCancel }: { projectId: string; onCan
   const usable = (factories.data ?? []).filter((f) => !f.error);
   const broken = (factories.data ?? []).filter((f) => f.error);
   const chosen = usable.find((f) => f.name === name) ?? usable.find((f) => f.name === "feature") ?? usable[0];
+  // Weitere Eingaben der Fabrik neben task (z. B. branch bei review-only).
+  const extra = Object.entries(chosen?.inputs ?? {})
+    .filter(([k]) => k !== "task")
+    .sort(([a], [b]) => a.localeCompare(b));
+  const missing = extra.some(([k, def]) => def.required && !inputs[k]?.trim());
 
   const start = useMutation({
     mutationFn: () =>
-      api.startRun({ project_id: projectId, factory: chosen?.name ?? "", task, sandbox: sandbox && !!sandboxInfo.data?.available }),
+      api.startRun({
+        project_id: projectId,
+        factory: chosen?.name ?? "",
+        task,
+        inputs: Object.fromEntries(extra.map(([k]): [string, string] => [k, inputs[k] ?? ""]).filter(([, v]) => v.trim() !== "")),
+        sandbox: sandbox && !!sandboxInfo.data?.available,
+      }),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ["runs"] });
       void qc.invalidateQueries({ queryKey: ["workspaces", projectId] });
@@ -150,7 +162,7 @@ export function StartRunForm({ projectId, onCancel }: { projectId: string; onCan
   });
   const submit = (e: { preventDefault(): void }) => {
     e.preventDefault();
-    if (chosen && task.trim() && !start.isPending) start.mutate();
+    if (chosen && task.trim() && !missing && !start.isPending) start.mutate();
   };
 
   return (
@@ -193,10 +205,27 @@ export function StartRunForm({ projectId, onCancel }: { projectId: string; onCan
           }}
         />
       </div>
+      {extra.map(([k, def]) => (
+        <div className="field wide" key={`${chosen?.name}-${k}`}>
+          <label htmlFor={`sr-in-${k}`}>
+            {k}
+            {def.type === "branch" ? " (Branch)" : ""}
+            {def.required ? "" : " – optional"}
+          </label>
+          <input
+            id={`sr-in-${k}`}
+            className={def.type === "branch" ? "mono" : undefined}
+            required={def.required}
+            placeholder={def.description ?? (def.type === "branch" ? "Standard: Basis-Branch des Projekts" : "")}
+            value={inputs[k] ?? ""}
+            onChange={(e) => setInputs({ ...inputs, [k]: e.target.value })}
+          />
+        </div>
+      ))}
       <div className="field wide">
         <SandboxToggle id="sr-sandbox" checked={sandbox} onChange={setSandbox} info={sandboxInfo.data} />
         <p className="hint">
-          Alle Rollen arbeiten nacheinander im selben neuen Workspace. Lese-Rollen (Planer, Reviewer) sehen ihn nur lesend: in der Sandbox
+          Alle Rollen arbeiten im selben neuen Workspace (nacheinander oder, bei parallelen Schritten, gleichzeitig). Lese-Rollen (Planer, Reviewer) sehen ihn nur lesend: in der Sandbox
           in einem eigenen Container mit nur lesend gemountetem <code>/workspace</code>, ohne Sandbox in einer Kopie, deren Änderungen
           verworfen werden.
         </p>
@@ -217,7 +246,7 @@ export function StartRunForm({ projectId, onCancel }: { projectId: string; onCan
             Abbrechen
           </button>
         )}
-        <button type="submit" className="primary" disabled={!chosen || !task.trim() || start.isPending}>
+        <button type="submit" className="primary" disabled={!chosen || !task.trim() || missing || start.isPending}>
           {start.isPending ? "Starte …" : "Run starten"}
         </button>
       </div>
