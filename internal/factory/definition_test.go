@@ -236,7 +236,7 @@ func TestParseLoop(t *testing.T) {
 }
 
 func TestParseParallel(t *testing.T) {
-	f, err := Parse("p.yaml", []byte(`name: p
+	_, err := Parse("p.yaml", []byte(`name: p
 roles:
   dev: { inputs: [review.json, test.json], outputs: [summary.md] }
   rev: { permissions: read, inputs: [summary.md], outputs: [review.json] }
@@ -251,7 +251,7 @@ flow:
 	if err == nil || !strings.Contains(err.Error(), "kein strukturiertes Artefakt") {
 		t.Fatalf("Bedingung auf Text-Artefakt: %v", err)
 	}
-	f, err = Parse("p.yaml", []byte(`name: p
+	f, err := Parse("p.yaml", []byte(`name: p
 roles:
   dev: { inputs: [review.json, test.json], outputs: [summary.md] }
   rev: { permissions: read, inputs: [summary.md], outputs: [review.json] }
