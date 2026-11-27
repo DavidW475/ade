@@ -11,5 +11,20 @@ resources:
   cpus: 2
   pids: 512
 
-# Netzwerk-Regeln (egress) kommen mit M6. Bis dahin lehnt ADE den Schlüssel ab, damit niemand
-# eine Einschränkung annimmt, die es noch nicht gibt.
+# Netzwerk-Regeln: Der Container erreicht das Internet nur über den Egress-Proxy und nur diese
+# Ziele. Ohne egress-Abschnitt gelten die Presets anthropic, github-readonly, npm, pypi und
+# go-proxy; mit Abschnitt nur, was hier steht (egress: {} sperrt alles). Änderungen wirken nach
+# wenigen Sekunden, ohne Neustart. Interne Adressen (Host, Container, private Netze) sind immer
+# gesperrt.
+egress:
+  # Im Binary hinterlegte Domain-Listen: anthropic, github-readonly, npm, pypi, go-proxy
+  presets: [anthropic, github-readonly, npm]
+  # Eigene Einträge: host (Ports 80 und 443), *.domain (alle Subdomains), host:port
+  allow:
+    - api.example.com
+    - "*.githubusercontent.com"
+  # Sperren gehen vor (ohne Port: alle Ports)
+  deny:
+    - "*.pastebin.com"
+  # deny: geblockt ist geblockt. ask (Freigabe im Dashboard) kommt mit M7.
+  on_blocked: deny

@@ -17,6 +17,14 @@ Abschnitt der jeweiligen Version als Release-Notizen.
 - Image `ghcr.io/davidw475/ade-agent-base` (Debian, git, Node.js, Python, ripgrep, Claude Code,
   openvscode-server); `make image` baut es lokal.
 - `ade gc` entfernt verwaiste Sandbox-Container; der Daemon gleicht Container beim Start ab.
+- **Egress-Proxy** (M6): Der Sandbox-Container hängt in einem internen Docker-Netz ohne Route nach
+  draußen. Einziger Weg ins Internet ist ein Proxy-Container pro Workspace (`ade proxy`), der nur
+  Ziele aus `egress` in `.ade/sandbox.yaml` durchlässt (Presets `anthropic`, `github-readonly`,
+  `npm`, `pypi`, `go-proxy`, eigene `allow`-/`deny`-Einträge). Änderungen wirken ohne Neustart.
+- **Secret-Injection:** Ist `providers.anthropic.api_key` gesetzt, spricht Claude Code in der
+  Sandbox die API über `http://proxy:8080/p/anthropic` an; der Proxy fügt den Key ein.
+- Ansicht **Netzwerk** im Workspace: Policy, Ziele mit erlaubten und geblockten Anfragen, letzte
+  Anfragen.
 
 ### Sicherheit
 
@@ -25,11 +33,17 @@ Abschnitt der jeweiligen Version als Release-Notizen.
   Diff und Datei-Inhalte im Container (#41).
 - Sandbox-Workspaces klonen ohne Hardlinks, damit der Container keine Objektdateien des
   Haupt-Repos verändern kann.
+- Kein API-Key im Sandbox-Container (weder Umgebung noch `docker inspect`). Programme, die den
+  Proxy umgehen, erreichen nichts; externe Namen lösen im Container nicht auf. Der Proxy verbindet
+  nie zu internen Adressen (Host, Container, private Netze).
 
-### Bekannt
+### Geändert
 
-- Bis M6 hat der Container normales Netz, und ein API-Key aus der Konfiguration ist im Container
-  lesbar. Das Dashboard weist darauf hin.
+- Sandbox-Container aus M5 (normales Netz) legt ADE beim nächsten Start neu an; Dateien im
+  Workspace bleiben, Änderungen außerhalb von `/workspace` gehen verloren.
+- Ungültige `.ade/sandbox.yaml`: Neue Sandbox-Container starten erst nach der Korrektur, laufende
+  behalten die zuletzt gültige Netzwerk-Policy.
+- `make dev` baut ohne cgo; der Daemon braucht ein statisches Binary für den Proxy-Container.
 
 ## [0.1.0] – 2026-11-26
 

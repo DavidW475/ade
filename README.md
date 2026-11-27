@@ -4,10 +4,10 @@ Eine Leitstelle für KI-Agenten, gebaut für **WSL2**: Agenten starten und beoba
 **Docker-Sandboxen** hinter einem **Egress-Proxy** arbeiten lassen, ihre Workspaces in einer
 **VS-Code-kompatiblen Browser-IDE** ansehen und Ergebnisse prüfen und freigeben, alles im Browser.
 
-> **Status:** v0.1 plus Docker-Sandbox (M5) – Agenten arbeiten auf Wunsch isoliert im Container,
+> **Status:** v0.1 plus Docker-Sandbox (M5) und Egress-Proxy (M6) – Agenten arbeiten auf Wunsch
+> isoliert im Container, ins Internet nur zu freigegebenen Zielen und ohne Zugriff auf API-Keys;
 > das Ergebnis wird im Browser geprüft und übernommen (Mergen, Pull Request, Feedback, Verwerfen).
-> **Noch ohne Netzwerk-Einschränkung:** Der Container hat bis M6 normales Netz, und ein API-Key aus
-> der Konfiguration ist darin lesbar. Der Plan steht in [`doc/`](doc/README.md),
+> Der Plan steht in [`doc/`](doc/README.md),
 > der Fortschritt in den [Meilensteinen](https://github.com/DavidW475/ade/milestones).
 
 ## Idee
@@ -19,8 +19,8 @@ ade start  →  http://localhost:7000
 - **Dashboard:** Projekte, laufende Agenten, Kosten, offene Freigaben
 - **Workspaces:** jeder Agent arbeitet in einer eigenen Kopie auf einem eigenen Branch
 - **Browser-IDE:** ein Klick öffnet den Workspace in openvscode-server
-- **Sandbox:** Docker-Container pro Workspace, sieht nur seinen Workspace (M5); erzwungene
-  Netz-Allowlist und API-Keys außerhalb des Containers folgen mit M6
+- **Sandbox:** Docker-Container pro Workspace, sieht nur seinen Workspace; Internet nur über
+  einen Egress-Proxy mit Allowlist, API-Keys fügt der Proxy ein (der Container sieht sie nie)
 - **Review:** Diff ansehen, mergen, PR erstellen, Feedback geben oder verwerfen
 - **Software-Fabriken:** Planer, Entwickler, Reviewer und Tester als Pipeline, mit unterschiedlichen Modellen (ab M9)
 
@@ -64,7 +64,10 @@ ade project add ~/git/mein-repo    # Repository registrieren (geht auch im Dashb
 1. Im Dashboard das Projekt öffnen und **Agent starten**: Aufgabe eintragen, Adapter `claude`.
    ADE legt einen Workspace an (lokaler Clone, Branch `ade/<id>`) und startet den Agenten darin –
    mit **Sandbox** (Standard, wenn Docker läuft) in einem eigenen Container, der nur diesen
-   Workspace sieht. Claude Code braucht dort einen API-Key (`providers.anthropic.api_key`).
+   Workspace sieht. Claude Code braucht dort einen API-Key (`providers.anthropic.api_key`); der
+   Egress-Proxy fügt ihn ein, der Container sieht nur einen Platzhalter. Welche Ziele im Internet
+   erreichbar sind, regelt `egress` in `.ade/sandbox.yaml`; die Ansicht **Netzwerk** im Workspace
+   zeigt erlaubte und geblockte Anfragen.
 2. Dem Agenten in der Timeline zusehen; bei Bedarf **IDE öffnen** oder Folgeanweisungen geben.
 3. Ist der Agent fertig, committet ADE seine Änderungen und holt den Branch `ade/<id>` in dein
    Repository. Im Workspace zeigt die **Diff-Ansicht** alle Änderungen.
@@ -76,7 +79,7 @@ ade project add ~/git/mein-repo    # Repository registrieren (geht auch im Dashb
 
 `ade start --no-browser` gibt die Anmelde-URL aus, statt den Browser zu öffnen.
 
-`ade gc` entfernt verwaiste Sandbox-Container (`--dry-run` zeigt sie nur an).
+`ade gc` entfernt verwaiste Sandbox-Container und -Netze (`--dry-run` zeigt sie nur an).
 
 Konfiguration: `~/.config/ade/config.yaml` und pro Repo `.ade/project.yaml` und
 `.ade/sandbox.yaml` (alle optional,
