@@ -74,7 +74,7 @@ flowchart LR
 | `ide` | openvscode-server starten/stoppen (in der Sandbox oder lokal). |
 | `approval` | Freigabe-Warteschlange; blockierende Anfragen von Agenten/Hooks. |
 | `factory` | Fabrik-Definitionen und Run-Zustandsmaschine (siehe [factory.md](factory.md)). |
-| `provider` | Modell-/Anbieter-Konfiguration, API-Keys, Kostenberechnung. |
+| `provider` | Adapter → Anbieter, Modell-Aliase, Preistabelle und Kostenberechnung (M8, [4.4](#44-kosten-und-budgets)). |
 | `store` | SQLite mit Migrationen; Events, Sessions, Runs, Freigaben. |
 | `config` | Globale (`~/.config/ade/config.yaml`) und Projekt-Konfiguration (`.ade/`). |
 
@@ -128,7 +128,7 @@ erbt ein Agent nicht. Strukturierte Adapter laufen mit Pipes, Terminal-Adapter m
 | Adapter | Aufruf (beim Implementieren gegen aktuelle CLI-Doku prüfen) | Events |
 |---|---|---|
 | `claude` | `claude -p --input-format stream-json --output-format stream-json --verbose [--model] [--permission-mode] [--settings <Freigabe-Hook>] [--resume]` | strukturiert (Text, Tool-Calls, Kosten); Folgeanweisungen über stdin, Fortsetzen mit `--resume` |
-| `codex` | `codex exec --json …` | strukturiert |
+| `codex` | `codex exec --json --skip-git-repo-check [--model] (--sandbox <modus> \| --dangerously-bypass-approvals-and-sandbox) [-c model_provider=ade …] [resume <thread_id>] -` | strukturiert (Text, Befehle, Dateiänderungen, Tokens); eine Anweisung je Prozess über stdin, Folgeanweisungen durch Fortsetzen; keine Freigaben |
 | `pty` | beliebiger Befehl im Terminal (interaktiv) | nur Terminal-Stream, kein Parsing |
 
 Der `pty`-Adapter ist der Fallback: Jede CLI lässt sich so interaktiv bedienen, nur ohne Timeline.
@@ -136,7 +136,8 @@ Seine Ausgabe puffert der Daemon (letzte 256 KiB im Speicher für neu verbundene
 bis 32 MiB in `<data_dir>/sessions/<id>.log`), damit sie nach Neuverbinden und Neustart sichtbar bleibt.
 
 **Session-Status:** `starting` (wartet ggf. auf das Workspace-Setup) → `running` ⇄ `idle`
-(wartet auf Anweisung) → `done` | `failed` | `stopped` | `interrupted`. Pro Workspace läuft
+(wartet auf Anweisung) → `done` | `failed` | `stopped` | `interrupted` | `paused` (Budget
+überschritten, wartet auf Freigabe, [4.4](#44-kosten-und-budgets)). Pro Workspace läuft
 höchstens ein Agent; Terminals daneben sind erlaubt. Wird der Daemon beendet oder stürzt er ab,
 gelten laufende Sessions als `interrupted`; beim nächsten Start beendet der Daemon verwaiste
 Prozesse (erkannt über `ADE_SESSION_ID` in `/proc/<pid>/environ`). Sessions mit Resume-ID lassen
@@ -170,6 +171,8 @@ erDiagram
     SESSION ||--o{ APPROVAL : fordert
     PROJECT ||--o{ FACTORY_RUN : hat
     FACTORY_RUN ||--o{ SESSION : startet
+    PROJECT ||--o{ USAGE : zählt
+    SESSION ||--o{ USAGE : verbraucht
 
     PROJECT {
         string id
@@ -199,6 +202,19 @@ erDiagram
         string model
         string role
         string status
+        float cost_usd
+        float budget_usd
+        bool metered
+    }
+    USAGE {
+        int id
+        string project_id
+        string workspace_id
+        string session_id
+        string source
+        string model
+        int input_tokens
+        int output_tokens
         float cost_usd
     }
     EVENT {
@@ -239,7 +255,7 @@ Alle Adapter erzeugen dasselbe Format; die UI kennt nur dieses.
 }
 ```
 
-`type` ∈ `status | message | thinking | tool_call | tool_result | cost | error` (M2), später
+`type` ∈ `status | message | thinking | tool_call | tool_result | cost | error` (M2), `usage` (M8), später
 `approval_request | approval_decision | egress | …`. Payloads und Pflichtfelder beschreibt das
 JSON-Schema [`internal/agent/adapter/event.schema.json`](../internal/agent/adapter/event.schema.json);
 die Go-Typen stehen in `internal/agent/adapter/events.go`. Clients zeigen unbekannte Typen generisch an.
@@ -345,7 +361,33 @@ Agent als Rückmeldung. Dieselbe Warteschlange nimmt Netzwerk-Freigaben der Sand
 
 Faustregel: **In der Sandbox großzügig, außerhalb streng.** Die Sandbox begrenzt den Schaden,
 deshalb muss nicht jeder `ls` bestätigt werden; Freigaben bleiben für Netzwerk-Ausnahmen,
-Merges und Pushes. Terminal-Sessions (`pty`) haben keinen Hook.
+Merges und Pushes. Terminal-Sessions (`pty`) haben keinen Hook, Codex auch nicht (`codex exec`
+fragt nicht nach; lokal begrenzt `--sandbox workspace-write` die Schreibrechte).
+
+### 4.4 Kosten und Budgets
+
+Jede Nutzung landet in der Tabelle `usage` (Projekt, Workspace, Session, Quelle, Modell, Tokens,
+USD) und wird zur Session addiert. Es gibt zwei Quellen, je Session gilt genau eine:
+
+- **Proxy:** In der Sandbox mit Secret-Injection (Key in `providers.<anbieter>`) liest der
+  Egress-Proxy die Token-Nutzung aus jeder Antwort von `/p/<anbieter>/…` (Anthropic Messages und
+  OpenAI Responses/Chat, JSON und SSE). Der Daemon rechnet sie mit der Preistabelle in USD um und
+  ordnet sie dem Agenten im Workspace zu (Event `usage`). Die Meldung der CLI am Ende eines
+  Durchgangs zählt dann nicht mehr.
+- **CLI:** Sonst gilt, was die CLI meldet: Claude Code liefert USD, Codex nur Tokens (ADE rechnet
+  um und markiert die Kosten als geschätzt).
+
+Die Preistabelle ist eingebaut (Stand im Dashboard) und lässt sich mit `pricing` in der
+globalen Konfiguration ergänzen. Für Modelle ohne Preis zählt ADE nur Tokens und markiert die
+Kosten als unvollständig. **Modell-Aliase** (`models`) bilden Namen wie `opus` auf Anbieter und
+Modell-ID ab; der Anbieter muss zum Adapter passen.
+
+**Budgets** stehen in `.ade/project.yaml` (`budget.session_usd`, `budget.monthly_usd`) oder beim
+Start (`budget_usd`). Nach jeder Nutzung (mit Proxy live, sonst nach jedem Durchgang) prüft der
+Daemon beide Grenzen. Ist eine erreicht, beendet er den Agenten mit Status `paused` und legt eine
+Freigabe der Art `budget` an (24 h gültig). „Budget erhöhen“ gibt einen weiteren Schritt frei
+(Session-Budget bzw. 10 % des Monatsbudgets) und setzt die Session fort, „Ablehnen“ beendet sie.
+Ein von Hand fortgesetzter, pausierter Agent pausiert sofort wieder und fragt neu.
 
 ## 5. API-Skizze
 
@@ -363,15 +405,16 @@ Merges und Pushes. Terminal-Sessions (`pty`) haben keinen Hook.
 | `GET` | `/api/sandbox` | Docker erreichbar?, Standard-Image, Voreinstellung |
 | `POST` | `/api/sandbox/gc[?dry_run=1]` | Verwaiste Sandbox-Container entfernen (`ade gc`) |
 | `GET` | `/api/workspaces/{id}/sandbox` | Container eines Workspaces (Status, Image) |
-| `GET` | `/api/adapters` | Verfügbare Adapter und ihre Fähigkeiten |
-| `POST` | `/api/agents` | Agent-Session starten (`project_id`, optional `workspace_id`, `adapter`, `task`, `command`, `model`, `permission_mode`, `sandbox`) |
+| `GET` | `/api/adapters` | Verfügbare Adapter, Fähigkeiten, Modi je Adapter, Modell-Aliase |
+| `GET` | `/api/usage[?project_id]` | Kosten und Tokens: gesamt, Monat, je Projekt bzw. je Workspace, Monatsbudget |
+| `POST` | `/api/agents` | Agent-Session starten (`project_id`, optional `workspace_id`, `adapter`, `task`, `command`, `model` (Alias oder ID), `permission_mode`, `sandbox`, `budget_usd`) |
 | `GET` | `/api/sessions[?project_id&workspace_id&active=true]`, `/api/sessions/{id}` | Sessions |
 | `GET` | `/api/sessions/{id}/events?since=<seq>` | Gespeicherte Events (JSON, für CLI/Tests) |
 | `POST` | `/api/sessions/{id}/input` \| `/stop` | Folgeanweisung bzw. Fortsetzen / Stop |
 | `WS` | `/ws/sessions/{id}/events` | Event-Stream (mit `?since=<seq>` für Replay) |
 | `WS` | `/ws/sessions/{id}/pty` | Terminal |
 | `GET` | `/api/approvals[?status&session_id&workspace_id]`, `/api/approvals/{id}` | Freigaben |
-| `POST` | `/api/approvals/{id}` | Entscheiden (`decision`: `allow`, `deny`, bei egress auch `allow_workspace`, `allow_project`; `reason`) |
+| `POST` | `/api/approvals/{id}` | Entscheiden (`decision`: `allow`, `deny`, bei egress auch `allow_workspace`, `allow_project`; `reason`); Arten `tool`, `egress`, `budget` |
 | `POST` | `/api/hook/pretooluse` | Frage des Hooks lokaler Agenten (Token der Session statt Anmeldung) |
 | `POST` | `/api/workspaces/{id}/egress/grants`, `DELETE /api/egress-grants/{id}` | Egress-Ausnahmen (`rule`, `scope`: `workspace`/`project`) |
 | `GET` | `/api/workspaces/{id}/egress[?blocked=1]` | Egress-Events, Zusammenfassung je Host, wirksame Policy (bearbeitet wird `.ade/sandbox.yaml`) |
@@ -400,6 +443,11 @@ providers:
     api_key: env:ANTHROPIC_API_KEY
   openai:
     api_key: env:OPENAI_API_KEY
+models:               # Aliase für Sessions und Fabriken
+  opus: { provider: anthropic, id: claude-opus-5-5 }
+  gpt:  { provider: openai,    id: gpt-5.3-codex }
+pricing:              # ergänzt die eingebaute Preistabelle (USD je Million Tokens)
+  my-model: { input: 1, output: 4 }
 defaults:
   adapter: claude
   sandbox: true

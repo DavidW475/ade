@@ -248,3 +248,31 @@ Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten a
   Berechtigungsmodus der CLI gilt nur noch, wenn kein Hook verfügbar ist. Terminal-Sessions
   (`pty`) haben keinen Hook. Ausnahmen aus dem Dashboard stehen nicht im Repo; die Netzwerk-
   Ansicht zeigt sie an und kann sie entfernen.
+
+## ADR-017: Kosten aus einer Quelle je Session, Budgets über Pause und Freigabe
+
+- **Kontext:** M8 soll Kosten pro Session zeigen und Budgets durchsetzen, auch für CLIs, die
+  keine USD melden (Codex). Der Egress-Proxy sieht in der Sandbox jede API-Antwort, wenn er den
+  Key einfügt (ADR-007); Claude Code meldet seine Kosten selbst am Ende jedes Durchgangs. Beide
+  zusammen würden doppelt zählen. Codex beachtet `OPENAI_BASE_URL` nicht, und `codex exec`
+  bearbeitet eine Anweisung je Prozess mit kumulierten Token-Zahlen pro Unterhaltung.
+- **Entscheidung:**
+  1. Jede Nutzung ist ein Eintrag in `usage` (am Projekt, nicht am Workspace, damit Monatsbudgets
+     verworfene Workspaces mitzählen) und wird zur Session addiert. Je Session gilt eine Quelle:
+     Misst der Proxy (Sandbox mit Secret-Injection für den Anbieter des Adapters), zählt nur er,
+     sonst die Meldung der CLI. Proxy-Nutzung ohne messende Session zählt nur für den Workspace.
+  2. Der Proxy liest die Antworten von `/p/<anbieter>/` beim Durchreichen mit (JSON bis 16 MiB,
+     SSE zeilenweise) und fordert sie dafür unkomprimiert an. Er meldet nur Tokens und Modell;
+     USD rechnet der Daemon mit einer eingebauten, überschreibbaren Preistabelle (Präfix der
+     Modell-ID, längster Treffer).
+  3. Codex bekommt die Proxy-Basis-URL als eigenen Provider per `-c`; seine kumulierten Zahlen
+     verrechnet der Parser mit den bis zum Prozessstart gezählten Tokens der Session.
+  4. Budgets (Session, Kalendermonat des Projekts) prüft der Daemon nach jeder Nutzung. Bei
+     Überschreitung beendet er den Prozess (Status `paused`) und legt eine Freigabe der Art
+     `budget` an (24 h). Erlauben erhöht das Budget um einen Schritt und setzt die Session mit
+     Resume fort; Ablehnen oder Ablauf beendet sie (`stopped`).
+- **Konsequenzen:** Kosten aus der Preistabelle sind Schätzwerte; unbekannte Modelle zählen nur
+  Tokens und sind markiert. Ein Budget greift erst nach der Antwort, die es überschreitet (eine
+  laufende Anfrage wird nicht abgebrochen); ohne Proxy erst am Ende eines Durchgangs. Was am Proxy
+  vorbei läuft (Abo-Login über CONNECT), kann er nicht zählen. Pausieren beendet den Prozess;
+  fortsetzen können nur Adapter mit Resume.
