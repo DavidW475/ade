@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -30,6 +31,9 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("Datenverzeichnis anlegen: %w", err)
 	}
+	if err := privateFiles(path); err != nil {
+		return nil, err
+	}
 	q := url.Values{}
 	q.Add("_pragma", "foreign_keys(1)")
 	q.Add("_pragma", "journal_mode(WAL)")
@@ -45,6 +49,24 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// privateFiles legt die Datenbankdatei nur für den Nutzer lesbar an und setzt die Rechte
+// bestehender Dateien (auch -wal und -shm) auf 0600. Die Datenbank enthält Aufgaben,
+// Agent-Ausgaben und Egress-Protokolle; SQLite übernimmt für -wal und -shm die Rechte der
+// Hauptdatei.
+func privateFiles(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // G304: Pfad aus der eigenen Konfiguration
+	if err != nil {
+		return fmt.Errorf("Datenbank anlegen: %w", err)
+	}
+	_ = f.Close()
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Chmod(p, 0o600); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("Rechte der Datenbank setzen: %w", err)
+		}
+	}
+	return nil
 }
 
 // DB liefert die zugrunde liegende Datenbankverbindung.

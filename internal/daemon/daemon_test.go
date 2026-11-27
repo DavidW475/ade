@@ -123,3 +123,23 @@ func TestHealthNotRunning(t *testing.T) {
 		t.Fatal("Fehler erwartet")
 	}
 }
+
+func TestPrivateDirTightensPermissions(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil { // umask umgehen
+		t.Fatal(err)
+	}
+	if err := privateDir(dir, slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := fi.Mode().Perm(); m != 0o700 {
+		t.Fatalf("Rechte %o, want 700", m)
+	}
+}

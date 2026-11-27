@@ -36,8 +36,8 @@ import (
 
 // Run startet den Daemon und blockiert, bis ctx beendet wird.
 func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logger) error {
-	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
-		return fmt.Errorf("Datenverzeichnis anlegen: %w", err)
+	if err := privateDir(cfg.DataDir, log); err != nil {
+		return err
 	}
 
 	// Ein Daemon pro Datenverzeichnis – auch wenn ein zweiter auf einem anderen Port liefe.
@@ -481,6 +481,26 @@ func (s ideSandbox) HostPort(ctx context.Context, _ int) (int, error) {
 
 func (s ideSandbox) WriteFile(ctx context.Context, path string, data []byte) error {
 	return s.sb.WriteFile(ctx, s.ws, path, data)
+}
+
+// privateDir legt das Datenverzeichnis an und entzieht Gruppe und anderen den Zugriff,
+// falls es schon mit weiteren Rechten existiert (z. B. von Hand angelegt): Es enthält
+// Daemon-Secret, Datenbank und Logs.
+func privateDir(dir string, log *slog.Logger) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("Datenverzeichnis anlegen: %w", err)
+	}
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("Datenverzeichnis prüfen: %w", err)
+	}
+	if m := fi.Mode().Perm(); m&0o077 != 0 {
+		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // G302: Verzeichnis braucht das x-Bit
+			return fmt.Errorf("Rechte des Datenverzeichnisses setzen: %w", err)
+		}
+		log.Warn("Datenverzeichnis war für andere lesbar, Rechte auf 0700 gesetzt", "dir", dir, "vorher", fmt.Sprintf("%o", m))
+	}
+	return nil
 }
 
 // GC entfernt verwaiste Sandbox-Container, ohne dass ein Daemon läuft. Es hält dafür das
