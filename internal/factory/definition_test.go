@@ -24,7 +24,7 @@ func TestBuiltinFeature(t *testing.T) {
 	for _, s := range f.Flow {
 		kinds = append(kinds, s.Step+":"+s.Kind())
 	}
-	if got := strings.Join(kinds, " "); got != "plan:role approve-plan:gate implement:role review:role final:gate deliver:action" {
+	if got := strings.Join(kinds, " "); got != "plan:role approve-plan:gate implement:role : decide:decision final:gate deliver:action" {
 		t.Fatalf("Ablauf %s", got)
 	}
 	if !f.Roles["planner"].ReadOnly() || f.Roles["implementer"].ReadOnly() || !f.Roles["reviewer"].ReadOnly() {

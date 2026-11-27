@@ -441,7 +441,7 @@ func TestRunStartErrors(t *testing.T) {
 		}
 	}
 	list, err := e.runner.Factories(e.ctx, e.project.ID)
-	if err != nil || len(list) != 5 {
+	if err != nil || len(list) != 8 {
 		t.Fatalf("Fabriken %+v %v", list, err)
 	}
 }
