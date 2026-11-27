@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -304,6 +305,8 @@ type Artifact struct {
 	Step string `json:"step"`
 	Role string `json:"role"`
 	Size int64  `json:"size"`
+	// Iterations sind die Durchläufe, aus denen es einen Stand gibt (aufsteigend).
+	Iterations []int `json:"iterations,omitempty"`
 }
 
 func (r *Runner) view(ctx context.Context, run *store.Run) *View {
@@ -313,7 +316,13 @@ func (r *Runner) view(ctx context.Context, run *store.Run) *View {
 			continue
 		}
 		if fi, err := os.Stat(r.artifactPath(run.ID, st.Output)); err == nil {
-			v.Artifacts = append(v.Artifacts, Artifact{Name: st.Output, Step: st.Name, Role: st.Role, Size: fi.Size()})
+			a := Artifact{Name: st.Output, Step: st.Name, Role: st.Role, Size: fi.Size()}
+			for _, e := range run.Executions() {
+				if e.Output == st.Output && e.Status == store.StepDone {
+					a.Iterations = append(a.Iterations, e.Iteration)
+				}
+			}
+			v.Artifacts = append(v.Artifacts, a)
 		}
 	}
 	if run.WorkspaceID != "" {
@@ -359,8 +368,13 @@ func (r *Runner) Factories(ctx context.Context, projectID string) ([]Summary, er
 	return List(p.RepoPath), nil
 }
 
-// ReadArtifact liefert ein Artefakt eines Runs.
+// ReadArtifact liefert den jüngsten Stand eines Artefakts.
 func (r *Runner) ReadArtifact(ctx context.Context, id, name string) ([]byte, error) {
+	return r.ReadArtifactIteration(ctx, id, name, 0)
+}
+
+// ReadArtifactIteration liefert ein Artefakt aus einem Durchlauf (0: jüngster Stand).
+func (r *Runner) ReadArtifactIteration(ctx context.Context, id, name string, iteration int) ([]byte, error) {
 	run, err := r.opts.Store.GetRun(ctx, id)
 	if err != nil {
 		return nil, err
@@ -368,7 +382,11 @@ func (r *Runner) ReadArtifact(ctx context.Context, id, name string) ([]byte, err
 	if !slices.ContainsFunc(run.Steps, func(s store.RunStep) bool { return s.Output == name }) {
 		return nil, apperr.NotFound("Artefakt %s gibt es im Run %s nicht", name, id)
 	}
-	b, err := os.ReadFile(r.artifactPath(id, name))
+	p := r.artifactPath(id, name)
+	if iteration > 0 {
+		p = r.iterationPath(id, name, iteration)
+	}
+	b, err := os.ReadFile(p)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, apperr.NotFound("Artefakt %s ist noch nicht entstanden", name)
 	}
@@ -455,28 +473,50 @@ func (r *Runner) step(ctx context.Context, run *store.Run) (more bool, err error
 		return false, fmt.Errorf("Definition des Runs nicht lesbar: %w", err)
 	}
 	st := run.Steps[run.Current]
-	switch st.Status {
-	case store.StepDone:
+	def := f.step(st.Name)
+	if def == nil {
+		return false, fmt.Errorf("Schritt %s fehlt in der Definition", st.Name)
+	}
+	switch {
+	case store.StepFinished(st.Status):
 		return true, r.next(ctx, run)
-	case store.StepPending:
+	case st.Status == store.StepPending:
+		if def.When != "" && st.Kind != KindDecision {
+			ok, err := r.cond(run, &f, def.When)
+			if err != nil {
+				return false, err
+			}
+			if !ok {
+				msg := "übersprungen: " + def.When + " ist falsch"
+				if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{Status: store.Ptr(store.StepSkipped), Error: &msg, Started: true, Ended: true}); err != nil {
+					return false, err
+				}
+				r.log.Info("Schritt übersprungen", "run", run.ID, "schritt", st.Name)
+				return true, nil
+			}
+		}
 		switch st.Kind {
 		case KindRole:
 			return r.startRole(ctx, run, &f, st)
 		case KindGate:
 			return false, r.openGate(ctx, run, st)
 		case KindAction:
-			return false, r.deliver(ctx, run)
+			return false, r.deliver(ctx, run, st)
+		case KindDecision:
+			return r.decide(ctx, run, &f, st, def)
 		}
 		return false, fmt.Errorf("Schritt %s: unbekannte Art %q", st.Name, st.Kind)
+	}
+	switch st.Status {
 	case store.StepRunning:
 		if st.Kind == KindAction {
 			// Durch einen Neustart unterbrochen: erneut versuchen (ein bestehender PR wird nur
 			// aktualisiert).
-			return false, r.deliver(ctx, run)
+			return false, r.deliver(ctx, run, st)
 		}
 		return r.checkRole(ctx, run, &f, st)
 	case store.StepWaiting:
-		return r.checkGate(ctx, run, st)
+		return r.checkGate(ctx, run, def, st)
 	}
 	return false, fmt.Errorf("Schritt %s hat den Status %s", st.Name, st.Status)
 }
@@ -495,7 +535,10 @@ func (r *Runner) setStatus(ctx context.Context, run *store.Run, status string) {
 }
 
 func (r *Runner) endStep(ctx context.Context, run *store.Run, status, msg string) {
-	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, run.Current, store.StepUpdate{Status: &status, Error: &msg, Ended: true}); err != nil {
+	if run.Current >= len(run.Steps) {
+		return
+	}
+	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, run.Steps[run.Current].Row, store.StepUpdate{Status: &status, Error: &msg, Ended: true}); err != nil {
 		r.log.Error("Schritt speichern", "run", run.ID, "err", err)
 	}
 }
@@ -533,7 +576,7 @@ func (r *Runner) fail(ctx context.Context, run *store.Run, msg string) {
 // workTime ist die Arbeitszeit der Rollen bisher (Warten an Gates zählt nicht).
 func workTime(run *store.Run, now time.Time) time.Duration {
 	var d time.Duration
-	for _, st := range run.Steps {
+	for _, st := range run.Executions() {
 		if st.Kind != KindRole || st.StartedAt == nil {
 			continue
 		}
@@ -573,7 +616,7 @@ func (r *Runner) startRole(ctx context.Context, run *store.Run, f *Factory, st s
 	if err != nil {
 		return false, fmt.Errorf("Rolle %s starten: %w", st.Role, err)
 	}
-	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, run.Current, store.StepUpdate{
+	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{
 		Status: store.Ptr(store.StepRunning), SessionID: &sess.ID, Started: true,
 	}); err != nil {
 		return false, err
@@ -652,7 +695,7 @@ func (r *Runner) completeRole(ctx context.Context, run *store.Run, f *Factory, s
 			}
 			text = string(data)
 		}
-		if err := r.writeArtifact(run.ID, st.Output, text); err != nil {
+		if err := r.writeArtifact(run.ID, st.Output, st.Iteration, text); err != nil {
 			return err
 		}
 	}
@@ -663,10 +706,111 @@ func (r *Runner) completeRole(ctx context.Context, run *store.Run, f *Factory, s
 			return err
 		}
 	}
-	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, run.Current, store.StepUpdate{Status: store.Ptr(store.StepDone), Error: store.Ptr(""), Ended: true}); err != nil {
+	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{Status: store.Ptr(store.StepDone), Error: store.Ptr(""), Ended: true}); err != nil {
 		return err
 	}
 	r.log.Info("Rolle fertig", "run", run.ID, "schritt", st.Name, "rolle", st.Role)
+	return nil
+}
+
+// step liefert den Schritt name der Definition (nil: gibt es nicht).
+func (f *Factory) step(name string) *Step {
+	if p := f.Pos(name); p >= 0 {
+		return &f.Flow[p]
+	}
+	return nil
+}
+
+// cond wertet eine Bedingung über die jüngsten strukturierten Artefakte aus.
+func (r *Runner) cond(run *store.Run, f *Factory, src string) (bool, error) {
+	e, err := ParseExpr(src)
+	if err != nil {
+		return false, fmt.Errorf("Bedingung %q: %w", src, err)
+	}
+	var readErr error
+	ok := e.Eval(func(step string) (any, bool) {
+		def := f.step(step)
+		if def == nil || f.Roles[def.Role] == nil {
+			return nil, false
+		}
+		out := f.Roles[def.Role].OutputSpec()
+		if !out.Structured() {
+			return nil, false
+		}
+		done := false
+		for _, s := range run.Executions() {
+			if s.Name == step && s.Status == store.StepDone {
+				done = true
+			}
+		}
+		if !done {
+			return nil, false
+		}
+		data, err := os.ReadFile(r.artifactPath(run.ID, out.Name))
+		if err != nil {
+			readErr = fmt.Errorf("Artefakt %s für die Bedingung: %w", out.Name, err)
+			return nil, false
+		}
+		var v any
+		if err := json.Unmarshal(data, &v); err != nil {
+			readErr = fmt.Errorf("Artefakt %s für die Bedingung ist kein JSON: %w", out.Name, err)
+			return nil, false
+		}
+		return v, true
+	})
+	if readErr != nil {
+		return false, readErr
+	}
+	return ok, nil
+}
+
+// decide führt eine Entscheidung aus: Bedingung falsch → weiter, wahr → Rücksprung, solange
+// max_iterations nicht erreicht ist.
+func (r *Runner) decide(ctx context.Context, run *store.Run, f *Factory, st store.RunStep, def *Step) (bool, error) {
+	yes, err := r.cond(run, f, def.When)
+	if err != nil {
+		return false, err
+	}
+	if !yes {
+		if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{Status: store.Ptr(store.StepDone), Started: true, Ended: true}); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if st.Iteration < def.Iterations() {
+		return true, r.loop(ctx, run, st, def.Goto, def.When)
+	}
+	msg := fmt.Sprintf("%s ist nach %d Durchläufen noch wahr", def.When, st.Iteration)
+	if def.OnExhausted == ExhaustedContinue {
+		msg += " – weiter ohne Rücksprung"
+		if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{Status: store.Ptr(store.StepDone), Error: &msg, Started: true, Ended: true}); err != nil {
+			return false, err
+		}
+		r.log.Info("Schleife ausgeschöpft, weiter", "run", run.ID, "schritt", st.Name)
+		return true, nil
+	}
+	return false, errors.New(msg)
+}
+
+// loop beendet den Schritt st als zurückgesprungen und legt ab target einen neuen Durchlauf an.
+func (r *Runner) loop(ctx context.Context, run *store.Run, st store.RunStep, target, reason string) error {
+	to := -1
+	for _, s := range run.Steps {
+		if s.Name == target {
+			to = s.Index
+		}
+	}
+	if to < 0 || to > st.Index {
+		return fmt.Errorf("Rücksprung nach %s: Schritt gibt es nicht vor %s", target, st.Name)
+	}
+	msg := fmt.Sprintf("zurück zu %s (%s)", target, reason)
+	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{Status: store.Ptr(store.StepLooped), Error: &msg, Started: st.StartedAt == nil, Ended: true}); err != nil {
+		return err
+	}
+	if err := r.opts.Store.RepeatSteps(ctx, run.ID, to, st.Index); err != nil {
+		return err
+	}
+	r.log.Info("Rücksprung", "run", run.ID, "von", st.Name, "nach", target, "durchlauf", st.Iteration+1)
 	return nil
 }
 
@@ -710,7 +854,7 @@ func (r *Runner) requestFix(ctx context.Context, run *store.Run, st store.RunSte
 		return fmt.Errorf("%s ist nach %d Korrekturen noch ungültig: %s", out.Name, st.Fixes, problem)
 	}
 	msg := fmt.Sprintf("Deine letzte Antwort ist als Artefakt `%s` ungültig: %s\n\nAntworte noch einmal, nur mit dem vollständigen JSON (gern in einem ```json-Block), ohne weiteren Text.", out.Name, problem)
-	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, run.Current, store.StepUpdate{Fixes: store.Ptr(st.Fixes + 1), Error: &problem}); err != nil {
+	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{Fixes: store.Ptr(st.Fixes + 1), Error: &problem}); err != nil {
 		return err
 	}
 	if _, err := r.opts.Agents.Input(ctx, st.SessionID, msg); err != nil {
@@ -748,7 +892,7 @@ func (r *Runner) openGate(ctx context.Context, run *store.Run, st store.RunStep)
 	if err := r.opts.Gates.RequestGate(ctx, a, func(*store.Approval) { r.kick(runID) }); err != nil {
 		return fmt.Errorf("Freigabe anlegen: %w", err)
 	}
-	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, run.Current, store.StepUpdate{
+	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{
 		Status: store.Ptr(store.StepWaiting), ApprovalID: &a.ID, Started: st.StartedAt == nil,
 	}); err != nil {
 		return err
@@ -758,7 +902,7 @@ func (r *Runner) openGate(ctx context.Context, run *store.Run, st store.RunStep)
 	return nil
 }
 
-func (r *Runner) checkGate(ctx context.Context, run *store.Run, st store.RunStep) (bool, error) {
+func (r *Runner) checkGate(ctx context.Context, run *store.Run, def *Step, st store.RunStep) (bool, error) {
 	a, err := r.opts.Store.GetApproval(ctx, st.ApprovalID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
 		return false, err
@@ -776,7 +920,7 @@ func (r *Runner) checkGate(ctx context.Context, run *store.Run, st store.RunStep
 		r.setStatus(ctx, run, store.RunWaiting)
 		return false, nil
 	case store.ApprovalApproved:
-		if err := r.opts.Store.UpdateRunStep(ctx, run.ID, run.Current, store.StepUpdate{Status: store.Ptr(store.StepDone), Ended: true}); err != nil {
+		if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{Status: store.Ptr(store.StepDone), Ended: true}); err != nil {
 			return false, err
 		}
 		r.log.Info("Gate freigegeben", "run", run.ID, "schritt", st.Name)
@@ -785,6 +929,12 @@ func (r *Runner) checkGate(ctx context.Context, run *store.Run, st store.RunStep
 		msg := "abgelehnt"
 		if a.Reason != "" {
 			msg += ": " + a.Reason
+		}
+		if t := def.Target(); t != "" {
+			if st.Iteration < def.Iterations() {
+				return true, r.loop(ctx, run, st, t, msg)
+			}
+			msg += fmt.Sprintf(" (nach %d Durchläufen kein Rücksprung mehr)", st.Iteration)
 		}
 		r.endStep(ctx, run, store.StepCanceled, msg)
 		r.endRun(ctx, run, store.RunCanceled, "Schritt "+st.Name+" "+msg)
@@ -801,8 +951,8 @@ func (r *Runner) checkGate(ctx context.Context, run *store.Run, st store.RunStep
 	return false, errors.New("die Freigabe ist abgelaufen")
 }
 
-func (r *Runner) deliver(ctx context.Context, run *store.Run) error {
-	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, run.Current, store.StepUpdate{Status: store.Ptr(store.StepRunning), Started: true}); err != nil {
+func (r *Runner) deliver(ctx context.Context, run *store.Run, st store.RunStep) error {
+	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{Status: store.Ptr(store.StepRunning), Started: true}); err != nil {
 		return err
 	}
 	d, err := r.opts.Workspaces.PullRequestDraft(ctx, run.WorkspaceID)
@@ -815,7 +965,7 @@ func (r *Runner) deliver(ctx context.Context, run *store.Run) error {
 	if err != nil {
 		return fmt.Errorf("Pull Request: %w", err)
 	}
-	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, run.Current, store.StepUpdate{Status: store.Ptr(store.StepDone), Ended: true}); err != nil {
+	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{Status: store.Ptr(store.StepDone), Ended: true}); err != nil {
 		return err
 	}
 	r.log.Info("Pull Request des Runs erstellt", "run", run.ID, "url", w.PRURL)
@@ -847,19 +997,31 @@ func (r *Runner) prBody(run *store.Run, draft string) string {
 
 // --- Prompts und Artefakte ---------------------------------------------------------------
 
+// artifactPath ist der jüngste Stand eines Artefakts.
 func (r *Runner) artifactPath(runID, name string) string {
 	return filepath.Join(r.opts.DataDir, "runs", runID, name)
 }
 
-func (r *Runner) writeArtifact(runID, name, text string) error {
+// iterationPath ist der Stand eines Artefakts aus einem Durchlauf.
+func (r *Runner) iterationPath(runID, name string, iteration int) string {
+	return filepath.Join(r.opts.DataDir, "runs", runID, "iterations", strconv.Itoa(iteration), name)
+}
+
+// writeArtifact speichert ein Artefakt als jüngsten Stand und für seinen Durchlauf.
+func (r *Runner) writeArtifact(runID, name string, iteration int, text string) error {
 	if !artifactRE.MatchString(name) {
 		return fmt.Errorf("ungültiger Artefakt-Name %q", name)
 	}
-	p := r.artifactPath(runID, name)
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return err
+	data := []byte(truncate(text, MaxArtifact))
+	for _, p := range []string{r.iterationPath(runID, name, iteration), r.artifactPath(runID, name)} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, data, 0o600); err != nil {
+			return err
+		}
 	}
-	return os.WriteFile(p, []byte(truncate(text, MaxArtifact)), 0o600)
+	return nil
 }
 
 // artifactBlock setzt JSON-Artefakte in einen Codeblock, Text bleibt, wie er ist.
@@ -902,23 +1064,52 @@ func (r *Runner) prompt(ctx context.Context, run *store.Run, f *Factory, st stor
 		fmt.Fprintf(&b, "## Eingabe %s\n\n%s\n\n", k, run.Inputs[k])
 	}
 	var notes []string
-	for _, s := range run.Steps[:run.Current] {
+	var lastLoop *store.RunStep
+	execs := run.Executions()
+	for i, s := range execs {
+		if s.Status == store.StepLooped {
+			lastLoop = &execs[i]
+		}
 		if s.Kind != KindGate || s.ApprovalID == "" {
 			continue
 		}
-		if a, err := r.opts.Store.GetApproval(ctx, s.ApprovalID); err == nil && a.Reason != "" {
-			notes = append(notes, fmt.Sprintf("- Freigabe %s: %s", s.Name, strings.ReplaceAll(a.Reason, "\n", "\n  ")))
+		a, err := r.opts.Store.GetApproval(ctx, s.ApprovalID)
+		if err != nil || a.Reason == "" {
+			continue
 		}
+		label := s.Name
+		if s.Status == store.StepLooped {
+			label += " (abgelehnt)"
+		}
+		if s.Iteration > 1 || s.Status == store.StepLooped {
+			label += fmt.Sprintf(", Durchlauf %d", s.Iteration)
+		}
+		notes = append(notes, fmt.Sprintf("- Freigabe %s: %s", label, strings.ReplaceAll(a.Reason, "\n", "\n  ")))
 	}
 	if len(notes) > 0 {
 		b.WriteString("## Hinweise aus den Freigaben\n\n" + strings.Join(notes, "\n") + "\n\n")
 	}
+	if st.Iteration > 1 {
+		fmt.Fprintf(&b, "## Durchlauf %d\n\nDieser Schritt läuft zum %d. Mal.", st.Iteration, st.Iteration)
+		if lastLoop != nil {
+			fmt.Fprintf(&b, " Zurückgesprungen hat der Schritt %s: %s.", lastLoop.Name, lastLoop.Error)
+		}
+		b.WriteString(" Die Artefakte unten sind jeweils der jüngste Stand; arbeite das Feedback darin ab.\n\n")
+	}
 	for _, in := range role.Inputs {
 		from := ""
-		for _, s := range run.Steps[:run.Current] {
-			if s.Output == in {
-				from = fmt.Sprintf(" (Schritt %s, Rolle %s)", s.Name, s.Role)
+		for _, s := range execs {
+			if s.Output == in && s.Status == store.StepDone {
+				from = fmt.Sprintf(" (Schritt %s, Rolle %s", s.Name, s.Role)
+				if s.Iteration > 1 {
+					from += fmt.Sprintf(", Durchlauf %d", s.Iteration)
+				}
+				from += ")"
 			}
+		}
+		if from == "" {
+			// Erzeugt erst ein späterer Schritt (Feedback nach einem Rücksprung).
+			continue
 		}
 		data, err := os.ReadFile(r.artifactPath(run.ID, in))
 		if err != nil {

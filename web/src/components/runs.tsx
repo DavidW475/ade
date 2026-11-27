@@ -31,6 +31,8 @@ const stepLabels: Record<StepStatus, [string, Tone]> = {
   done: ["erledigt", "ok"],
   failed: ["fehlgeschlagen", "bad"],
   canceled: ["abgebrochen", "neutral"],
+  skipped: ["übersprungen", "neutral"],
+  looped: ["zurückgesprungen", "warn"],
 };
 
 export function StepStatusBadge({ status }: { status: StepStatus }) {
@@ -41,6 +43,7 @@ export function StepStatusBadge({ status }: { status: StepStatus }) {
 function stepKindLabel(st: Pick<RunStep, "kind" | "role" | "read_only">): string {
   if (st.kind === "gate") return "Freigabe";
   if (st.kind === "action") return "Pull Request";
+  if (st.kind === "decision") return "Entscheidung";
   return `${st.role ?? "Rolle"}${st.read_only ? " · lesend" : ""}`;
 }
 
@@ -59,8 +62,11 @@ export function Pipeline({ run, selected, onSelect }: { run: Run; selected?: num
         return (
           <li key={st.index} className={`pstep ${st.status} ${current ? "current" : ""} ${selected === st.index ? "selected" : ""}`}>
             <button type="button" onClick={() => onSelect?.(st.index)} aria-current={current ? "step" : undefined}>
-              <span className="pkind">{st.kind === "gate" ? "◆" : st.kind === "action" ? "⇪" : st.read_only ? "◎" : "●"}</span>
-              <span className="pname">{st.name}</span>
+              <span className="pkind">{st.kind === "gate" ? "◆" : st.kind === "action" ? "⇪" : st.kind === "decision" ? "↺" : st.read_only ? "◎" : "●"}</span>
+              <span className="pname">
+                {st.name}
+                {st.iteration > 1 && <span className="muted"> ×{st.iteration}</span>}
+              </span>
               <span className="prole">{stepKindLabel(st)}</span>
               <StepStatusBadge status={st.status} />
             </button>
@@ -164,7 +170,7 @@ export function StartRunForm({ projectId, onCancel }: { projectId: string; onCan
         {chosen?.description && <p className="hint">{chosen.description}</p>}
         {chosen?.steps && (
           <p className="hint">
-            {chosen.steps.map((s) => (s.kind === "gate" ? `◆ ${s.name}` : s.kind === "action" ? "⇪ PR" : `${s.role}${s.read_only ? " (lesend)" : ""}`)).join(" → ")}
+            {chosen.steps.map((s) => (s.kind === "gate" ? `◆ ${s.name}` : s.kind === "action" ? "⇪ PR" : s.kind === "decision" ? `↺ ${s.name}` : `${s.role}${s.read_only ? " (lesend)" : ""}`)).join(" → ")}
           </p>
         )}
         {broken.map((f) => (

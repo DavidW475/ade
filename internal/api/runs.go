@@ -82,7 +82,16 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 // handleRunArtifact liefert ein Artefakt als Text. Es stammt von einem Agenten: nie als HTML
 // ausliefern (nosniff setzt securityHeaders).
 func (s *Server) handleRunArtifact(w http.ResponseWriter, r *http.Request) {
-	data, err := s.opts.Runs.ReadArtifact(r.Context(), r.PathValue("id"), r.PathValue("name"))
+	iteration := 0
+	if q := r.URL.Query().Get("iteration"); q != "" {
+		n, err := strconv.Atoi(q)
+		if err != nil || n < 1 || n > 1000 {
+			writeError(w, http.StatusBadRequest, "iteration: ganze Zahl ab 1")
+			return
+		}
+		iteration = n
+	}
+	data, err := s.opts.Runs.ReadArtifactIteration(r.Context(), r.PathValue("id"), r.PathValue("name"), iteration)
 	if err != nil {
 		s.writeAppError(w, err)
 		return

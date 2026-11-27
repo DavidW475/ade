@@ -202,7 +202,13 @@ function StepDetail({ run, step }: { run: Run; step: RunStep }) {
           )}
         </p>
       )}
-      {step.error && <Notice tone={step.status === "canceled" ? "info" : "bad"}>{step.error}</Notice>}
+      {step.kind === "decision" && <p className="hint">Entscheidung: springt zurück, wenn die Bedingung wahr ist.</p>}
+      {step.iteration > 1 && <p className="hint">Durchlauf {step.iteration}</p>}
+      {step.error && (
+        <Notice tone={step.status === "canceled" || step.status === "skipped" || step.status === "looped" ? "info" : step.status === "running" ? "warn" : "bad"}>
+          {step.error}
+        </Notice>
+      )}
     </div>
   );
 }

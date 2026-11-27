@@ -73,8 +73,28 @@ flow:
 		"doppelter Schritt":     {strings.Replace(minimal, "step: two", "step: one", 1), "one gibt es schon"},
 		"parallel": {minimal + `  - parallel:
       - { step: r, role: a }
-`, "erst ab M10"},
-		"when":              {minimal + "  - { step: d, when: \"x\", goto: one }\n", "erst ab M10"},
+`, "noch nicht unterstützt"},
+		"when ohne Artefakt":     {minimal + "  - { step: d, when: \"one.x == 1\", goto: one }\n", "kein strukturiertes Artefakt"},
+		"when Syntax":            {minimal + "  - { step: d, when: \"one.x = 1\", goto: one }\n", "mit == schreiben"},
+		"when später":            {strings.Replace(minimal, "  - { step: one, role: a }\n", "  - { step: one, role: a, when: \"two.x == 1\" }\n", 1), "kein früherer Schritt"},
+		"when unbekannt":         {minimal + "  - { step: d, when: \"zz.x == 1\", goto: one }\n", "Schritt zz gibt es nicht"},
+		"Entscheidung ohne when": {minimal + "  - { step: d, goto: one }\n", "braucht eine Bedingung"},
+		"when ohne goto":         {minimal + "  - { step: d, when: \"one.x == 1\" }\n", "braucht goto"},
+		"goto vorwärts":          {strings.ReplaceAll(minimal, "plan.md", "p.json") + "  - { step: d, when: \"one.x\", goto: d }\n", "nur Rücksprünge"},
+		"goto unbekannt":         {strings.ReplaceAll(minimal, "plan.md", "p.json") + "  - { step: d, when: \"one.x\", goto: zz }\n", "Schritt zz gibt es nicht"},
+		"goto an Rolle":          {strings.Replace(minimal, "  - { step: two, role: b }", "  - { step: two, role: b, goto: one }", 1), "genau eins"},
+		"on_deny an Rolle":       {strings.Replace(minimal, "  - { step: two, role: b }", "  - { step: two, role: b, on_deny: { goto: one } }", 1), "nur bei Gates"},
+		"max_iterations":         {minimal + "  - { step: g, gate: human, on_deny: { goto: one }, max_iterations: 50 }\n", "zwischen 1 und 20"},
+		"max_iterations Gate":    {minimal + "  - { step: g, gate: human, max_iterations: 2 }\n", "nur bei Entscheidungen"},
+		"on_exhausted":           {strings.ReplaceAll(minimal, "plan.md", "p.json") + "  - { step: d, when: \"one.x\", goto: one, on_exhausted: retry }\n", "on_exhausted"},
+		"Schleifen-Eingabe ohne Rücksprung": {`name: x
+roles:
+  a: { inputs: [r.json] }
+  b: { permissions: read, outputs: [r.json] }
+flow:
+  - { step: one, role: a }
+  - { step: two, role: b }
+`, "kein Rücksprung"},
 		"gate":              {minimal + "  - { step: g, gate: robot }\n", "gate: \"robot\""},
 		"zwei Arten":        {minimal + "  - { step: g, gate: human, role: a }\n", "genau eins"},
 		"PR nicht am Ende":  {strings.Replace(minimal, "  - { step: two, role: b }\n", "  - { step: pr, action: pull_request }\n  - { step: two, role: b }\n", 1), "letzte Schritt"},
@@ -153,6 +173,42 @@ func TestLoadProject(t *testing.T) {
 	}
 	if len(byName["p"].Steps) != 1 || byName["p"].Steps[0].Kind != KindRole {
 		t.Fatalf("Schritte %+v", byName["p"].Steps)
+	}
+}
+
+const loopFactory = `name: loop
+roles:
+  dev: { inputs: [review.json], outputs: [summary.md] }
+  rev: { permissions: read, inputs: [summary.md], outputs: [review.json] }
+flow:
+  - { step: implement, role: dev }
+  - { step: review, role: rev }
+  - { step: decide, when: "review.verdict == 'changes'", goto: implement, max_iterations: 4, on_exhausted: continue }
+  - { step: final, gate: human, on_deny: { goto: implement } }
+  - { step: deliver, action: pull_request, when: "review.verdict != 'reject'" }
+`
+
+func TestParseLoop(t *testing.T) {
+	f, err := Parse("loop.yaml", []byte(loopFactory), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := f.Flow[2]
+	if d.Kind() != KindDecision || d.Target() != "implement" || d.Iterations() != 4 || f.Pos("final") != 3 {
+		t.Fatalf("Entscheidung %+v", d)
+	}
+	if g := f.Flow[3]; g.Kind() != KindGate || g.Target() != "implement" || g.Iterations() != DefaultMaxIterations {
+		t.Fatalf("Gate %+v", g)
+	}
+	// Mit Schema werden die Felder der Bedingung geprüft.
+	read := func(string) ([]byte, error) { return []byte(reviewSchema), nil }
+	withSchema := strings.Replace(loopFactory, "outputs: [review.json]", "outputs: [{ name: review.json, schema: s.json }]", 1)
+	if _, err := Parse("loop.yaml", []byte(withSchema), read); err != nil {
+		t.Fatal(err)
+	}
+	typo := strings.Replace(withSchema, "review.verdict == 'changes'", "review.verdikt == 'changes'", 1)
+	if _, err := Parse("loop.yaml", []byte(typo), read); err == nil || !strings.Contains(err.Error(), "kein Feld verdikt") {
+		t.Fatalf("Tippfehler im Feld: %v", err)
 	}
 }
 

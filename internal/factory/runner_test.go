@@ -67,6 +67,23 @@ func (e *env) inputs(step string) string {
 	return string(b)
 }
 
+// loopRunFactory: Umsetzung → Review → Rücksprung bei Änderungswunsch → Gate mit Rücksprung → PR.
+const loopRunFactory = `name: l
+inputs:
+  task: { required: true }
+roles:
+  implementer: { inputs: [review.json], outputs: [summary.md] }
+  reviewer: { permissions: read, inputs: [summary.md], outputs: [{ name: review.json, schema: schemas/review.json }] }
+  writer: {}
+flow:
+  - { step: implement, role: implementer }
+  - { step: review, role: reviewer }
+  - { step: decide, when: "review.verdict == 'changes'", goto: implement }
+  - { step: docs, role: writer, when: "len(review.comments) > 5" }
+  - { step: final, gate: human, on_deny: { goto: implement } }
+  - { step: deliver, action: pull_request }
+`
+
 // answer legt die nächsten Antworten des Fake-Agenten im Schritt step fest.
 func (e *env) answer(step string, texts ...string) {
 	e.t.Helper()
@@ -110,6 +127,7 @@ func setup(t *testing.T) *env {
 		".ade/factories/t.yaml":              testFactory,
 		".ade/factories/prompts/planner.md":  "Du planst.",
 		".ade/factories/s.yaml":              structFactory,
+		".ade/factories/l.yaml":              loopRunFactory,
 		".ade/factories/schemas/review.json": reviewSchema,
 	} {
 		writeFile(t, filepath.Join(repo, p), c)
@@ -402,7 +420,7 @@ func TestRunStartErrors(t *testing.T) {
 		}
 	}
 	list, err := e.runner.Factories(e.ctx, e.project.ID)
-	if err != nil || len(list) != 3 {
+	if err != nil || len(list) != 4 {
 		t.Fatalf("Fabriken %+v %v", list, err)
 	}
 }
@@ -442,6 +460,91 @@ func TestRunStructuredArtifact(t *testing.T) {
 	}
 	waitFor(t, "Run gescheitert", func() bool { return e.run(v2.ID).Status == store.RunFailed })
 	if r := e.run(v2.ID); !strings.Contains(r.Error, "nach 2 Korrekturen noch ungültig") || r.Steps[0].Fixes != 2 {
+		t.Fatalf("Run %+v", r)
+	}
+}
+
+func TestRunLoop(t *testing.T) {
+	e := setup(t)
+	e.answer("review",
+		`{"verdict": "changes", "comments": ["Test fehlt"]}`,
+		`{"verdict": "approve", "comments": []}`,
+		`{"verdict": "approve", "comments": []}`)
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "l", Task: "Baue Y"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reviewer verlangt Änderungen → zweiter Durchlauf → Freigabe am Gate wartet.
+	final := e.waitStep(v.ID, "final", store.StepWaiting)
+	impl := strings.Split(strings.TrimSpace(e.inputs("implement")), "\n")
+	if len(impl) != 2 {
+		t.Fatalf("Entwickler bekam %d Anweisungen, erwartet 2", len(impl))
+	}
+	if strings.Contains(impl[0], "Artefakt review.json") || strings.Contains(impl[0], "Durchlauf") {
+		t.Errorf("erster Durchlauf mit Review-Feedback: %s", impl[0])
+	}
+	for _, want := range []string{"Durchlauf 2", "Test fehlt", "Artefakt review.json (Schritt review, Rolle reviewer)", "zurück zu implement"} {
+		if !strings.Contains(impl[1], want) {
+			t.Errorf("zweiter Durchlauf ohne %q:\n%s", want, impl[1])
+		}
+	}
+	r := e.run(v.ID)
+	if r.Steps[3].Status != store.StepSkipped || r.Steps[2].Status != store.StepDone || r.Steps[0].Iteration != 2 {
+		t.Fatalf("Schritte %+v", r.Steps)
+	}
+	if len(r.History) != 3 || r.History[2].Name != "decide" || r.History[2].Status != store.StepLooped {
+		t.Fatalf("History %+v", r.History)
+	}
+
+	// Neustart mitten in der Schleife, dann Ablehnen am Gate mit Begründung → dritter Durchlauf.
+	e.shutdown()
+	e.boot()
+	waitFor(t, "neue Freigabe", func() bool { return e.run(v.ID).Steps[4].ApprovalID != final.ApprovalID })
+	e.decide(e.run(v.ID).Steps[4].ApprovalID, store.DecisionDeny, "Bitte Doku ergänzen")
+	waitFor(t, "dritter Durchlauf am Gate", func() bool {
+		r := e.run(v.ID)
+		return r.Steps[4].Iteration == 2 && r.Steps[4].Status == store.StepWaiting
+	})
+	impl = strings.Split(strings.TrimSpace(e.inputs("implement")), "\n")
+	if len(impl) != 3 || !strings.Contains(impl[2], "Bitte Doku ergänzen") || !strings.Contains(impl[2], "Freigabe final (abgelehnt") {
+		t.Fatalf("dritter Durchlauf ohne Begründung der Ablehnung:\n%s", impl[len(impl)-1])
+	}
+	e.decide(e.run(v.ID).Steps[4].ApprovalID, store.DecisionAllow, "")
+	waitFor(t, "Run fertig", func() bool { return e.run(v.ID).Status == store.RunDone })
+
+	got, err := e.runner.Get(e.ctx, v.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var review Artifact
+	for _, a := range got.Artifacts {
+		if a.Name == "review.json" {
+			review = a
+		}
+	}
+	if len(review.Iterations) != 3 {
+		t.Fatalf("Artefakt review.json %+v", review)
+	}
+	first, err := e.runner.ReadArtifactIteration(e.ctx, v.ID, "review.json", 1)
+	if err != nil || !strings.Contains(string(first), "Test fehlt") {
+		t.Fatalf("review.json aus Durchlauf 1: %q %v", first, err)
+	}
+	if latest, _ := e.runner.ReadArtifact(e.ctx, v.ID, "review.json"); !strings.Contains(string(latest), "approve") {
+		t.Fatalf("jüngstes review.json: %s", latest)
+	}
+}
+
+func TestRunLoopExhausted(t *testing.T) {
+	e := setup(t)
+	changes := `{"verdict": "changes", "comments": ["noch nicht"]}`
+	e.answer("review", changes, changes, changes)
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "l", Task: "Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "Run gescheitert", func() bool { return e.run(v.ID).Status == store.RunFailed })
+	r := e.run(v.ID)
+	if !strings.Contains(r.Error, "nach 3 Durchläufen noch wahr") || r.Steps[0].Iteration != 3 {
 		t.Fatalf("Run %+v", r)
 	}
 }
