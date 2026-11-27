@@ -21,7 +21,7 @@ func sandboxSetup(t *testing.T, projectYAML string) *env {
 	t.Helper()
 	img := sandboxtest.Image(t)
 	e := setup(t, projectYAML)
-	sb := sandbox.New(sandbox.Options{DataDir: e.dataDir, Image: img, ProxyBinary: sandboxtest.ProxyBinary(t), Logger: slog.Default()})
+	sb := sandbox.New(sandbox.Options{Docker: sandboxtest.Docker(), DataDir: e.dataDir, Image: img, ProxyBinary: sandboxtest.ProxyBinary(t), Logger: slog.Default()})
 	e.ws.SetSandbox(sb, true)
 	t.Cleanup(func() {
 		_, _ = sb.GC(context.Background(), func(string) bool { return false }, false)

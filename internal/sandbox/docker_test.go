@@ -52,6 +52,7 @@ func setup(t *testing.T, cfg ...sandbox.Config) *env {
 	dataDir := t.TempDir()
 	e := &env{}
 	m := sandbox.New(sandbox.Options{
+		Docker:  sandboxtest.Docker(),
 		DataDir: dataDir, Image: img, ProxyBinary: proxyBinary(t),
 		Logger:  slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
 		Secrets: func() map[string]string { return map[string]string{"anthropic": testSecret} },
@@ -123,8 +124,14 @@ func TestContainerIsolation(t *testing.T) {
 	if got := e.exec(t, "test -w "+sandbox.ProxyBinary+" && echo schreibbar || echo nur-lesend"); got != "nur-lesend" {
 		t.Errorf("Hook-Binary: %s", got)
 	}
-	if got := e.exec(t, "id -u"); got != strconv.Itoa(os.Getuid()) || got == "0" {
-		t.Errorf("UID im Container = %s", got)
+	// UID im Container: die des Nutzers, nur unter rootless Docker root (= Nutzer auf dem Host).
+	rt, _ := e.m.Runtime()
+	wantUID := strconv.Itoa(os.Getuid())
+	if rt.RootInContainer() {
+		wantUID = "0"
+	}
+	if got := e.exec(t, "id -u"); got != wantUID || (got == "0" && !rt.RootInContainer()) {
+		t.Errorf("UID im Container (%s) = %s, erwartet %s", rt.Name(), got, wantUID)
 	}
 	if got := e.exec(t, "grep CapEff /proc/self/status | tr -d ' \\t'"); got != "CapEff:0000000000000000" {
 		t.Errorf("Capabilities: %s", got)
@@ -143,6 +150,17 @@ func TestContainerIsolation(t *testing.T) {
 	e.exec(t, "echo hallo > /workspace/aus-dem-container")
 	if data, err := os.ReadFile(filepath.Join(e.path, "aus-dem-container")); err != nil || string(data) != "hallo\n" {
 		t.Errorf("Datei im Workspace: %q, %v", data, err)
+	}
+	// #94: Dateien und Verzeichnisse aus dem Container gehören auf dem Host dem Nutzer.
+	e.exec(t, "mkdir -p /workspace/neu/tief && echo x > /workspace/neu/tief/datei")
+	for _, p := range []string{"aus-dem-container", "neu", "neu/tief/datei"} {
+		fi, err := os.Stat(filepath.Join(e.path, p))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != os.Getuid() {
+			t.Errorf("%s gehört auf dem Host UID %d, erwartet %d (%s)", p, st.Uid, os.Getuid(), rt.Name())
+		}
 	}
 }
 
@@ -322,7 +340,7 @@ func TestGCAndRecover(t *testing.T) {
 	if c, _ := e.m.Get(ctx, e.ws); c != nil {
 		t.Fatal("verwaister Container existiert noch")
 	}
-	if exec.Command("docker", "network", "inspect", sandbox.NetworkName(e.ws)).Run() == nil {
+	if exec.Command(sandboxtest.Docker(), "network", "inspect", sandbox.NetworkName(e.ws)).Run() == nil {
 		t.Fatal("Netz des verwaisten Workspaces existiert noch")
 	}
 }
@@ -409,7 +427,7 @@ func TestEgressPolicy(t *testing.T) {
 func TestSecretsStayOutOfContainers(t *testing.T) {
 	e := setup(t)
 	for _, name := range []string{sandbox.ContainerName(e.ws), sandbox.ProxyName(e.ws)} {
-		out, err := exec.Command("docker", "container", "inspect", name).CombinedOutput()
+		out, err := exec.Command(sandboxtest.Docker(), "container", "inspect", name).CombinedOutput()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -475,7 +493,7 @@ func TestRecreatesM5Container(t *testing.T) {
 			dataDir = v
 		}
 	}
-	out, err := exec.Command("docker", "container", "create", "--name", sandbox.ContainerName(e.ws),
+	out, err := exec.Command(sandboxtest.Docker(), "container", "create", "--name", sandbox.ContainerName(e.ws),
 		"--label", sandbox.LabelManaged+"=true", "--label", sandbox.LabelWorkspace+"="+e.ws, "--label", sandbox.LabelDataDir+"="+dataDir,
 		"--entrypoint", "sleep", img, "infinity").CombinedOutput()
 	if err != nil {

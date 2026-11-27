@@ -77,7 +77,7 @@ func proxyEnv() []string {
 // ProxyCreateArgs liefert die Argumente für docker create des Proxy-Containers (für Tests
 // exportiert). Das Token kommt über die Umgebung der CLI, nicht über die Argumente.
 func (m *Manager) ProxyCreateArgs(workspace string) []string {
-	return []string{
+	args := []string{
 		"container", "create",
 		"--name", ProxyName(workspace),
 		"--label", LabelManaged + "=true",
@@ -88,7 +88,11 @@ func (m *Manager) ProxyCreateArgs(workspace string) []string {
 		"--label", LabelBinary + "=" + m.opts.ProxyBinary,
 		"--hostname", ProxyAlias,
 		"--network", EgressNetwork,
-		"--user", strconv.Itoa(m.opts.UID) + ":" + strconv.Itoa(m.opts.GID),
+	}
+	// Gleiche UID-Abbildung wie der Agent-Container: das gemountete Binary gehört dem Nutzer
+	// und ist nur für ihn lesbar.
+	args = append(args, m.userArgs()...)
+	return append(args,
 		"--cap-drop", "ALL",
 		"--security-opt", "no-new-privileges",
 		"--read-only",
@@ -96,31 +100,29 @@ func (m *Manager) ProxyCreateArgs(workspace string) []string {
 		"--memory", "256m",
 		"--cpus", "1",
 		"--pids-limit", "256",
-		"--mount", "type=bind,source=" + m.opts.ProxyBinary + ",target=" + ProxyBinary + ",readonly",
+		"--mount", "type=bind,source="+m.opts.ProxyBinary+",target="+ProxyBinary+",readonly",
 		"--env", proxy.EnvToken,
-		"--publish", "127.0.0.1::" + strconv.Itoa(proxy.ControlPort),
-		"--publish", "127.0.0.1::" + strconv.Itoa(proxy.IDEPort),
+		"--publish", "127.0.0.1::"+strconv.Itoa(proxy.ControlPort),
+		"--publish", "127.0.0.1::"+strconv.Itoa(proxy.IDEPort),
 		"--entrypoint", ProxyBinary,
 		m.opts.ProxyImage,
 		"proxy",
-		"--listen", ":" + strconv.Itoa(proxy.Port),
-		"--control", ":" + strconv.Itoa(proxy.ControlPort),
-		"--ide", ":" + strconv.Itoa(proxy.IDEPort),
-		"--ide-target", AgentAlias + ":" + strconv.Itoa(IDEPort),
-	}
+		"--listen", ":"+strconv.Itoa(proxy.Port),
+		"--control", ":"+strconv.Itoa(proxy.ControlPort),
+		"--ide", ":"+strconv.Itoa(proxy.IDEPort),
+		"--ide-target", AgentAlias+":"+strconv.Itoa(IDEPort),
+	)
 }
 
 // ensureNetworks legt das Egress-Netz und das interne Netz des Workspaces an, falls nötig.
 // created meldet ein neu angelegtes Workspace-Netz.
 func (m *Manager) ensureNetworks(ctx context.Context, workspace string) (created bool, err error) {
-	if _, err := m.run(ctx, nil, "network", "inspect", "--format", "{{.Id}}", EgressNetwork); err != nil {
+	if _, err := m.run(ctx, nil, "network", "inspect", "--format", "{{.Name}}", EgressNetwork); err != nil {
 		if !isNoSuch(err) {
 			return false, fmt.Errorf("Egress-Netz prüfen: %w", err)
 		}
-		_, err := m.run(ctx, nil, "network", "create", "--driver", "bridge",
-			"--label", LabelManaged+"=true",
-			"--opt", "com.docker.network.bridge.enable_icc=false",
-			EgressNetwork)
+		args := append([]string{"network", "create", "--driver", "bridge", "--label", LabelManaged + "=true"}, m.egressNetworkOpts()...)
+		_, err := m.run(ctx, nil, append(args, EgressNetwork)...)
 		if err != nil && !strings.Contains(err.Error(), "already exists") {
 			return false, fmt.Errorf("Egress-Netz anlegen: %w", err)
 		}
@@ -555,17 +557,36 @@ type networkInfo struct {
 	DataDir   string
 }
 
+// listNetworks liest die Netze von ADE per inspect (JSON), weil sich die Formate von
+// network ls zwischen Docker und Podman unterscheiden.
 func (m *Manager) listNetworks(ctx context.Context) ([]networkInfo, error) {
-	out, err := m.run(ctx, nil, "network", "ls", "--filter", "label="+LabelManaged+"=true",
-		"--format", `{{.Name}}	{{.Label "`+LabelWorkspace+`"}}	{{.Label "`+LabelDataDir+`"}}`)
+	out, err := m.run(ctx, nil, "network", "ls", "--quiet", "--filter", "label="+LabelManaged+"=true")
 	if err != nil {
 		return nil, err
 	}
-	var nets []networkInfo
-	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
-		f := strings.Split(line, "\t")
-		if len(f) == 3 && f[0] != "" {
-			nets = append(nets, networkInfo{Name: f[0], Workspace: f[1], DataDir: f[2]})
+	refs := strings.Fields(string(out))
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	out, err = m.run(ctx, nil, append([]string{"network", "inspect", "--"}, refs...)...)
+	if err != nil && !isNoSuch(err) {
+		return nil, err
+	}
+	// Docker: Name, Labels; Podman: name, labels (encoding/json ignoriert die Schreibweise).
+	var raw []struct {
+		Name   string
+		Labels map[string]string
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		if len(bytes.TrimSpace(out)) == 0 {
+			return nil, nil // alle zwischen ls und inspect verschwunden
+		}
+		return nil, fmt.Errorf("network inspect lesen: %w", err)
+	}
+	nets := make([]networkInfo, 0, len(raw))
+	for _, r := range raw {
+		if r.Name != "" {
+			nets = append(nets, networkInfo{Name: r.Name, Workspace: r.Labels[LabelWorkspace], DataDir: r.Labels[LabelDataDir]})
 		}
 	}
 	return nets, nil
