@@ -39,10 +39,17 @@ func TestRunServesAndCleansUp(t *testing.T) {
 	go func() { done <- Run(ctx, cfg, "test", slog.New(slog.NewTextHandler(io.Discard, nil))) }()
 
 	c := NewClient(cfg)
-	waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
+	// Großzügig: Unter -race und mit parallelen Paketen braucht der Start in der CI teils über 5 s.
+	waitCtx, waitCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer waitCancel()
 	h, err := c.WaitHealthy(waitCtx)
 	if err != nil {
+		// Endete Run vorzeitig, dessen Fehler melden statt nur den Timeout.
+		select {
+		case runErr := <-done:
+			t.Fatalf("Daemon beendet: %v (%v)", runErr, err)
+		default:
+		}
 		t.Fatal(err)
 	}
 	if h.Version != "test" || h.Schema < 1 {
