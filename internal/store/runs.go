@@ -91,6 +91,8 @@ type RunStep struct {
 	Index int `json:"index"`
 	// Row ist die Zeile (eindeutig im Run, für UpdateRunStep).
 	Row int `json:"row"`
+	// Group ist bei Mitgliedern einer parallelen Gruppe die Position des ersten Mitglieds.
+	Group *int `json:"group,omitempty"`
 	// Iteration ist der Durchlauf (1, 2, … nach Rücksprüngen).
 	Iteration  int    `json:"iteration"`
 	Name       string `json:"name"`
@@ -161,8 +163,8 @@ func (s *Store) CreateRun(ctx context.Context, r *Run) error {
 		if status == "" {
 			status = StepPending
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO run_steps (run_id, idx, pos, iteration, name, kind, role, read_only, status, output)
-			VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`, r.ID, i, i, st.Name, st.Kind, st.Role, st.ReadOnly, status, st.Output); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO run_steps (run_id, idx, pos, grp, iteration, name, kind, role, read_only, status, output)
+			VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`, r.ID, i, i, st.Group, st.Name, st.Kind, st.Role, st.ReadOnly, status, st.Output); err != nil {
 			return fmt.Errorf("Schritt speichern: %w", err)
 		}
 	}
@@ -193,7 +195,7 @@ func (s *Store) GetRun(ctx context.Context, id string) (*Run, error) {
 }
 
 func (s *Store) runSteps(ctx context.Context, r *Run) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT pos, idx, iteration, name, kind, role, read_only, status, session_id,
+	rows, err := s.db.QueryContext(ctx, `SELECT pos, idx, grp, iteration, name, kind, role, read_only, status, session_id,
 		approval_id, output, error, fixes, started_at, ended_at FROM run_steps WHERE run_id = ? ORDER BY pos, iteration, idx`, r.ID)
 	if err != nil {
 		return err
@@ -203,11 +205,16 @@ func (s *Store) runSteps(ctx context.Context, r *Run) error {
 	for rows.Next() {
 		var st RunStep
 		var started, ended sql.NullString
-		if err := rows.Scan(&st.Index, &st.Row, &st.Iteration, &st.Name, &st.Kind, &st.Role, &st.ReadOnly, &st.Status,
+		var grp sql.NullInt64
+		if err := rows.Scan(&st.Index, &st.Row, &grp, &st.Iteration, &st.Name, &st.Kind, &st.Role, &st.ReadOnly, &st.Status,
 			&st.SessionID, &st.ApprovalID, &st.Output, &st.Error, &st.Fixes, &started, &ended); err != nil {
 			return err
 		}
 		st.StartedAt, st.EndedAt = nullTime(started), nullTime(ended)
+		if grp.Valid {
+			g := int(grp.Int64)
+			st.Group = &g
+		}
 		// Je Position gewinnt der jüngste Durchlauf; die älteren wandern in History.
 		if n := len(r.Steps); n > 0 && r.Steps[n-1].Index == st.Index {
 			r.History = append(r.History, r.Steps[n-1])
@@ -241,8 +248,8 @@ func (s *Store) RepeatSteps(ctx context.Context, runID string, from, to int) err
 		return err
 	}
 	for pos := from; pos <= to; pos++ {
-		res, err := tx.ExecContext(ctx, `INSERT INTO run_steps (run_id, idx, pos, iteration, name, kind, role, read_only, output)
-			SELECT run_id, ?, pos, iteration + 1, name, kind, role, read_only, output FROM run_steps
+		res, err := tx.ExecContext(ctx, `INSERT INTO run_steps (run_id, idx, pos, grp, iteration, name, kind, role, read_only, output)
+			SELECT run_id, ?, pos, grp, iteration + 1, name, kind, role, read_only, output FROM run_steps
 			WHERE run_id = ? AND pos = ? ORDER BY iteration DESC LIMIT 1`, next, runID, pos)
 		if err != nil {
 			return fmt.Errorf("Durchlauf anlegen: %w", err)

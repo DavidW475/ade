@@ -268,7 +268,7 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 		ws = created
 	}
 	if !caps.Terminal {
-		if other := m.activeAgentIn(ws.ID); other != "" {
+		if other := m.activeAgentIn(ws.ID, extra.ReadOnly); other != "" {
 			return nil, apperr.Conflict("im Workspace %s läuft bereits der Agent %s – erst stoppen oder einen neuen Workspace verwenden", ws.ID, other)
 		}
 	}
@@ -353,12 +353,18 @@ func (m *Manager) resolveWorkspace(ctx context.Context, projectID, workspaceID s
 	return ws, p, nil
 }
 
-// activeAgentIn liefert die ID einer laufenden Nicht-Terminal-Session im Workspace.
-func (m *Manager) activeAgentIn(workspaceID string) string {
+// activeAgentIn liefert die ID einer laufenden Nicht-Terminal-Session im Workspace, die einem
+// neuen Agenten im Weg ist. Lese-Rollen arbeiten in einem eigenen Container bzw. Schnappschuss:
+// Sie dürfen neben jedem Agenten laufen und stehen keinem im Weg (parallele Schritte einer
+// Fabrik). Zwei Agenten mit Schreibzugriff im selben Workspace gibt es nicht.
+func (m *Manager) activeAgentIn(workspaceID string, readOnly bool) string {
+	if readOnly {
+		return ""
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id, r := range m.runs {
-		if r.workspaceID == workspaceID && !r.caps.Terminal {
+		if r.workspaceID == workspaceID && !r.caps.Terminal && !r.readOnly {
 			return id
 		}
 	}
@@ -457,7 +463,7 @@ func (m *Manager) Input(ctx context.Context, id, text string) (*View, error) {
 	if err != nil {
 		return nil, err
 	}
-	if other := m.activeAgentIn(ws.ID); other != "" && !caps.Terminal {
+	if other := m.activeAgentIn(ws.ID, sess.ReadOnly); other != "" && !caps.Terminal {
 		return nil, apperr.Conflict("im Workspace %s läuft bereits der Agent %s", ws.ID, other)
 	}
 	if text == "" {

@@ -186,8 +186,8 @@ type Step struct {
 	OnExhausted string `yaml:"on_exhausted" json:"on_exhausted,omitempty"`
 	// OnDeny lässt ein Gate beim Ablehnen zurückspringen statt den Run abzubrechen.
 	OnDeny *OnDeny `yaml:"on_deny" json:"on_deny,omitempty"`
-	// Ab #83; hier nur für eine klare Fehlermeldung.
-	Parallel []Step `yaml:"parallel" json:"-"`
+	// Parallel sind Rollen-Schritte, die gleichzeitig laufen (Gruppe ohne eigenen Namen).
+	Parallel []Step `yaml:"parallel" json:"parallel,omitempty"`
 }
 
 // OnDeny ist der Rücksprung eines Gates beim Ablehnen.
@@ -226,11 +226,11 @@ func (s *Step) Target() string {
 	return s.Goto
 }
 
-// Pos liefert die Position des Schritts name im Ablauf (-1: gibt es nicht).
+// Pos liefert die Position des Schritts name im flachen Ablauf (-1: gibt es nicht).
 func (f *Factory) Pos(name string) int {
-	for i := range f.Flow {
-		if f.Flow[i].Step == name {
-			return i
+	for _, s := range f.Flat() {
+		if s.Step.Step == name {
+			return s.Pos
 		}
 	}
 	return -1
@@ -298,12 +298,12 @@ func Parse(path string, data []byte, read func(rel string) ([]byte, error)) (*Fa
 			r.PromptText = strings.TrimSpace(string(b))
 		}
 		// Felder in Bedingungen erst jetzt gegen die gelesenen Schemas prüfen.
-		for i, st := range f.Flow {
+		for _, st := range f.Flat() {
 			if st.When == "" {
 				continue
 			}
-			if msg := f.checkWhen(i, st.When); msg != "" {
-				return nil, fail("flow[%d] (%s).when: %s", i, st.Step, msg)
+			if msg := f.checkWhen(st, st.When); msg != "" {
+				return nil, fail("flow (%s).when: %s", st.Step.Step, msg)
 			}
 		}
 	}
@@ -464,36 +464,103 @@ func (f *Factory) validate() string {
 	return ""
 }
 
-// validateFlow prüft den Ablauf: Schritte, Bedingungen, Rücksprünge und dass jede Rolle ihre
-// Eingaben bekommt (im ersten Durchlauf oder nach einem Rücksprung).
+// Grenzen für parallele Gruppen.
+const (
+	minParallel = 2
+	maxParallel = 8
+)
+
+// FlatStep ist ein Schritt im flachen Ablauf: Mitglieder paralleler Gruppen stehen
+// nacheinander, Group ist die Position des ersten Mitglieds (-1: keine Gruppe).
+type FlatStep struct {
+	*Step
+	Pos   int
+	Group int
+}
+
+// Start liefert die Position, ab der der Schritt läuft (Gruppenanfang oder eigene Position).
+func (s FlatStep) Start() int {
+	if s.Group >= 0 {
+		return s.Group
+	}
+	return s.Pos
+}
+
+// Flat liefert den Ablauf flach (so legt ihn ein Run an).
+func (f *Factory) Flat() []FlatStep {
+	var out []FlatStep
+	for i := range f.Flow {
+		s := &f.Flow[i]
+		if len(s.Parallel) == 0 {
+			out = append(out, FlatStep{Step: s, Pos: len(out), Group: -1})
+			continue
+		}
+		g := len(out)
+		for j := range s.Parallel {
+			out = append(out, FlatStep{Step: &s.Parallel[j], Pos: len(out), Group: g})
+		}
+	}
+	return out
+}
+
+// validateFlow prüft den Ablauf: Schritte, Gruppen, Bedingungen, Rücksprünge und dass jede
+// Rolle ihre Eingaben bekommt (im ersten Durchlauf oder nach einem Rücksprung).
 func (f *Factory) validateFlow() string {
 	if len(f.Flow) == 0 {
 		return "flow: mindestens ein Schritt nötig"
 	}
-	if len(f.Flow) > maxSteps {
+	for i := range f.Flow {
+		s := &f.Flow[i]
+		if len(s.Parallel) == 0 {
+			continue
+		}
+		at := fmt.Sprintf("flow[%d].parallel", i)
+		if s.Step != "" || s.Role != "" || s.Gate != "" || s.Action != "" || s.Goto != "" || s.When != "" ||
+			s.OnDeny != nil || s.MaxIterations != 0 || s.OnExhausted != "" {
+			return at + ": eine parallele Gruppe hat nur parallel (Bedingungen an die einzelnen Schritte)"
+		}
+		if len(s.Parallel) < minParallel || len(s.Parallel) > maxParallel {
+			return fmt.Sprintf("%s: %d bis %d Schritte", at, minParallel, maxParallel)
+		}
+		writers := 0
+		for j := range s.Parallel {
+			m := &s.Parallel[j]
+			mat := fmt.Sprintf("%s[%d]", at, j)
+			if len(m.Parallel) > 0 {
+				return mat + ": parallele Gruppen lassen sich nicht verschachteln"
+			}
+			if m.Role == "" || m.Gate != "" || m.Action != "" || m.Goto != "" || m.OnDeny != nil || m.MaxIterations != 0 || m.OnExhausted != "" {
+				return mat + ": parallel laufen nur Rollen (role, optional when)"
+			}
+			if r := f.Roles[m.Role]; r != nil && !r.ReadOnly() {
+				writers++
+			}
+		}
+		if writers > 1 {
+			return at + ": höchstens eine Rolle mit Schreibrechten je Gruppe (alle arbeiten im selben Workspace)"
+		}
+	}
+	flat := f.Flat()
+	if len(flat) > maxSteps {
 		return fmt.Sprintf("flow: höchstens %d Schritte", maxSteps)
 	}
 	pos := map[string]int{}
-	for i := range f.Flow {
-		s := &f.Flow[i]
-		at := fmt.Sprintf("flow[%d]", i)
-		if len(s.Parallel) > 0 {
-			return at + ".parallel: parallele Schritte werden noch nicht unterstützt"
+	label := func(s FlatStep) string { return fmt.Sprintf("flow (%s)", s.Step.Step) }
+	for _, s := range flat {
+		if !ValidName(s.Step.Step) {
+			return fmt.Sprintf("flow: Schritt %q ist ungültig (Kleinbuchstaben, Ziffern, - und _)", s.Step.Step)
 		}
-		if !ValidName(s.Step) {
-			return fmt.Sprintf("%s.step: %q ist ungültig (Kleinbuchstaben, Ziffern, - und _)", at, s.Step)
+		if _, ok := pos[s.Step.Step]; ok {
+			return fmt.Sprintf("flow: Schritt %s gibt es schon", s.Step.Step)
 		}
-		if _, ok := pos[s.Step]; ok {
-			return fmt.Sprintf("%s.step: %s gibt es schon", at, s.Step)
-		}
-		pos[s.Step] = i
+		pos[s.Step.Step] = s.Pos
 	}
-	// Rücksprünge: Ziel → Herkunft (für Eingaben, die erst ein späterer Schritt erzeugt).
+	// Rücksprünge: Herkunft → Ziel (für Eingaben, die erst ein späterer Schritt erzeugt).
 	type loop struct{ from, to int }
 	var loops []loop
-	for i := range f.Flow {
-		s := &f.Flow[i]
-		at := fmt.Sprintf("flow[%d] (%s)", i, s.Step)
+	for _, fs := range flat {
+		s := fs.Step
+		at := label(fs)
 		n := 0
 		for _, v := range []string{s.Role, s.Gate, s.Action} {
 			if v != "" {
@@ -511,7 +578,7 @@ func (f *Factory) validateFlow() string {
 		}
 		kind := s.Kind()
 		if s.When != "" {
-			if msg := f.checkWhen(i, s.When); msg != "" {
+			if msg := f.checkWhen(fs, s.When); msg != "" {
 				return at + ".when: " + msg
 			}
 		} else if kind == KindDecision {
@@ -535,13 +602,14 @@ func (f *Factory) validateFlow() string {
 				field = "on_deny.goto"
 			}
 			p, ok := pos[t]
-			switch {
-			case !ok:
+			if !ok {
 				return fmt.Sprintf("%s.%s: Schritt %s gibt es nicht", at, field, t)
-			case p >= i:
+			}
+			to := flat[p].Start()
+			if to >= fs.Pos {
 				return fmt.Sprintf("%s.%s: nur Rücksprünge auf frühere Schritte (%s liegt nicht davor)", at, field, t)
 			}
-			loops = append(loops, loop{from: i, to: p})
+			loops = append(loops, loop{from: fs.Pos, to: to})
 		}
 		switch s.OnExhausted {
 		case "", ExhaustedFail, ExhaustedContinue:
@@ -561,64 +629,66 @@ func (f *Factory) validateFlow() string {
 			if s.Action != ActionPullRequest {
 				return fmt.Sprintf("%s.action: %q ist ungültig (erlaubt: pull_request)", at, s.Action)
 			}
-			if i != len(f.Flow)-1 {
+			if fs.Pos != len(flat)-1 {
 				return at + ".action: pull_request muss der letzte Schritt sein"
 			}
 		}
 	}
-	// Eingaben: im ersten Durchlauf von einem früheren Schritt erzeugt oder durch einen
-	// Rücksprung von hinter dem Erzeuger auf den Verbraucher oder davor erreichbar.
+	// Eingaben: im ersten Durchlauf von einem früheren Schritt erzeugt (nicht aus derselben
+	// Gruppe) oder durch einen Rücksprung von hinter dem Erzeuger erreichbar.
 	producers := map[string][]int{}
-	for i, s := range f.Flow {
+	for _, s := range flat {
 		if r := f.Roles[s.Role]; r != nil {
 			for _, o := range r.Outputs {
-				producers[o.Name] = append(producers[o.Name], i)
+				producers[o.Name] = append(producers[o.Name], s.Pos)
 			}
 		}
 	}
-	for i, s := range f.Flow {
+	for _, s := range flat {
 		r := f.Roles[s.Role]
 		if r == nil {
 			continue
 		}
+		start := s.Start()
 		for _, a := range r.Inputs {
 			ok := false
 			for _, p := range producers[a] {
-				if p < i {
+				if p < start {
 					ok = true
 				}
 				for _, l := range loops {
-					if l.from >= p && l.to <= i {
+					if l.from >= p && l.to <= start {
 						ok = true
 					}
 				}
 			}
 			if !ok {
-				return fmt.Sprintf("flow[%d] (%s): die Rolle %s braucht %s, das erst ein späterer Schritt erzeugt (und kein Rücksprung führt zurück)", i, s.Step, s.Role, a)
+				return fmt.Sprintf("%s: die Rolle %s braucht %s, das erst ein späterer Schritt erzeugt (und kein Rücksprung führt zurück)", label(s), s.Role, a)
 			}
 		}
 	}
 	return ""
 }
 
-// checkWhen prüft die Bedingung des Schritts an Position i: Jeder Pfad nennt einen früheren
-// Schritt mit strukturiertem Artefakt und, falls das Schema Felder nennt, eines davon.
-func (f *Factory) checkWhen(i int, src string) string {
+// checkWhen prüft die Bedingung eines Schritts: Jeder Pfad nennt einen früheren Schritt (nicht
+// aus derselben Gruppe) mit strukturiertem Artefakt und, falls das Schema Felder nennt, eines
+// davon.
+func (f *Factory) checkWhen(at FlatStep, src string) string {
 	e, err := ParseExpr(src)
 	if err != nil {
 		return err.Error()
 	}
+	flat := f.Flat()
 	for _, path := range e.Paths() {
 		p := f.Pos(path[0])
 		if p < 0 {
 			return fmt.Sprintf("Schritt %s gibt es nicht", path[0])
 		}
-		if p >= i {
+		if p >= at.Start() {
 			return fmt.Sprintf("%s ist kein früherer Schritt", path[0])
 		}
-		r := f.Roles[f.Flow[p].Role]
-		out := (*Output)(nil)
-		if r != nil {
+		var out *Output
+		if r := f.Roles[flat[p].Role]; r != nil {
 			out = r.OutputSpec()
 		}
 		if !out.Structured() {

@@ -37,15 +37,21 @@ type StepSummary struct {
 	Kind     string `json:"kind"`
 	Role     string `json:"role,omitempty"`
 	ReadOnly bool   `json:"read_only,omitempty"`
+	// Group ist bei Mitgliedern einer parallelen Gruppe die Position des ersten Mitglieds.
+	Group *int `json:"group,omitempty"`
 }
 
-// Steps liefert die Schritte für die Übersicht.
+// Steps liefert die Schritte (flach) für die Übersicht.
 func (f *Factory) Steps() []StepSummary {
-	out := make([]StepSummary, len(f.Flow))
-	for i, s := range f.Flow {
-		out[i] = StepSummary{Name: s.Step, Kind: s.Kind(), Role: s.Role}
+	flat := f.Flat()
+	out := make([]StepSummary, len(flat))
+	for i, s := range flat {
+		out[i] = StepSummary{Name: s.Step.Step, Kind: s.Kind(), Role: s.Role}
 		if r := f.Roles[s.Role]; r != nil {
 			out[i].ReadOnly = r.ReadOnly()
+		}
+		if s.Group >= 0 {
+			out[i].Group = &s.Group
 		}
 	}
 	return out
