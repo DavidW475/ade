@@ -79,3 +79,53 @@ jobs:
           distribution: goreleaser
           version: "~> v2"
           args: check
+
+  # #94: Sandbox unter rootless Laufzeiten. Die Tests laufen im systemd-User-Manager des
+  # Runner-Nutzers (linger), damit die cgroup-Controller wie auf einem Desktop delegiert sind.
+  sandbox-runtimes:
+    name: Sandbox (${{ matrix.runtime }})
+    runs-on: ubuntu-24.04
+    needs: web
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [podman, docker-rootless]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v5
+        with:
+          name: web-dist
+          path: internal/api/dist
+      - name: systemd-User-Manager starten
+        run: |
+          sudo loginctl enable-linger "$USER"
+          uid=$(id -u)
+          for _ in $(seq 30); do [ -S "/run/user/$uid/bus" ] && break; sleep 1; done
+          echo "XDG_RUNTIME_DIR=/run/user/$uid" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus" >> "$GITHUB_ENV"
+      - name: Podman
+        if: matrix.runtime == 'podman'
+        run: |
+          podman version
+          podman info --format '{{json .host.security}} {{json .host.cgroupControllers}} {{.host.networkBackend}}'
+          echo "ADE_TEST_DOCKER_BIN=podman" >> "$GITHUB_ENV"
+      - name: rootless Docker
+        if: matrix.runtime == 'docker-rootless'
+        run: |
+          # Ubuntu 24.04 beschränkt unprivilegierte User-Namespaces per AppArmor (rootlesskit).
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          command -v dockerd-rootless-setuptool.sh || sudo apt-get install -y docker-ce-rootless-extras
+          sudo systemctl disable --now docker.service docker.socket
+          sudo rm -f /var/run/docker.sock
+          dockerd-rootless-setuptool.sh install
+          echo "DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock" >> "$GITHUB_ENV"
+      - name: Laufzeit
+        if: matrix.runtime == 'docker-rootless'
+        run: docker info --format '{{json .SecurityOptions}} mem={{.MemoryLimit}} cpu={{.CpuCfsQuota}} pids={{.PidsLimit}}'
+      - name: Sandbox-Tests
+        run: go test -race -count=1 ./internal/sandbox/... ./internal/agent/...
+        env:
+          ADE_TEST_DOCKER: "1"

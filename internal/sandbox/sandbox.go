@@ -70,8 +70,11 @@ const StopTimeout = 3 * time.Second
 
 // Options konfiguriert den Manager.
 type Options struct {
-	// Docker ist das docker-Binary (Standard: docker im PATH).
+	// Docker ist das docker-Binary (Standard: docker im PATH). Auch podman oder ein
+	// docker-Shim von Podman; die Laufzeit erkennt Available.
 	Docker string
+	// Runtime legt die Laufzeit fest, statt sie zu erkennen (für Tests).
+	Runtime *Runtime
 	// DataDir kennzeichnet die Container dieser ADE-Instanz (Label ade.data_dir).
 	DataDir string
 	// Image ist das Standard-Image, wenn sandbox.yaml keins nennt.
@@ -105,6 +108,7 @@ type Manager struct {
 	mu     sync.Mutex
 	locks  map[string]*sync.Mutex
 	avail  *availability
+	rt     *Runtime             // erkannte Laufzeit (nil: noch nicht erkannt)
 	ensure map[string]time.Time // zuletzt als laufend gesehen
 	links  map[string]*proxyLink
 	source SpecSource
@@ -149,6 +153,10 @@ func New(opts Options) *Manager {
 		links: map[string]*proxyLink{},
 		// Nur 127.0.0.1, nie über einen Proxy aus der Umgebung des Daemons.
 		http: &http.Client{Transport: &http.Transport{Proxy: nil, MaxIdleConnsPerHost: 4}},
+	}
+	if opts.Runtime != nil {
+		rt := *opts.Runtime
+		m.rt = &rt
 	}
 	m.bg, m.bgCancel = context.WithCancel(context.Background())
 	return m
@@ -201,7 +209,8 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.Err }
 
-// dockerEnv ist die Umgebung der Docker-CLI: nur, was sie zum Finden des Daemons braucht.
+// dockerEnv ist die Umgebung der Docker-CLI: nur, was sie (oder Podman) zum Finden des
+// Daemons bzw. der rootless-Umgebung braucht.
 func dockerEnv() []string {
 	var out []string
 	for _, kv := range os.Environ() {
@@ -218,10 +227,11 @@ func dockerEnv() []string {
 // API-Keys nicht in der Prozessliste stehen).
 func reservedEnv(k string) bool {
 	switch k {
-	case "PATH", "HOME", "USER", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME":
+	case "PATH", "HOME", "USER", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "DBUS_SESSION_BUS_ADDRESS",
+		"CONTAINER_HOST", "CONTAINER_CONNECTION", "CONTAINER_SSHKEY":
 		return true
 	}
-	return strings.HasPrefix(k, "DOCKER_")
+	return strings.HasPrefix(k, "DOCKER_") || strings.HasPrefix(k, "CONTAINERS_")
 }
 
 func (m *Manager) command(ctx context.Context, args ...string) *exec.Cmd {
@@ -246,8 +256,8 @@ func (m *Manager) run(ctx context.Context, stdin []byte, args ...string) ([]byte
 	return stdout.Bytes(), nil
 }
 
-// Available prüft (höchstens alle 30 s), ob die Docker-CLI einen Docker-Daemon erreicht,
-// und liefert dessen Version.
+// Available prüft (höchstens alle 30 s), ob die Docker-CLI eine Laufzeit erreicht, erkennt
+// deren Art (Runtime) und liefert die Version.
 func (m *Manager) Available(ctx context.Context) (string, error) {
 	m.mu.Lock()
 	if a := m.avail; a != nil && time.Since(a.at) < 30*time.Second {
@@ -257,15 +267,35 @@ func (m *Manager) Available(ctx context.Context) (string, error) {
 	m.mu.Unlock()
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	out, err := m.run(cctx, nil, "version", "--format", "{{.Server.Version}}")
-	version := strings.TrimSpace(string(out))
+	out, err := m.run(cctx, nil, "info", "--format", "{{json .}}")
+	var rt Runtime
+	if err == nil {
+		rt, err = ParseInfo(out)
+	}
 	if err != nil {
 		err = fmt.Errorf("Docker nicht erreichbar: %w", err)
 	}
 	m.mu.Lock()
-	m.avail = &availability{at: time.Now(), version: version, err: err}
+	m.avail = &availability{at: time.Now(), version: rt.Version, err: err}
+	if err == nil && m.opts.Runtime == nil {
+		if m.rt == nil || *m.rt != rt {
+			m.log.Info("Container-Laufzeit erkannt", "laufzeit", rt.Name(), "version", rt.Version)
+		}
+		m.rt = &rt
+	}
 	m.mu.Unlock()
-	return version, err
+	return rt.Version, err
+}
+
+// Runtime liefert die erkannte Container-Laufzeit; ok ist false, solange Available sie noch
+// nicht erkannt hat.
+func (m *Manager) Runtime() (rt Runtime, ok bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.rt == nil {
+		return Runtime{}, false
+	}
+	return *m.rt, true
 }
 
 // Spec beschreibt den Container eines Workspaces.
@@ -446,14 +476,16 @@ func (m *Manager) Ensure(ctx context.Context, s Spec) error {
 		return nil
 	}
 
+	// Die Laufzeit bestimmt UID und Optionen, auch für docker exec (Ergebnis 30 s gecacht).
+	if _, err := m.Available(ctx); err != nil {
+		return err
+	}
+	if err := m.checkResources(); err != nil {
+		return err
+	}
 	c, err := m.Get(ctx, s.Workspace)
 	if err != nil {
 		return err
-	}
-	if c == nil {
-		if _, err := m.Available(ctx); err != nil {
-			return err
-		}
 	}
 	netCreated, err := m.ensureNetworks(ctx, s.Workspace)
 	if err != nil {
@@ -562,20 +594,22 @@ func (m *Manager) createArgs(s Spec, reader bool) []string {
 		"--label", LabelWorkspace + "=" + s.Workspace,
 		"--label", LabelDataDir + "=" + m.opts.DataDir,
 		"--hostname", "ws-" + s.Workspace,
-		"--user", strconv.Itoa(m.opts.UID) + ":" + strconv.Itoa(m.opts.GID),
+	}
+	args = append(args, m.userArgs()...)
+	args = append(args,
 		"--cap-drop", "ALL",
 		"--security-opt", "no-new-privileges",
 		"--init",
 		"--mount", mount,
-		"--label", LabelRole + "=" + role,
-		"--label", LabelNet + "=" + NetVersion,
+		"--label", LabelRole+"="+role,
+		"--label", LabelNet+"="+NetVersion,
 		"--network", NetworkName(s.Workspace),
 		"--network-alias", alias,
 		"--dns", noDNS,
 		"--workdir", Workdir,
-		"--env", "HOME=" + Home,
-	}
-	for _, kv := range proxyEnv() {
+		"--env", "HOME="+Home,
+	)
+	for _, kv := range append(proxyEnv(), m.runtimeEnv()...) {
 		args = append(args, "--env", kv)
 	}
 	if m.opts.ProxyBinary != "" {
@@ -618,6 +652,9 @@ func (m *Manager) create(ctx context.Context, s Spec) error {
 // prepareUser legt einen passwd-Eintrag an, falls die UID im Image fehlt (sonst zeigen
 // Shells „I have no name!“ und manche Werkzeuge scheitern). Fehler sind nicht fatal.
 func (m *Manager) prepareUser(ctx context.Context, container string) {
+	if m.runtime().RootInContainer() {
+		return
+	}
 	uid, gid := strconv.Itoa(m.opts.UID), strconv.Itoa(m.opts.GID)
 	script := `getent group "$2" >/dev/null || echo "ade$2:x:$2:" >> /etc/group
 getent passwd "$1" >/dev/null || echo "ade$1:x:$1:$2:ADE:` + Home + `:/bin/bash" >> /etc/passwd`
@@ -650,7 +687,7 @@ func (m *Manager) ExecArgs(workspace string, e Exec) ([]string, []string) {
 	if e.TTY {
 		args = append(args, "--tty", "--detach-keys", DetachKeys)
 	}
-	user := strconv.Itoa(m.opts.UID) + ":" + strconv.Itoa(m.opts.GID)
+	user := m.user()
 	if e.Root {
 		user = "0"
 	}
@@ -715,7 +752,7 @@ func (m *Manager) signalIn(ctx context.Context, container, marker string, sig sy
 	}
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	_, err := m.run(cctx, nil, "exec", "--user", strconv.Itoa(m.opts.UID)+":"+strconv.Itoa(m.opts.GID),
+	_, err := m.run(cctx, nil, "exec", "--user", m.user(),
 		container, "sh", "-c", signalScript, "sh", marker, name)
 	return err
 }
@@ -723,7 +760,7 @@ func (m *Manager) signalIn(ctx context.Context, container, marker string, sig sy
 // WriteFile schreibt eine Datei im Container (z. B. den Connection-Token der IDE), ohne
 // dass ihr Inhalt in einer Prozessliste erscheint.
 func (m *Manager) WriteFile(ctx context.Context, workspace, path string, data []byte) error {
-	_, err := m.run(ctx, data, "exec", "--interactive", "--user", strconv.Itoa(m.opts.UID)+":"+strconv.Itoa(m.opts.GID),
+	_, err := m.run(ctx, data, "exec", "--interactive", "--user", m.user(),
 		ContainerName(workspace), "sh", "-c", `umask 077 && mkdir -p "$(dirname "$1")" && cat > "$1"`, "sh", path)
 	return err
 }

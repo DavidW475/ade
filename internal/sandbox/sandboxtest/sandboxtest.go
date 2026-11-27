@@ -14,9 +14,18 @@ import (
 // ImageTag ist das kleine Test-Image (git, curl, getent, busybox).
 const ImageTag = "ade-test-git:2"
 
-const dockerfile = `FROM debian:trixie-slim
+// Voll qualifiziert, weil Podman kurze Namen ohne Registry-Konfiguration ablehnt.
+const dockerfile = `FROM docker.io/library/debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl busybox && rm -rf /var/lib/apt/lists/*
 `
+
+// Docker liefert die Docker-CLI der Tests: ADE_TEST_DOCKER_BIN (z. B. podman) oder docker.
+func Docker() string {
+	if b := os.Getenv("ADE_TEST_DOCKER_BIN"); b != "" {
+		return b
+	}
+	return "docker"
+}
 
 // Enabled überspringt den Test ohne ADE_TEST_DOCKER=1.
 func Enabled(t testing.TB) {
@@ -33,10 +42,10 @@ func Image(t testing.TB) string {
 	if img := os.Getenv("ADE_TEST_IMAGE"); img != "" {
 		return img
 	}
-	if exec.Command("docker", "image", "inspect", ImageTag).Run() == nil {
+	if exec.Command(Docker(), "image", "inspect", ImageTag).Run() == nil {
 		return ImageTag
 	}
-	cmd := exec.Command("docker", "build", "-t", ImageTag, "-")
+	cmd := exec.Command(Docker(), "build", "-t", ImageTag, "-f", "-", t.TempDir()) //nolint:gosec // G204: Test
 	cmd.Stdin = strings.NewReader(dockerfile)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("Test-Image bauen: %v\n%s", err, out)
