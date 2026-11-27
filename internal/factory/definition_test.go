@@ -22,9 +22,13 @@ func TestBuiltinFeature(t *testing.T) {
 	}
 	var kinds []string
 	for _, s := range f.Flow {
-		kinds = append(kinds, s.Step+":"+s.Kind())
+		k := s.Kind()
+		if len(s.Parallel) > 0 {
+			k = "parallel"
+		}
+		kinds = append(kinds, s.Step+":"+k)
 	}
-	if got := strings.Join(kinds, " "); got != "plan:role approve-plan:gate implement:role review:role final:gate deliver:action" {
+	if got := strings.Join(kinds, " "); got != "plan:role approve-plan:gate implement:role :parallel decide:decision final:gate deliver:action" {
 		t.Fatalf("Ablauf %s", got)
 	}
 	if !f.Roles["planner"].ReadOnly() || f.Roles["implementer"].ReadOnly() || !f.Roles["reviewer"].ReadOnly() {
@@ -35,6 +39,49 @@ func TestBuiltinFeature(t *testing.T) {
 	}
 	if f.Budget == nil || f.Budget.MaxDuration != 2*time.Hour {
 		t.Fatalf("Budget %+v", f.Budget)
+	}
+}
+
+// TestBuiltinTemplates: Alle Vorlagen laden fehlerfrei, mit Prompts und Schemas.
+func TestBuiltinTemplates(t *testing.T) {
+	names := builtinNames()
+	if strings.Join(names, " ") != "bugfix feature refactor review-only" {
+		t.Fatalf("Vorlagen %v", names)
+	}
+	for _, name := range names {
+		f, err := loadBuiltin(name)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if f.Name != name || f.Description == "" || f.Budget == nil || f.Budget.MaxCostUSD <= 0 {
+			t.Errorf("%s: Name, Beschreibung oder Budget fehlt", name)
+		}
+		for rn, r := range f.Roles {
+			if r.PromptText == "" {
+				t.Errorf("%s: Rolle %s ohne Prompt", name, rn)
+			}
+			if o := r.OutputSpec(); o.Structured() && len(o.SchemaDoc) == 0 {
+				t.Errorf("%s: %s ohne Schema", name, o.Name)
+			}
+		}
+	}
+	ro, _ := loadBuiltin("review-only")
+	if ro.BranchInput() != "branch" || ro.Inputs["branch"].Required {
+		t.Fatalf("review-only: Eingabe branch %+v", ro.Inputs)
+	}
+	if last := ro.Flat()[len(ro.Flat())-1]; last.Kind() != KindRole {
+		t.Fatal("review-only endet nicht mit dem Bericht")
+	}
+}
+
+func TestBranchInput(t *testing.T) {
+	two := "name: x\ninputs:\n  a: { type: branch }\n  b: { type: branch }\nroles:\n  r: {}\nflow:\n  - { step: s, role: r }\n"
+	if _, err := Parse("x.yaml", []byte(two), nil); err == nil || !strings.Contains(err.Error(), "höchstens eine Eingabe vom Typ branch") {
+		t.Fatalf("zwei branch-Eingaben: %v", err)
+	}
+	if _, err := Parse("x.yaml", []byte(strings.Replace(two, "  b: { type: branch }\n", "  b: { type: number }\n", 1)), nil); err == nil || !strings.Contains(err.Error(), "erlaubt: text, branch") {
+		t.Fatalf("unbekannter Typ: %v", err)
 	}
 }
 

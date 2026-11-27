@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["failed", "passed", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "failed": { "type": "integer", "minimum": 0, "description": "Zahl der fehlgeschlagenen Tests (0: alles grün)" },
+    "passed": { "type": "integer", "minimum": 0 },
+    "commands": { "type": "array", "items": { "type": "string" } },
+    "summary": { "type": "string", "maxLength": 8000, "description": "Was fehlschlägt, mit Auszug der Ausgabe" }
+  }
+}

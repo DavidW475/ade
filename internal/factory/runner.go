@@ -252,7 +252,11 @@ func (r *Runner) Start(ctx context.Context, req StartRequest) (*View, error) {
 		}
 	}
 
-	ws, err := r.opts.Workspaces.Create(ctx, p.ID, workspace.CreateOptions{Sandbox: req.Sandbox})
+	wsOpts := workspace.CreateOptions{Sandbox: req.Sandbox}
+	if b := f.BranchInput(); b != "" {
+		wsOpts.BaseBranch = inputs[b]
+	}
+	ws, err := r.opts.Workspaces.Create(ctx, p.ID, wsOpts)
 	if err != nil {
 		return nil, err
 	}

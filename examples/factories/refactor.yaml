@@ -1,0 +1,55 @@
+# Fabrik „refactor“: Plan in kleinen Schritten → Freigabe → je Durchlauf ein Schritt mit
+# anschließendem Testlauf, bis der Plan erledigt und alles grün ist → Freigabe → Pull Request.
+# Aufbau: doc/factory.md.
+name: refactor
+description: Refactoring in kleinen, einzeln getesteten Schritten
+
+inputs:
+  task: { type: text, required: true, description: Was umgebaut werden soll und warum }
+
+roles:
+  planner:
+    adapter: claude
+    model: opus
+    permissions: read
+    prompt: prompts/refactor-planner.md
+    outputs: [plan.md]
+
+  implementer:
+    adapter: claude
+    model: sonnet
+    permissions: write
+    prompt: prompts/refactor-implementer.md
+    inputs: [plan.md, progress.json, test.json]
+    outputs: [{ name: progress.json, schema: schemas/progress.json }]
+
+  tester:
+    adapter: claude
+    model: haiku
+    permissions: write
+    prompt: prompts/tester.md
+    inputs: [plan.md, progress.json]
+    outputs: [{ name: test.json, schema: schemas/test.json }]
+
+flow:
+  - step: plan
+    role: planner
+  - step: approve-plan
+    gate: human
+  - step: implement
+    role: implementer
+  - step: test
+    role: tester
+  - step: next
+    when: "implement.remaining > 0 || test.failed > 0"
+    goto: implement
+    max_iterations: 10
+  - step: final
+    gate: human
+    on_deny: { goto: implement }
+  - step: deliver
+    action: pull_request
+
+budget:
+  max_cost_usd: 15
+  max_duration: 4h

@@ -441,7 +441,7 @@ func TestRunStartErrors(t *testing.T) {
 		}
 	}
 	list, err := e.runner.Factories(e.ctx, e.project.ID)
-	if err != nil || len(list) != 5 {
+	if err != nil || len(list) != 8 {
 		t.Fatalf("Fabriken %+v %v", list, err)
 	}
 }
@@ -657,5 +657,24 @@ func TestRunParallelFailure(t *testing.T) {
 	}
 	if s := r.Steps[1].Status; s != store.StepDone && s != store.StepCanceled {
 		t.Fatalf("Review: %s", s)
+	}
+}
+
+func TestRunBranchInput(t *testing.T) {
+	e := setup(t)
+	gitRun(t, e.project.RepoPath, "branch", "feature-x")
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "review-only", Task: "Prüfe", Inputs: map[string]string{"branch": "feature-x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := e.ws.Get(e.ctx, v.WorkspaceID)
+	if err != nil || ws.BaseBranch != "feature-x" {
+		t.Fatalf("Workspace %+v %v", ws, err)
+	}
+	if _, err := e.runner.Cancel(e.ctx, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "review-only", Task: "Prüfe", Inputs: map[string]string{"branch": "gibtsnicht"}}); err == nil {
+		t.Fatal("unbekannter Branch ohne Fehler")
 	}
 }

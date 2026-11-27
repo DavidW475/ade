@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["reproduced", "test", "command", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "reproduced": { "type": "boolean", "description": "true: der neue Test schlägt wegen des Fehlers fehl" },
+    "test": { "type": "string", "description": "Datei und Name des neuen Tests" },
+    "command": { "type": "string", "description": "Befehl, der nur diesen Test ausführt" },
+    "summary": { "type": "string", "maxLength": 8000, "description": "Ursache, soweit bekannt, und Auszug der Ausgabe" }
+  }
+}

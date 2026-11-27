@@ -19,7 +19,9 @@ außerhalb von `.ade/factories/`). ADE liest sie aus dem Haupt-Repo, nie aus ein
 Ohne eigene Datei gilt die gleichnamige mitgelieferte Vorlage (`examples/factories/`).
 
 Umfang in **M9**: lineare Schritte mit `role`, `gate: human` und `action: pull_request` (als
-letzter Schritt), je Rolle höchstens ein Artefakt (ihre letzte Antwort), Eingaben vom Typ `text`,
+letzter Schritt), je Rolle höchstens ein Artefakt (ihre letzte Antwort), Eingaben vom Typ `text`
+(seit M10 auch `branch`: Der Workspace des Runs zweigt von diesem Branch ab, höchstens eine je
+Fabrik),
 `budget.max_cost_usd` und `budget.max_duration`. Seit **M10** dazu: strukturierte Artefakte mit
 Schema, Bedingungen (`when`), Schleifen (`goto`, `max_iterations`, `on_deny`) und parallele
 Schritte (`parallel`), siehe [Ausführung](#3-ausführung). Beispiel:
@@ -240,9 +242,24 @@ triggers:
 
 Mitgelieferte Fabriken (in `examples/factories/`):
 
-- **feature** – Plan → Freigabe → Implementierung → Review → Freigabe → PR (ab M9; Review/Test
-  parallel und Rücksprung ab M10)
-- **bugfix** – Reproduzieren (Test schreiben, muss fehlschlagen) → Fix → Test grün → PR
-- **review-only** – Mehrere Reviewer-Modelle prüfen einen bestehenden Branch/PR parallel,
-  ein Aggregator fasst zusammen
-- **refactor** – Plan mit Gate, dann schrittweise Umsetzung mit Test nach jedem Schritt
+- **feature** – Plan → Freigabe → Umsetzung → Review (`review.json`) und Test (`test.json`)
+  parallel → zurück zur Umsetzung, solange der Reviewer Änderungen will oder Tests
+  fehlschlagen (höchstens drei Runden, dann entscheidet der Mensch) → Freigabe (Ablehnen mit
+  Begründung führt zurück zur Umsetzung) → PR
+- **bugfix** – Reproduzieren: Test schreiben, der fehlschlagen muss (`repro.json`; ohne
+  Reproduktion nach zwei Versuchen scheitert der Run) → Fix → Tests → zurück zum Fix, solange
+  Tests fehlschlagen → Freigabe → PR
+- **review-only** – Zwei Reviewer (verschiedene Modelle) prüfen den Branch aus der Eingabe
+  `branch` unabhängig und parallel, ein Aggregator fasst zusammen (`report.md`). Ändert nichts,
+  kein PR. Der Workspace hat keine Verbindung zum Haupt-Repo: Die Reviewer sehen den Stand und
+  die Historie des Branches, keinen Diff gegen `main` – was zu prüfen ist (Commits,
+  Verzeichnis), gehört in die Aufgabe.
+- **refactor** – Plan in kleinen Schritten → Freigabe → je Durchlauf genau ein Schritt
+  (`progress.json`) mit anschließendem Testlauf, bis der Plan erledigt und alles grün ist
+  (höchstens zehn Durchläufe) → Freigabe → PR
+
+Prompts liegen unter `examples/factories/prompts/`, Schemas unter `examples/factories/schemas/`.
+Eine eigene Fabrik gleichen Namens in `.ade/factories/` ersetzt die Vorlage; Prompts und
+Schemas müssen dann ebenfalls dort liegen. Die Vorlagen nutzen nur den Adapter `claude`
+(Modelle `opus`, `sonnet`, `haiku`); für ein zweites Modell eines anderen Anbieters lässt sich
+z. B. ein Reviewer auf `adapter: codex` umstellen.

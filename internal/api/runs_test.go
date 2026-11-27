@@ -79,7 +79,7 @@ func TestRunsAPI(t *testing.T) {
 
 	var list []factory.Summary
 	a.call(t, "GET", "/api/factories?project_id="+p.ID, "", http.StatusOK, &list)
-	if len(list) != 1 || list[0].Name != "feature" || list[0].Source != factory.SourceBuiltin || len(list[0].Steps) != 6 {
+	if len(list) != 4 || list[1].Name != "feature" || list[1].Source != factory.SourceBuiltin || len(list[1].Steps) != 8 {
 		t.Fatalf("Fabriken %+v", list)
 	}
 	a.call(t, "GET", "/api/factories", "", http.StatusBadRequest, nil)
