@@ -39,7 +39,11 @@ export function SessionTable({ sessions, showWorkspace = true }: { sessions: Ses
                   </Link>
                 </td>
               )}
-              <td className="muted">{s.capabilities.terminal ? "–" : formatUSD(s.cost_usd)}</td>
+              <td className="muted">
+                {s.capabilities.terminal && !s.cost_usd ? "–" : formatUSD(s.cost_usd)}
+                {s.budget_usd ? ` / ${formatUSD(s.budget_usd)}` : ""}
+                {s.unpriced ? " *" : ""}
+              </td>
               <td className="muted">{formatTime(s.created_at)}</td>
             </tr>
           ))}
@@ -48,6 +52,12 @@ export function SessionTable({ sessions, showWorkspace = true }: { sessions: Ses
     </div>
   );
 }
+
+const adapterLabels: Record<string, string> = {
+  claude: "claude – Claude Code",
+  codex: "codex – Codex CLI (OpenAI)",
+  pty: "pty – Terminal (beliebiger Befehl)",
+};
 
 /**
  * Formular „Agent starten“. Mit workspaceId läuft der Agent in diesem Workspace, sonst wird
@@ -76,7 +86,8 @@ export function StartAgentForm({
   const [task, setTask] = useState("");
   const [command, setCommand] = useState("");
   const [model, setModel] = useState("");
-  const [permission, setPermission] = useState("acceptEdits");
+  const [permission, setPermission] = useState("");
+  const [budget, setBudget] = useState("");
   const [ws, setWs] = useState(workspaceId ?? "");
   const sandboxInfo = useSandboxInfo();
   const [sandboxChoice, setSandbox] = useState<boolean | null>(null);
@@ -91,6 +102,13 @@ export function StartAgentForm({
   const chosen = adapter || defaultAdapter || adapters.data?.default || "claude";
   const info = adapters.data?.adapters.find((a) => a.name === chosen);
   const terminal = info?.capabilities.terminal ?? chosen === "pty";
+  const modes = adapters.data?.modes?.[chosen] ?? (chosen === "claude" ? adapters.data?.permission_modes : undefined) ?? [];
+  const defaultMode = chosen === "claude" ? "acceptEdits" : chosen === "codex" ? "workspace-write" : "";
+  const mode = permission && modes.includes(permission) ? permission : defaultMode;
+  const provider = adapters.data?.providers?.[chosen];
+  const aliases = (adapters.data?.models ?? []).filter((m) => !provider || m.provider === provider);
+  const budgetValue = budget.trim() === "" ? undefined : Number(budget.replace(",", "."));
+  const budgetInvalid = budgetValue !== undefined && (!Number.isFinite(budgetValue) || budgetValue < 0);
 
   const start = useMutation({
     mutationFn: () => {
@@ -102,8 +120,9 @@ export function StartAgentForm({
       } else {
         req.task = task;
         if (model.trim()) req.model = model.trim();
-        if (chosen === "claude" && permission) req.permission_mode = permission;
+        if (modes.length && mode) req.permission_mode = mode;
       }
+      if (budgetValue !== undefined) req.budget_usd = budgetValue;
       return api.startAgent(req);
     },
     onSuccess: (s) => {
@@ -115,7 +134,7 @@ export function StartAgentForm({
 
   const submit = (e: { preventDefault(): void }) => {
     e.preventDefault();
-    if (!start.isPending && (terminal || task.trim())) start.mutate();
+    if (!start.isPending && !budgetInvalid && (terminal || task.trim())) start.mutate();
   };
 
   const readyWorkspaces = workspaces.data?.filter((w) => w.status === "ready" || w.status === "setup" || w.status === "setup_failed") ?? [];
@@ -127,7 +146,7 @@ export function StartAgentForm({
         <select id="sa-adapter" value={chosen} onChange={(e) => setAdapter(e.target.value)}>
           {(adapters.data?.adapters ?? [{ name: chosen }]).map((a) => (
             <option key={a.name} value={a.name}>
-              {a.name === "claude" ? "claude – Claude Code" : a.name === "pty" ? "pty – Terminal (beliebiger Befehl)" : a.name}
+              {adapterLabels[a.name] ?? a.name}
             </option>
           ))}
         </select>
@@ -191,19 +210,40 @@ export function StartAgentForm({
           </div>
           <div className="field">
             <label htmlFor="sa-model">Modell</label>
-            <input id="sa-model" placeholder="Standard der CLI" value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} />
+            <input
+              id="sa-model"
+              list="sa-models"
+              placeholder={aliases.length ? "Alias oder Modell-ID" : "Standard der CLI"}
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              spellCheck={false}
+            />
+            <datalist id="sa-models">
+              {aliases.map((m) => (
+                <option key={m.name} value={m.name}>
+                  {m.id}
+                </option>
+              ))}
+            </datalist>
           </div>
-          {chosen === "claude" && (
+          {modes.length > 0 && (
             <div className="field">
-              <label htmlFor="sa-perm">Berechtigungen</label>
-              <select id="sa-perm" value={permission} onChange={(e) => setPermission(e.target.value)}>
-                {(adapters.data?.permission_modes ?? ["acceptEdits"]).map((m) => (
+              <label htmlFor="sa-perm">{chosen === "codex" ? "Sandbox-Modus (lokal)" : "Berechtigungen"}</label>
+              <select id="sa-perm" value={mode} onChange={(e) => setPermission(e.target.value)}>
+                {modes.map((m) => (
                   <option key={m} value={m}>
                     {m}
                   </option>
                 ))}
               </select>
             </div>
+          )}
+          {chosen === "codex" && (
+            <p className="hint wide">
+              Codex arbeitet eine Anweisung je Prozess ab; Folgeanweisungen setzen die Unterhaltung fort. Codex fragt nicht vor
+              Werkzeug-Aufrufen nach (keine Freigaben). In der Sandbox läuft es ohne eigene Sandbox im Container; mit API-Key in{" "}
+              <code>providers.openai</code> fügt der Egress-Proxy ihn ein und zählt die Tokens.
+            </p>
           )}
           {chosen === "claude" && (
             <p className="hint wide">
@@ -217,6 +257,19 @@ export function StartAgentForm({
         </>
       )}
 
+      <div className="field">
+        <label htmlFor="sa-budget">Budget (USD)</label>
+        <input
+          id="sa-budget"
+          inputMode="decimal"
+          placeholder="Projekt-Vorgabe"
+          value={budget}
+          onChange={(e) => setBudget(e.target.value)}
+          aria-invalid={budgetInvalid}
+        />
+        <p className="hint">Leer: budget.session_usd aus .ade/project.yaml; 0: ohne Budget. Darüber pausiert der Agent und wartet auf eine Freigabe.</p>
+      </div>
+
       {start.isError && (
         <div className="wide">
           <Notice tone="bad">{errorMessage(start.error)}</Notice>
@@ -228,7 +281,7 @@ export function StartAgentForm({
             Abbrechen
           </button>
         )}
-        <button type="submit" className="primary" disabled={start.isPending || (!terminal && !task.trim())}>
+        <button type="submit" className="primary" disabled={start.isPending || budgetInvalid || (!terminal && !task.trim())}>
           {start.isPending ? "Starte …" : terminal ? "Terminal öffnen" : "Agent starten"}
         </button>
       </div>

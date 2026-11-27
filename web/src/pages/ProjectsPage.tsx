@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
-import { api, type Project } from "../api";
+import { api, type Project, type UsageTotal } from "../api";
+import { UsageAmount } from "../components/usage";
+import { useUsage } from "../hooks/useUsage";
 import { SessionTable } from "../components/agents";
 import { useSessions } from "../sessions";
 import { Badge, Notice } from "../components/ui";
@@ -9,11 +11,17 @@ import { errorMessage } from "../format";
 
 export function ProjectsPage() {
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
+  const usage = useUsage();
 
   return (
     <>
       <div className="pagehead">
         <h1>Projekte</h1>
+        {usage.data && usage.data.month.count > 0 && (
+          <span className="muted">
+            Kosten diesen Monat: <UsageAmount total={usage.data.month} />
+          </span>
+        )}
       </div>
 
       <RunningAgents />
@@ -35,7 +43,7 @@ export function ProjectsPage() {
       ) : (
         <ul className="cards">
           {projects.data.map((p) => (
-            <ProjectCard key={p.id} project={p} />
+            <ProjectCard key={p.id} project={p} month={usage.data?.projects?.[p.id]} />
           ))}
         </ul>
       )}
@@ -43,7 +51,7 @@ export function ProjectsPage() {
   );
 }
 
-function ProjectCard({ project: p }: { project: Project }) {
+function ProjectCard({ project: p, month }: { project: Project; month?: UsageTotal }) {
   return (
     <li className="card">
       <Link to={`/projects/${p.id}`} className="cardlink">
@@ -55,6 +63,12 @@ function ProjectCard({ project: p }: { project: Project }) {
         <div className="mono muted">{p.repo_path}</div>
         <div className="meta">
           Basis-Branch <code>{p.base_branch}</code>
+          {month && month.count > 0 && (
+            <>
+              {" "}
+              · Kosten diesen Monat <UsageAmount total={month} />
+            </>
+          )}
         </div>
       </Link>
     </li>
