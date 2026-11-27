@@ -211,6 +211,15 @@ func (s *Service) Decide(ctx context.Context, id, decision, reason string) (*sto
 	if len(reason) > 2000 {
 		return nil, apperr.Invalid("reason: höchstens 2000 Zeichen")
 	}
+	if a.Kind == store.ApprovalGate && decision == store.DecisionDeny && reason == "" {
+		// Springt das Gate beim Ablehnen zurück, ist die Begründung das Feedback an die Rolle.
+		var d struct {
+			OnDeny string `json:"on_deny"`
+		}
+		if json.Unmarshal(a.Detail, &d) == nil && d.OnDeny != "" {
+			return nil, apperr.Invalid("reason: Ablehnen springt zurück zu %s und braucht eine Begründung (sie geht als Feedback an die Rolle)", d.OnDeny)
+		}
+	}
 	if decision == store.DecisionAllowWorkspace || decision == store.DecisionAllowProject {
 		var d egressDetail
 		if err := json.Unmarshal(a.Detail, &d); err != nil || d.Host == "" {

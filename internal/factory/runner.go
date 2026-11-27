@@ -314,6 +314,43 @@ type View struct {
 	PRURL string `json:"pr_url,omitempty"`
 	// WorkspaceGone: Der Workspace wurde verworfen.
 	WorkspaceGone bool `json:"workspace_gone,omitempty"`
+	// Plan beschreibt je Position (wie Steps) Bedingung und Rücksprung aus der Definition.
+	Plan []StepPlan `json:"plan"`
+}
+
+// StepPlan ist eine Position im Ablauf aus der Definition, für die Pipeline-Ansicht.
+type StepPlan struct {
+	// When ist die Bedingung (Rolle, Gate, Aktion: sonst übersprungen; Entscheidung: Rücksprung).
+	When string `json:"when,omitempty"`
+	// Goto ist das Ziel eines Rücksprungs (Entscheidung: goto, Gate: on_deny.goto).
+	Goto string `json:"goto,omitempty"`
+	// MaxIterations sind die erlaubten Durchläufe der Schleife (nur mit Goto).
+	MaxIterations int `json:"max_iterations,omitempty"`
+	// OnExhausted: fail oder continue, wenn eine Entscheidung keinen Durchlauf mehr hat.
+	OnExhausted string `json:"on_exhausted,omitempty"`
+}
+
+// plan liest Bedingungen und Rücksprünge aus der Definition des Runs.
+func plan(run *store.Run) []StepPlan {
+	out := make([]StepPlan, len(run.Steps))
+	var f Factory
+	if json.Unmarshal(run.Definition, &f) != nil {
+		return out
+	}
+	for _, s := range f.Flat() {
+		if s.Pos >= len(out) {
+			break
+		}
+		p := StepPlan{When: s.When, Goto: s.Target()}
+		if p.Goto != "" {
+			p.MaxIterations = s.Iterations()
+			if s.Kind() == KindDecision {
+				p.OnExhausted = s.OnExhausted
+			}
+		}
+		out[s.Pos] = p
+	}
+	return out
 }
 
 // Artifact ist ein Artefakt eines Runs.
@@ -327,7 +364,7 @@ type Artifact struct {
 }
 
 func (r *Runner) view(ctx context.Context, run *store.Run) *View {
-	v := &View{Run: run, Artifacts: []Artifact{}}
+	v := &View{Run: run, Artifacts: []Artifact{}, Plan: plan(run)}
 	for _, st := range run.Steps {
 		if st.Output == "" {
 			continue
@@ -518,7 +555,7 @@ func (r *Runner) step(ctx context.Context, run *store.Run) (more bool, err error
 		case KindRole:
 			return r.startRole(ctx, run, &f, st, 1)
 		case KindGate:
-			return false, r.openGate(ctx, run, st)
+			return false, r.openGate(ctx, run, def, st)
 		case KindAction:
 			return false, r.deliver(ctx, run, st)
 		case KindDecision:
@@ -1037,10 +1074,18 @@ type gateDetail struct {
 	Step      string   `json:"step"`
 	Task      string   `json:"task,omitempty"`
 	Artifacts []string `json:"artifacts,omitempty"`
+	// OnDeny ist das Ziel des Rücksprungs beim Ablehnen (leer: Ablehnen bricht den Run ab),
+	// Iteration der Durchlauf des Gates, MaxIterations die erlaubten Durchläufe.
+	OnDeny        string `json:"on_deny,omitempty"`
+	Iteration     int    `json:"iteration,omitempty"`
+	MaxIterations int    `json:"max_iterations,omitempty"`
 }
 
-func (r *Runner) openGate(ctx context.Context, run *store.Run, st store.RunStep) error {
-	d := gateDetail{RunID: run.ID, Factory: run.Factory, Step: st.Name, Task: run.Task}
+func (r *Runner) openGate(ctx context.Context, run *store.Run, def *Step, st store.RunStep) error {
+	d := gateDetail{RunID: run.ID, Factory: run.Factory, Step: st.Name, Task: run.Task, Iteration: st.Iteration}
+	if t := def.Target(); t != "" && st.Iteration < def.Iterations() {
+		d.OnDeny, d.MaxIterations = t, def.Iterations()
+	}
 	for _, s := range run.Steps[:run.Current] {
 		if s.Output != "" && s.Status == store.StepDone {
 			d.Artifacts = append(d.Artifacts, s.Output)
@@ -1110,7 +1155,7 @@ func (r *Runner) checkGate(ctx context.Context, run *store.Run, def *Step, st st
 		return false, nil
 	}
 	if reopen || status == "" {
-		return false, r.openGate(ctx, run, st)
+		return false, r.openGate(ctx, run, def, st)
 	}
 	return false, errors.New("die Freigabe ist abgelaufen")
 }

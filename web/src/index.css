@@ -457,3 +457,22 @@ label.checkbox input[type="checkbox"] { width: auto; min-width: 0; margin: 0; }
 .artifact { margin: 0.5rem 0 0; padding: 0.75rem 0.9rem; background: var(--code-bg); border-radius: 8px; white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; max-height: 32rem; overflow: auto; }
 .artifactbox summary, .taskdetails summary { cursor: pointer; }
 .artifactbox { margin-bottom: 0.6rem; }
+
+/* Pipeline v2 (M10): parallele Gruppen, Bedingungen, Rücksprünge, Durchläufe */
+.punit { flex: 1 1 9rem; min-width: 9rem; display: flex; }
+.punit > .pstep { flex: 1; }
+.pgroup { flex: 2 1 14rem; flex-direction: column; gap: 0.3rem; padding: 0.35rem; border: 1px dashed var(--border); border-radius: 12px; }
+.pgrouplabel { font-size: 0.75rem; color: var(--muted); padding-left: 0.3rem; }
+.pgroupmembers { display: flex; flex-wrap: wrap; gap: 0.4rem; flex: 1; }
+.pgroupmembers > .pstep { flex: 1 1 8rem; min-width: 8rem; }
+.pstep.skipped button { opacity: 0.6; border-style: dashed; }
+.pstep.looped button { border-color: var(--warn); border-style: dashed; }
+.pcond { font-size: 0.75rem; color: var(--muted); word-break: break-word; }
+.pcond code { font-size: 0.72rem; }
+.pcond.loop { color: var(--warn); }
+.piter { color: var(--warn); font-weight: 600; }
+.itertabs { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0; }
+.itertabs button { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; padding: 0.25rem 0.6rem; }
+.itertabs button.active { background: var(--code-bg); border-color: var(--busy); }
+.runtrigger code { font-size: 0.8rem; }
+.triggererror { margin: 0.35rem 0 0; font-size: 0.85rem; color: var(--bad); word-break: break-word; }
