@@ -37,6 +37,8 @@ type SandboxInfo struct {
 	Available     bool   `json:"available"`
 	Error         string `json:"error,omitempty"`
 	DockerVersion string `json:"docker_version,omitempty"`
+	// Runtime ist die erkannte Container-Laufzeit (z. B. „Podman (rootless)“).
+	Runtime string `json:"runtime,omitempty"`
 	// Image ist das Standard-Image.
 	Image string `json:"image"`
 	// Default ist die Voreinstellung für neue Workspaces (defaults.sandbox).
@@ -56,6 +58,9 @@ func (s *Server) handleSandboxInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	v, err := s.opts.Sandbox.Available(r.Context())
 	info.Available, info.DockerVersion = err == nil, v
+	if rt, ok := s.opts.Sandbox.Runtime(); ok && err == nil {
+		info.Runtime = rt.Name()
+	}
 	if err != nil {
 		info.Error = err.Error()
 	}

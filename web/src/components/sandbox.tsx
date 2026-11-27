@@ -16,7 +16,7 @@ export function SandboxToggle({ checked, onChange, info, id }: { checked: boolea
         {unavailable
           ? `Nicht verfügbar: ${info?.error ?? "Docker nicht erreichbar"}`
           : checked
-            ? `Agent, Setup und IDE laufen isoliert im Container (${info.image}). ${networkHint}`
+            ? `Agent, Setup und IDE laufen isoliert im Container (${[info.image, info.runtime].filter(Boolean).join(", ")}). ${networkHint}`
             : "Ohne Sandbox läuft der Agent mit deinen Rechten direkt im Workspace-Verzeichnis."}
       </span>
     </div>
