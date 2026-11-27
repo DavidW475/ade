@@ -167,6 +167,10 @@ flow:
 `, "kein Rücksprung"},
 		"gate":              {minimal + "  - { step: g, gate: robot }\n", "gate: \"robot\""},
 		"zwei Arten":        {minimal + "  - { step: g, gate: human, role: a }\n", "genau eins"},
+		"PR ohne Gate":      {minimal + "  - { step: pr, action: pull_request }\n", "braucht es ein Gate"},
+		"PR nach Schreiber": {strings.Replace(minimal, "  - { step: two, role: b }\n", "  - { step: g, gate: human }\n  - { step: two, role: b }\n  - { step: pr, action: pull_request }\n", 1), "braucht es ein Gate"},
+		"PR Gate mit when":  {strings.ReplaceAll(minimal, "plan.md", "p.json") + "  - { step: g, gate: human, when: \"one.x\" }\n  - { step: pr, action: pull_request }\n", "braucht es ein Gate"},
+		"unattended Gate":   {minimal + "  - { step: g, gate: human, unattended: true }\n", "nur bei action"},
 		"PR nicht am Ende":  {strings.Replace(minimal, "  - { step: two, role: b }\n", "  - { step: pr, action: pull_request }\n  - { step: two, role: b }\n", 1), "letzte Schritt"},
 		"Adapter":           {strings.Replace(minimal, "a: { permissions: read", "a: { adapter: pty, permissions: read", 1), "adapter: \"pty\""},
 		"Rechte":            {strings.Replace(minimal, "permissions: read", "permissions: admin", 1), "permissions"},
@@ -257,6 +261,24 @@ flow:
   - { step: final, gate: human, on_deny: { goto: implement } }
   - { step: deliver, action: pull_request, when: "review.verdict != 'reject'" }
 `
+
+// TestParsePullRequestGate: pull_request nach einem Gate (danach nur lesende Rollen und
+// Entscheidungen) oder mit unattended: true ist gültig (#103).
+func TestParsePullRequestGate(t *testing.T) {
+	for name, src := range map[string]string{
+		"Gate davor":      minimal + "  - { step: g, gate: human }\n  - { step: pr, action: pull_request }\n",
+		"Leser nach Gate": strings.Replace(minimal, "  - { step: two, role: b }\n", "  - { step: two, role: b }\n  - { step: g, gate: human }\n  - { step: three, role: a }\n  - { step: pr, action: pull_request }\n", 1),
+		"unattended":      minimal + "  - { step: pr, action: pull_request, unattended: true }\n",
+	} {
+		f, err := Parse("x.yaml", []byte(src), nil)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if last := f.Flow[len(f.Flow)-1]; last.Unattended != (name == "unattended") {
+			t.Fatalf("%s: unattended %v", name, last.Unattended)
+		}
+	}
+}
 
 func TestParseLoop(t *testing.T) {
 	f, err := Parse("loop.yaml", []byte(loopFactory), nil)

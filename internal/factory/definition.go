@@ -196,6 +196,9 @@ type Step struct {
 	OnDeny *OnDeny `yaml:"on_deny" json:"on_deny,omitempty"`
 	// Parallel sind Rollen-Schritte, die gleichzeitig laufen (Gruppe ohne eigenen Namen).
 	Parallel []Step `yaml:"parallel" json:"parallel,omitempty"`
+	// Unattended erlaubt pull_request ohne vorheriges Gate (#103). Ändert der Diff
+	// sensible Pfade (SensitivePaths), wartet der Run trotzdem auf eine Freigabe.
+	Unattended bool `yaml:"unattended" json:"unattended,omitempty"`
 }
 
 // OnDeny ist der Rücksprung eines Gates beim Ablehnen.
@@ -601,6 +604,9 @@ func (f *Factory) validateFlow() string {
 		if s.OnDeny != nil && kind != KindGate {
 			return at + ".on_deny: gibt es nur bei Gates"
 		}
+		if s.Unattended && kind != KindAction {
+			return at + ".unattended: gibt es nur bei action: pull_request"
+		}
 		if s.OnExhausted != "" && kind != KindDecision {
 			return at + ".on_exhausted: gibt es nur bei Entscheidungen (goto)"
 		}
@@ -646,6 +652,10 @@ func (f *Factory) validateFlow() string {
 			if fs.Pos != len(flat)-1 {
 				return at + ".action: pull_request muss der letzte Schritt sein"
 			}
+			if !s.Unattended && !reviewedBefore(f, flat, fs.Pos) {
+				return at + ".action: vor pull_request braucht es ein Gate (gate: human, ohne when) und danach keine Rolle mit Schreibrechten – " +
+					"sonst pusht der Run ungeprüften Agent-Code; ohne Gate nur mit unattended: true"
+			}
 		}
 	}
 	// Eingaben: im ersten Durchlauf von einem früheren Schritt erzeugt (nicht aus derselben
@@ -682,6 +692,27 @@ func (f *Factory) validateFlow() string {
 		}
 	}
 	return ""
+}
+
+// reviewedBefore meldet, ob vor Position pos ein Gate ohne Bedingung liegt, nach dem keine
+// Rolle mit Schreibrechten mehr läuft: Dann hat ein Mensch den Stand gesehen, der gepusht wird.
+// Rücksprünge hinter das Gate ändern daran nichts, sie führen erneut durch das Gate.
+func reviewedBefore(f *Factory, flat []FlatStep, pos int) bool {
+	gate := -1
+	for _, s := range flat[:pos] {
+		if s.Kind() == KindGate && s.When == "" {
+			gate = s.Pos
+		}
+	}
+	if gate < 0 {
+		return false
+	}
+	for _, s := range flat[gate+1 : pos] {
+		if r := f.Roles[s.Role]; r != nil && !r.ReadOnly() {
+			return false
+		}
+	}
+	return true
 }
 
 // checkWhen prüft die Bedingung eines Schritts: Jeder Pfad nennt einen früheren Schritt (nicht

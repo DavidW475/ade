@@ -358,7 +358,7 @@ roles:
   dev: {}
 flow:
   - { step: implement, role: dev }
-  - { step: deliver, action: pull_request }
+  - { step: deliver, action: pull_request, unattended: true }
 budget: { max_cost_usd: 1 }
 `, 0o600)
 	gitRun(t, repo, "add", ".")

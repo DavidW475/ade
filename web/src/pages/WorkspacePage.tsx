@@ -5,7 +5,8 @@ import { SessionTable, StartAgent } from "../components/agents";
 import { IdeButton } from "../components/ide";
 import { NetworkPanel } from "../components/network";
 import { SandboxFacts, SandboxNotice } from "../components/sandbox";
-import { DiffView, ReviewPanel } from "../components/review";
+import { DiffView, ReviewPanel, SensitiveNotice } from "../components/review";
+import { sensitiveFiles } from "../sensitive";
 import { useSessions } from "../sessions";
 import { LineStats, Notice, WorkspaceStatusBadge } from "../components/ui";
 import { errorMessage, formatTime, shortCommit } from "../format";
@@ -130,7 +131,10 @@ export function WorkspacePage() {
           </p>
         </div>
       ) : (
-        <DiffView workspaceId={w.id} diff={diff.data} />
+        <>
+          <SensitiveNotice paths={sensitiveFiles(diff.data.files)} />
+          <DiffView workspaceId={w.id} diff={diff.data} />
+        </>
       )}
 
       <NetworkPanel workspace={w} />

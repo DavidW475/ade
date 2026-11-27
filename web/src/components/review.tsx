@@ -6,9 +6,32 @@ import { useNavigate } from "react-router";
 import { api, mergeConflicts, type Diff, type FileChange, type FileSide, type Session, type Workspace } from "../api";
 import { errorMessage, formatTime, shortCommit } from "../format";
 import { agentBusy } from "../sessions";
+import { isSensitive } from "../sensitive";
 import { FileStatusBadge, LineStats, Modal, Notice } from "./ui";
 
 const DiffEditor = lazy(() => import("./DiffEditor"));
+
+// --- Sensible Pfade ----------------------------------------------------------------------
+
+/** Warnung, wenn Workflows, Actions oder .ade/ geändert wurden. */
+export function SensitiveNotice({ paths }: { paths: string[] }) {
+  if (!paths.length) return null;
+  return (
+    <Notice tone="warn" title="Achtung: Änderungen an CI oder ADE-Konfiguration">
+      <p>
+        Workflows und Actions laufen nach dem Push mit den Secrets des Repos, <code>.ade/</code> steuert Setup, Sandbox und Freigaben. Diese
+        Dateien genau prüfen:
+      </p>
+      <ul className="sensitivelist">
+        {paths.map((p) => (
+          <li key={p} className="mono">
+            {p}
+          </li>
+        ))}
+      </ul>
+    </Notice>
+  );
+}
 
 // --- Aktionen ----------------------------------------------------------------------------
 
@@ -406,9 +429,9 @@ export function DiffView({ workspaceId, diff }: { workspaceId: string; diff: Dif
             <li key={f.path}>
               <button
                 type="button"
-                className={f.path === current?.path ? "active" : undefined}
+                className={[f.path === current?.path && "active", (isSensitive(f.path) || (f.old_path && isSensitive(f.old_path))) && "sensitive"].filter(Boolean).join(" ") || undefined}
                 onClick={() => setSelected(f.path)}
-                title={f.old_path ? `${f.old_path} → ${f.path}` : f.path}
+                title={(f.old_path ? `${f.old_path} → ${f.path}` : f.path) + (isSensitive(f.path) || (f.old_path && isSensitive(f.old_path)) ? " – sensibler Pfad (CI/ADE)" : "")}
               >
                 <FileStatusBadge status={f.status} />
                 <span className="mono path">{basename(f.path)}</span>

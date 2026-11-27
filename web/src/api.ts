@@ -151,6 +151,10 @@ export interface GateApprovalDetail {
   on_deny?: string;
   iteration?: number;
   max_iterations?: number;
+  /** Geänderte Dateien unter .github/workflows/, .github/actions/ oder .ade/. */
+  sensitive?: string[];
+  /** Freigabe vor pull_request ohne Gate, nur wegen sensibler Änderungen. */
+  unattended?: boolean;
 }
 
 export interface ToolApprovalDetail {

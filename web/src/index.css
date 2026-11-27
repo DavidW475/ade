@@ -357,6 +357,8 @@ dialog.modal::backdrop { background: rgb(15 17 21 / 0.45); }
 }
 .difffiles li button:hover:not(:disabled) { background: var(--code-bg); }
 .difffiles li button.active { background: var(--info-bg); }
+.difffiles li button.sensitive { box-shadow: inset 3px 0 0 var(--warn); }
+.sensitivelist { margin: 0.3rem 0 0; padding-left: 1.2rem; }
 .difffiles .badge { grid-area: badge; }
 .difffiles .path { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .difffiles .dir { grid-area: dir; color: var(--muted); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

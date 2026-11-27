@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -504,4 +505,35 @@ func checkRelPath(p string) error {
 		return apperr.Invalid("ungültiger Dateipfad %q", p)
 	}
 	return nil
+}
+
+// SensitivePaths sind Pfade, deren Änderung vor einem Push ein Mensch sehen muss: Workflows
+// und Actions laufen in der CI mit den Secrets des Repos, .ade/ steuert ADE selbst (#103).
+// Ein Eintrag mit / am Ende ist ein Verzeichnis.
+var SensitivePaths = []string{".github/workflows/", ".github/actions/", ".ade/"}
+
+// Sensitive liefert die geänderten Dateien des Diffs unter SensitivePaths (auch alte Pfade
+// umbenannter Dateien), sortiert und ohne Doppelte.
+func Sensitive(d *git.Diff) []string {
+	var out []string
+	for _, f := range d.Files {
+		for _, p := range []string{f.Path, f.OldPath} {
+			if p != "" && IsSensitive(p) && !slices.Contains(out, p) {
+				out = append(out, p)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// IsSensitive meldet, ob der Pfad (relativ zum Repo) unter SensitivePaths liegt.
+func IsSensitive(p string) bool {
+	p = strings.TrimPrefix(path.Clean("/"+p), "/")
+	for _, s := range SensitivePaths {
+		if strings.HasPrefix(p+"/", s) {
+			return true
+		}
+	}
+	return false
 }

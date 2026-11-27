@@ -119,6 +119,12 @@ Abschnitt der jeweiligen Version als Release-Notizen.
   mit bekannten Lücken in der Standardbibliothek (u. a. `crypto/x509`, `net/http`).
 - `monaco-editor` 0.58 (DOMPurify ohne bekannte Lücken); `govulncheck` und `npm audit` bei jedem
   PR und wöchentlich (`audit.yml`).
+- Fabriken pushen keinen ungeprüften Agent-Code mehr (#103): `action: pull_request` braucht ein
+  Gate (`gate: human` ohne `when`) davor, nach dem keine Rolle mit Schreibrechten mehr läuft.
+  Ohne Gate nur mit `unattended: true`; ändert der Diff dann `.github/workflows/`,
+  `.github/actions/` oder `.ade/`, wartet der Run vor dem Push auf eine Freigabe. Gates und die
+  Review-Ansicht heben solche Änderungen hervor. **Eigene Fabriken ohne Gate vor dem PR lassen
+  sich erst wieder laden, wenn sie ein Gate oder `unattended: true` bekommen.**
 
 ### Geändert
 
