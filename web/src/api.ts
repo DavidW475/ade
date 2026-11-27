@@ -64,6 +64,8 @@ export interface SandboxInfo {
   available: boolean;
   error?: string;
   docker_version?: string;
+  /** Erkannte Container-Laufzeit, z. B. „Docker (rootless)“ oder „Podman (rootless)“. */
+  runtime?: string;
   image: string;
   /** Voreinstellung für neue Workspaces (defaults.sandbox). */
   default: boolean;
