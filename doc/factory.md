@@ -139,6 +139,16 @@ stateDiagram-v2
   Run ab. Mit `on_deny: { goto: implement }` springt das Gate beim Ablehnen stattdessen zurück;
   die Begründung ist dann Pflicht (der Button heißt „Zurück zu implement“) und steht im Prompt
   des nächsten Durchlaufs.
+- **Pull Request** (`action: pull_request`, letzter Schritt): Der Daemon pusht den Branch mit
+  den Zugangsdaten des Nutzers und öffnet einen PR. Workflows aus einem Branch desselben Repos
+  laufen dort mit den Secrets des Repos, deshalb muss ein Mensch den Stand vorher sehen (#103):
+  Vor `pull_request` braucht es ein Gate ohne `when`, nach dem keine Rolle mit Schreibrechten
+  mehr läuft (lesende Rollen und Entscheidungen sind erlaubt; Rücksprünge führen erneut durch
+  das Gate). Sonst lehnt ADE die Fabrik beim Laden ab. Wer bewusst ohne Gate liefern will,
+  schreibt `unattended: true` an die Aktion. Auch dann wartet der Run vor dem Push auf eine
+  Freigabe, wenn der Diff `.github/workflows/`, `.github/actions/` oder `.ade/` ändert;
+  Ablehnen bricht den Run ab. Gates und die Review-Ansicht des Workspaces heben solche
+  Änderungen hervor.
 - **Bedingungen** (`when`): Ist sie an einem Schritt mit `role`, `gate` oder `action` falsch,
   wird der Schritt übersprungen. Pfade beginnen mit dem Namen eines früheren Schritts und lesen
   Felder aus seinem strukturierten Artefakt (`review.verdict`, `test.suite.failed`); fehlende
@@ -234,7 +244,8 @@ triggers:
   Egress-Allowlist) und nur mit Budget. Labels setzen auf GitHub nur Nutzer mit mindestens
   Triage-Rechten; in öffentlichen Repos trotzdem `authors` angeben, denn jeder kann ein Issue
   eröffnen, das später gelabelt wird – geprüft wird, wer das Issue geschrieben hat, nicht wer
-  das Label gesetzt hat. Gates (`gate: human`) vor dem PR bleiben die wichtigste Bremse.
+  das Label gesetzt hat. Gates (`gate: human`) vor dem PR bleiben die wichtigste Bremse; ohne
+  Gate (`unattended: true`) halten nur Änderungen an Workflows und `.ade/` den Run an.
 - Auslöser lassen sich in der Projektansicht des Dashboards pausieren und fortsetzen (API:
   `POST /api/projects/{id}/triggers/{name}/pause`, `…/resume`);
   `GET /api/projects/{id}/triggers` liefert Zustand, nächste Abfrage bzw. nächsten Termin und

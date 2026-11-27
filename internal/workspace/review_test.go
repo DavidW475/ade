@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -388,5 +389,22 @@ func TestCloneAcrossFilesystems(t *testing.T) {
 	})
 	if err != nil || n == 0 {
 		t.Fatalf("Objekte: %d, %v", n, err)
+	}
+}
+
+func TestSensitive(t *testing.T) {
+	d := &git.Diff{Files: []git.FileChange{
+		{Path: "README.md"},
+		{Path: ".github/workflows/ci.yml"},
+		{Path: "docs/x.md", OldPath: ".ade/project.yaml", Status: "renamed"},
+		{Path: ".github/actions/a/action.yml"},
+		{Path: ".github/CODEOWNERS"},
+		{Path: ".adex/foo"},
+		{Path: ".ade"},
+	}}
+	got := Sensitive(d)
+	want := []string{".ade", ".ade/project.yaml", ".github/actions/a/action.yml", ".github/workflows/ci.yml"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("Sensitive = %v, erwartet %v", got, want)
 	}
 }

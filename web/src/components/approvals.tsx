@@ -13,6 +13,7 @@ import {
 } from "../api";
 import { errorMessage, formatTime, formatUSD } from "../format";
 import { usePendingApprovals } from "../hooks/usePendingApprovals";
+import { SensitiveNotice } from "./review";
 import { Badge, Notice } from "./ui";
 
 const statusLabels: Record<ApprovalStatus, string> = {
@@ -155,7 +156,16 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
           {pending && ` „Budget erhöhen“ gibt weitere ${formatUSD(budget.step_usd)} frei und setzt ihn fort.`}
         </p>
       )}
-      {gate && (
+      {gate?.sensitive?.length ? <SensitiveNotice paths={gate.sensitive} /> : null}
+      {gate?.unattended && (
+        <p className="hint">
+          Run <Link to={`/runs/${gate.run_id}`} className="mono">{gate.run_id}</Link> will ohne Gate einen Pull Request öffnen und hat dabei die
+          oben genannten Dateien geändert. Vorher im{" "}
+          <Link to={`/workspaces/${a.workspace_id}`}>Workspace</Link> den Diff prüfen.
+          {pending && " Freigeben pusht und öffnet den PR, Ablehnen bricht den Run ab."}
+        </p>
+      )}
+      {gate && !gate.unattended && (
         <p className="hint">
           Run <Link to={`/runs/${gate.run_id}`} className="mono">{gate.run_id}</Link> wartet vor dem Schritt <code>{gate.step}</code>.
           {gate.artifacts?.length ? <> Zu prüfen: {gate.artifacts.map((n) => <code key={n}>{n} </code>)}</> : null}

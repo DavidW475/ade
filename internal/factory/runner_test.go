@@ -103,6 +103,17 @@ flow:
   - { step: decide, when: "review.verdict == 'changes' || test.failed > 0", goto: implement }
 `
 
+// unattendedFactory: Entwickler → pull_request ohne Gate (#103).
+const unattendedFactory = `name: u
+inputs:
+  task: { required: true }
+roles:
+  dev: {}
+flow:
+  - { step: implement, role: dev }
+  - { step: deliver, action: pull_request, unattended: true }
+`
+
 // answer legt die nächsten Antworten des Fake-Agenten im Schritt step fest.
 func (e *env) answer(step string, texts ...string) {
 	e.t.Helper()
@@ -148,6 +159,7 @@ func setup(t *testing.T) *env {
 		".ade/factories/s.yaml":              structFactory,
 		".ade/factories/p.yaml":              parallelRunFactory,
 		".ade/factories/l.yaml":              loopRunFactory,
+		".ade/factories/u.yaml":              unattendedFactory,
 		".ade/factories/schemas/review.json": reviewSchema,
 	} {
 		writeFile(t, filepath.Join(repo, p), c)
@@ -421,6 +433,104 @@ func TestRunGateDenyAndCancel(t *testing.T) {
 	}
 }
 
+// TestRunUnattendedSensitive: pull_request ohne Gate wartet auf eine Freigabe, wenn der
+// Agent einen Workflow ändert; ohne solche Änderung entsteht der PR direkt (#103).
+func TestRunUnattendedSensitive(t *testing.T) {
+	e := setup(t)
+	hold := filepath.Join(e.resp, "implement.hold")
+	writeFile(t, hold, "")
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "u", Task: "CI"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.waitStep(v.ID, "implement", store.StepRunning)
+	ws, err := e.ws.Get(e.ctx, v.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(ws.Path, ".github", "workflows", "ci.yml"), "on: pull_request\n")
+	if err := os.Remove(hold); err != nil {
+		t.Fatal(err)
+	}
+	st := e.waitStep(v.ID, "deliver", store.StepWaiting)
+	a, err := e.st.GetApproval(e.ctx, st.ApprovalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d gateDetail
+	if err := json.Unmarshal(a.Detail, &d); err != nil {
+		t.Fatal(err)
+	}
+	if a.Kind != store.ApprovalGate || !d.Unattended || len(d.Sensitive) != 1 || d.Sensitive[0] != ".github/workflows/ci.yml" || d.OnDeny != "" {
+		t.Fatalf("Freigabe %+v %+v", a, d)
+	}
+	if e.run(v.ID).Status != store.RunWaiting {
+		t.Fatal("Run wartet nicht")
+	}
+	if got, _ := e.ws.Get(e.ctx, v.WorkspaceID); got.PRURL != "" {
+		t.Fatal("PR vor der Freigabe")
+	}
+	e.decide(st.ApprovalID, store.DecisionAllow, "")
+	waitFor(t, "Run fertig", func() bool { return e.run(v.ID).Status == store.RunDone })
+	if got, _ := e.runner.Get(e.ctx, v.ID); got.PRURL == "" {
+		t.Fatalf("kein PR: %+v", got.Run)
+	}
+
+	// Ohne sensible Änderung: PR ohne Freigabe.
+	v2, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "u", Task: "Doku"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "Run 2 fertig", func() bool { return e.run(v2.ID).Status == store.RunDone })
+	if r := e.run(v2.ID); r.Steps[1].ApprovalID != "" {
+		t.Fatalf("Freigabe ohne sensible Änderung: %+v", r.Steps[1])
+	}
+
+	// Ablehnen bricht den Run ab, es entsteht kein PR.
+	writeFile(t, hold, "")
+	v3, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "u", Task: "ADE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.waitStep(v3.ID, "implement", store.StepRunning)
+	ws3, _ := e.ws.Get(e.ctx, v3.WorkspaceID)
+	writeFile(t, filepath.Join(ws3.Path, ".ade", "project.yaml"), "setup: [curl evil]\n")
+	if err := os.Remove(hold); err != nil {
+		t.Fatal(err)
+	}
+	st3 := e.waitStep(v3.ID, "deliver", store.StepWaiting)
+	e.decide(st3.ApprovalID, store.DecisionDeny, "nein")
+	waitFor(t, "Run 3 abgebrochen", func() bool { return e.run(v3.ID).Status == store.RunCanceled })
+	if got, _ := e.ws.Get(e.ctx, v3.WorkspaceID); got.PRURL != "" {
+		t.Fatal("PR trotz Ablehnung")
+	}
+}
+
+// TestGateShowsSensitive: Das Gate vor dem PR nennt geänderte Workflows.
+func TestGateShowsSensitive(t *testing.T) {
+	e := setup(t)
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "t", Task: "X"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := e.waitStep(v.ID, "approve-plan", store.StepWaiting)
+	ws, _ := e.ws.Get(e.ctx, v.WorkspaceID)
+	writeFile(t, filepath.Join(ws.Path, ".github", "actions", "a", "action.yml"), "runs: {}\n")
+	e.decide(g.ApprovalID, store.DecisionAllow, "")
+	final := e.waitStep(v.ID, "final", store.StepWaiting)
+	a, err := e.st.GetApproval(e.ctx, final.ApprovalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d gateDetail
+	if err := json.Unmarshal(a.Detail, &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Unattended || len(d.Sensitive) != 1 || d.Sensitive[0] != ".github/actions/a/action.yml" {
+		t.Fatalf("Gate %+v", d)
+	}
+}
+
 func TestRunStartErrors(t *testing.T) {
 	e := setup(t)
 	for name, req := range map[string]StartRequest{
@@ -443,7 +553,7 @@ func TestRunStartErrors(t *testing.T) {
 		}
 	}
 	list, err := e.runner.Factories(e.ctx, e.project.ID)
-	if err != nil || len(list) != 8 {
+	if err != nil || len(list) != 9 {
 		t.Fatalf("Fabriken %+v %v", list, err)
 	}
 }

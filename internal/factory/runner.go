@@ -1079,11 +1079,30 @@ type gateDetail struct {
 	OnDeny        string `json:"on_deny,omitempty"`
 	Iteration     int    `json:"iteration,omitempty"`
 	MaxIterations int    `json:"max_iterations,omitempty"`
+	// Sensitive sind geänderte Dateien unter workspace.SensitivePaths (Workflows, .ade/).
+	Sensitive []string `json:"sensitive,omitempty"`
+	// Unattended: Die Freigabe gehört zu pull_request ohne Gate und wird nur wegen
+	// Sensitive verlangt (#103).
+	Unattended bool `json:"unattended,omitempty"`
+}
+
+// sensitive liefert die geänderten sensiblen Dateien im Workspace des Runs.
+func (r *Runner) sensitive(ctx context.Context, run *store.Run) ([]string, error) {
+	d, err := r.opts.Workspaces.Diff(ctx, run.WorkspaceID, false)
+	if err != nil {
+		return nil, fmt.Errorf("Änderungen prüfen: %w", err)
+	}
+	return workspace.Sensitive(d), nil
 }
 
 func (r *Runner) openGate(ctx context.Context, run *store.Run, def *Step, st store.RunStep) error {
 	d := gateDetail{RunID: run.ID, Factory: run.Factory, Step: st.Name, Task: run.Task, Iteration: st.Iteration}
-	if t := def.Target(); t != "" && st.Iteration < def.Iterations() {
+	title := fmt.Sprintf("Fabrik %s: Schritt %s freigeben", run.Factory, st.Name)
+	if st.Kind == KindAction {
+		// Freigabe vor pull_request ohne Gate (deliver): Sensitive ist schon geprüft.
+		d.Unattended = true
+		title = fmt.Sprintf("Fabrik %s: Pull Request mit Änderungen an Workflows oder .ade/ freigeben", run.Factory)
+	} else if t := def.Target(); t != "" && st.Iteration < def.Iterations() {
 		d.OnDeny, d.MaxIterations = t, def.Iterations()
 	}
 	for _, s := range run.Steps[:run.Current] {
@@ -1091,11 +1110,16 @@ func (r *Runner) openGate(ctx context.Context, run *store.Run, def *Step, st sto
 			d.Artifacts = append(d.Artifacts, s.Output)
 		}
 	}
+	// Nur zur Anzeige: Ohne Diff (z. B. Container weg) entscheidet der Mensch trotzdem.
+	if paths, err := r.sensitive(ctx, run); err != nil {
+		r.log.Warn("Gate: Änderungen nicht prüfbar", "run", run.ID, "err", err)
+	} else {
+		d.Sensitive = paths
+	}
 	detail, _ := json.Marshal(d)
 	a := &store.Approval{
 		ProjectID: run.ProjectID, WorkspaceID: run.WorkspaceID,
-		Title:  fmt.Sprintf("Fabrik %s: Schritt %s freigeben", run.Factory, st.Name),
-		Detail: detail, Sandbox: run.Sandbox,
+		Title: title, Detail: detail, Sandbox: run.Sandbox,
 	}
 	runID := run.ID
 	if err := r.opts.Gates.RequestGate(ctx, a, func(*store.Approval) { r.kick(runID) }); err != nil {
@@ -1129,6 +1153,10 @@ func (r *Runner) checkGate(ctx context.Context, run *store.Run, def *Step, st st
 		r.setStatus(ctx, run, store.RunWaiting)
 		return false, nil
 	case store.ApprovalApproved:
+		if st.Kind == KindAction {
+			r.log.Info("Pull Request freigegeben", "run", run.ID, "schritt", st.Name)
+			return false, r.deliver(ctx, run, st)
+		}
 		if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{Status: store.Ptr(store.StepDone), Ended: true}); err != nil {
 			return false, err
 		}
@@ -1160,9 +1188,26 @@ func (r *Runner) checkGate(ctx context.Context, run *store.Run, def *Step, st st
 	return false, errors.New("die Freigabe ist abgelaufen")
 }
 
+// deliver erstellt den Pull Request. Hat seit der letzten schreibenden Rolle kein Mensch an
+// einem Gate freigegeben (pull_request mit unattended: true) und ändert der Diff Workflows
+// oder .ade/, wartet der Schritt vorher auf eine eigene Freigabe (#103).
 func (r *Runner) deliver(ctx context.Context, run *store.Run, st store.RunStep) error {
-	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{Status: store.Ptr(store.StepRunning), Started: true}); err != nil {
+	if err := r.opts.Store.UpdateRunStep(ctx, run.ID, st.Row, store.StepUpdate{Status: store.Ptr(store.StepRunning), Started: st.StartedAt == nil}); err != nil {
 		return err
+	}
+	ok, err := r.approvedAction(ctx, st)
+	if err != nil {
+		return err
+	}
+	if !ok && !reviewed(run) {
+		paths, err := r.sensitive(ctx, run)
+		if err != nil {
+			return err
+		}
+		if len(paths) > 0 {
+			r.log.Info("Pull Request ohne Gate ändert sensible Pfade, Freigabe nötig", "run", run.ID, "dateien", len(paths))
+			return r.openGate(ctx, run, nil, st)
+		}
 	}
 	d, err := r.opts.Workspaces.PullRequestDraft(ctx, run.WorkspaceID)
 	if err != nil {
@@ -1180,6 +1225,36 @@ func (r *Runner) deliver(ctx context.Context, run *store.Run, st store.RunStep) 
 	r.log.Info("Pull Request des Runs erstellt", "run", run.ID, "url", w.PRURL)
 	r.endRun(ctx, run, store.RunDone, "")
 	return nil
+}
+
+// approvedAction meldet, ob die Freigabe des Aktions-Schritts erteilt ist.
+func (r *Runner) approvedAction(ctx context.Context, st store.RunStep) (bool, error) {
+	if st.ApprovalID == "" {
+		return false, nil
+	}
+	a, err := r.opts.Store.GetApproval(ctx, st.ApprovalID)
+	if errors.Is(err, apperr.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return a.Status == store.ApprovalApproved, nil
+}
+
+// reviewed meldet, ob nach der letzten Ausführung einer Rolle mit Schreibrechten ein Gate
+// freigegeben wurde. Ausführungen laufen in der Reihenfolge ihrer Zeilen.
+func reviewed(run *store.Run) bool {
+	ok := false
+	for _, s := range run.Executions() {
+		switch {
+		case s.Kind == KindGate && s.Status == store.StepDone:
+			ok = true
+		case s.Kind == KindRole && !s.ReadOnly && s.Status != store.StepPending && s.Status != store.StepSkipped:
+			ok = false
+		}
+	}
+	return ok
 }
 
 // prBody ergänzt die PR-Beschreibung um Fabrik und Artefakte.

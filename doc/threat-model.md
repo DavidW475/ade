@@ -110,7 +110,7 @@ Image-Registries, Angriffe auf den Kernel oder die Container-Laufzeit selbst (Ze
 | Manipulation des Haupt-Repos (Hooks, Branches, Konfiguration) | Workspace ist ein eigener Clone ohne Remote zum Haupt-Repo (ADR-005); nur der Daemon überträgt | – |
 | Schadcode im Ergebnis | Merge und PR nur nach Review im Dashboard (Diff zur Basis); Fabriken mit `gate: human` vor `pull_request` | Ein Review übersieht etwas |
 | `.ade/*.yaml` im Ergebnis weitet Sandbox, Freigaben oder Fabriken aus | Konfiguration wird aus dem Haupt-Repo gelesen, nie aus dem Workspace; wirkt erst nach dem Merge | Unaufmerksames Review von `.ade/` |
-| Workflows im PR-Branch (`.github/workflows/`) laufen mit den Secrets des Repos | PRs entstehen über einen Push in dasselbe Repo; Vorlagen haben ein Gate davor | Eine Fabrik ohne Gate vor `pull_request` pusht ungeprüften Code (#103) |
+| Workflows im PR-Branch (`.github/workflows/`) laufen mit den Secrets des Repos | PRs entstehen über einen Push in dasselbe Repo; `pull_request` braucht ein Gate davor, nach dem keine schreibende Rolle mehr läuft (#103). Ohne Gate (`unattended: true`) wartet der Run auf eine Freigabe, sobald der Diff `.github/workflows/`, `.github/actions/` oder `.ade/` ändert; Gate und Review heben diese Pfade hervor | Unbeaufsichtigte Runs pushen andere Änderungen ungeprüft, etwa Build-Skripte, die ein bestehender Workflow aufruft |
 | Prompt-Injection über Issue-Texte (Auslöser) | Nur Issues mit Label (setzen nur Nutzer mit Triage-Recht); Run in der Sandbox; Gate vor dem PR | Der Issue-Text selbst stammt von beliebigen Nutzern |
 | Bösartige Projektkonfiguration (`setup`, Fabriken) | Ein Projekt zu registrieren heißt, seiner `.ade/`-Konfiguration zu vertrauen; ohne Sandbox laufen Setup und Agent auf dem Host | Ohne Sandbox ist A2 = Codeausführung auf dem Host (bewusste Wahl, Hinweis im Dashboard) |
 | Checkout-Filter beim Merge | Merge im Haupt-Repo nutzt die Filter aus der Konfiguration des *Nutzers* (z. B. LFS); `.gitattributes` aus dem Ergebnis kann nur diese auswählen | – |
@@ -174,4 +174,4 @@ Geprüft im Rahmen von #95. Befunde sind behoben (mit Test) oder als Issue angel
 - [x] `govulncheck` und `npm audit` als Workflow `audit.yml` bei PRs, auf `main` und wöchentlich
 
 **Als Issue angelegt**
-- #103: Fabrik ohne Gate vor `pull_request` pusht ungeprüften Agent-Code (inkl. Workflows)
+- [x] **Behoben (#103):** Fabrik ohne Gate vor `pull_request` pushte ungeprüften Agent-Code (inkl. Workflows)
