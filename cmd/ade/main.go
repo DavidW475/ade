@@ -30,15 +30,17 @@ Verwendung:
   ade <befehl> [optionen]
 
 Befehle:
-  start     Daemon starten (falls nötig) und Dashboard im Browser öffnen
-  serve     Daemon im Vordergrund ausführen
-  project   Projekte verwalten (add, list, remove)
-  run       Run einer Software-Fabrik starten (ade run feature --task "…")
-  gc        Verwaiste Sandbox-Container entfernen
-  proxy     Egress-Proxy der Sandbox (startet der Daemon im Container)
-  hook      Freigabe-Hook für Agent-CLIs (bindet der Daemon selbst ein)
-  version   Version ausgeben
-  help      Diese Hilfe anzeigen
+  start              Daemon starten (falls nötig) und Dashboard im Browser öffnen
+  serve              Daemon im Vordergrund ausführen
+  project            Projekte verwalten (add, list, remove)
+  run                Run einer Software-Fabrik starten (ade run feature --task "…")
+  gc                 Verwaiste Sandbox-Container entfernen
+  install-service    Daemon als systemd-User-Dienst einrichten und starten
+  uninstall-service  systemd-User-Dienst stoppen und entfernen
+  proxy              Egress-Proxy der Sandbox (startet der Daemon im Container)
+  hook               Freigabe-Hook für Agent-CLIs (bindet der Daemon selbst ein)
+  version            Version ausgeben
+  help               Diese Hilfe anzeigen
 
 Mit "ade <befehl> -h" werden die Optionen eines Befehls angezeigt.
 `
@@ -103,6 +105,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return cmdRun(rest, stdout, stderr)
 	case "gc":
 		return cmdGC(rest, stdout, stderr)
+	case "install-service":
+		return cmdInstallService(rest, stdout, stderr)
+	case "uninstall-service":
+		return cmdUninstallService(rest, stdout, stderr)
 	case "proxy":
 		return cmdProxy(rest, stderr)
 	case "hook":
@@ -172,13 +178,16 @@ func cmdStart(args []string, stdout, stderr io.Writer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	h, started, err := daemon.EnsureRunning(ctx, cfg, cfgPath)
+	h, how, err := ensureRunning(ctx, cfg, cfgPath)
 	if err != nil {
 		return err
 	}
-	if started {
+	switch how {
+	case "systemd":
+		_, _ = fmt.Fprintf(stdout, "ADE-Dienst gestartet (%s, Log: %s)\n", h.Version, cfg.LogPath())
+	case "process":
 		_, _ = fmt.Fprintf(stdout, "ADE-Daemon gestartet (%s, Log: %s)\n", h.Version, cfg.LogPath())
-	} else {
+	default:
 		_, _ = fmt.Fprintf(stdout, "ADE-Daemon läuft bereits (%s)\n", h.Version)
 	}
 

@@ -528,7 +528,8 @@ ide:
   `ade start` öffnet den Browser über `wslview` bzw. `explorer.exe`.
 - **Docker Engine in der WSL** (nicht zwingend Docker Desktop). Rootless/Podman optional später.
 - **Hintergrunddienst:** Mit `systemd=true` in `/etc/wsl.conf` läuft der Daemon als
-  `systemctl --user`-Dienst (`ade install-service`).
+  `systemctl --user`-Dienst (`ade install-service`, ADR-021). Die Unit übernimmt den `PATH` der
+  Shell und schreibt ins normale Daemon-Log; `ade start` startet dann den Dienst.
 
 ## 9. Tech-Stack
 

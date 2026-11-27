@@ -41,19 +41,41 @@ ade start  →  http://localhost:7000
 
 ## Installation
 
-Binary des [letzten Releases](https://github.com/DavidW475/ade/releases/latest) nach `~/.local/bin`
-(für ARM: `ade_linux_arm64.tar.gz`):
+Das Installationsskript lädt das Binary des [letzten Releases](https://github.com/DavidW475/ade/releases/latest)
+für deine Architektur (amd64, arm64), prüft die Prüfsumme aus `checksums.txt`, legt es nach
+`~/.local/bin` und meldet fehlende Voraussetzungen:
 
 ```sh
-mkdir -p ~/.local/bin
-curl -fsSL https://github.com/DavidW475/ade/releases/latest/download/ade_linux_amd64.tar.gz \
-  | tar -xz -C ~/.local/bin ade
+curl -fsSL https://raw.githubusercontent.com/DavidW475/ade/main/install.sh | sh
 ade version
 ```
 
+Mit `sh -s -- --service` richtet es ADE zusätzlich als Hintergrunddienst ein (siehe unten).
+`ADE_VERSION=v1.0.0` wählt eine bestimmte Version, `ADE_INSTALL_DIR` ein anderes Verzeichnis.
 Liegt `~/.local/bin` nicht im `PATH` (Ubuntu nimmt es erst nach einer neuen Anmeldung auf), einmal
-`export PATH="$HOME/.local/bin:$PATH"` ausführen bzw. in `~/.bashrc` ergänzen. Prüfsummen stehen in
-`checksums.txt` beim Release.
+`export PATH="$HOME/.local/bin:$PATH"` ausführen bzw. in `~/.bashrc` ergänzen.
+
+Von Hand geht es ebenso (für ARM `ade_linux_arm64.tar.gz`):
+
+```sh
+curl -fsSL https://github.com/DavidW475/ade/releases/latest/download/ade_linux_amd64.tar.gz \
+  | tar -xz -C ~/.local/bin ade
+```
+
+### Als Hintergrunddienst
+
+Ist systemd in der WSL aktiv (`[boot]` `systemd=true` in `/etc/wsl.conf`, danach `wsl --shutdown`),
+läuft der Daemon als systemd-User-Dienst und startet mit der WSL:
+
+```sh
+ade install-service      # Unit ~/.config/systemd/user/ade.service anlegen und starten
+ade uninstall-service    # stoppen und entfernen
+```
+
+Die Unit übernimmt den aktuellen `PATH` (git, docker, gh, claude); nach einem Update des Binarys
+oder neuen Werkzeugen `ade install-service` erneut ausführen. `ade start` startet dann den Dienst,
+statt selbst einen Daemon zu starten. Das Log bleibt `~/.local/share/ade/daemon.log`. Damit der
+Dienst auch ohne offene WSL-Shell läuft: `sudo loginctl enable-linger "$USER"`.
 
 ## Schnellstart
 
