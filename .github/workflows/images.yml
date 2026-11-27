@@ -1,8 +1,8 @@
 name: Images
 
 # Baut die Container-Images (images/). Bei Änderungen auf main → :latest und :sha-…; bei
-# einem Release-Tag ruft release.yml diesen Workflow immer auf (auch ohne Änderung unter
-# images/) → :X.Y.Z bzw. :X.Y.Z-rc.N passend zum Binary (sandbox.DefaultImage).
+# einem Release ruft release.yml diesen Workflow immer mit inputs.tag auf (auch ohne Änderung
+# unter images/) → :X.Y.Z bzw. :X.Y.Z-rc.N passend zum Binary (sandbox.DefaultImage).
 on:
   push:
     branches: [main]
@@ -10,6 +10,11 @@ on:
   pull_request:
     paths: ["images/**", ".github/workflows/images.yml"]
   workflow_call:
+    inputs:
+      tag:
+        description: Release-Tag (vX.Y.Z); leer bei Änderungen auf main
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -23,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || '' }}
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -36,10 +43,12 @@ jobs:
         with:
           images: ghcr.io/davidw475/ade-agent-base
           # Vorabversionen (v1.0.0-rc.1) bekommen nur :1.0.0-rc.1, kein :1.0.
+          # Beim Release kommt die Version aus inputs.tag, nicht aus github.ref (der Aufruf durch
+          # auto-release.yml läuft auf main); :latest gibt es dann nicht.
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ inputs.tag == '' && github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}},value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
             type=sha
       - id: build
         uses: docker/build-push-action@v6
@@ -66,6 +75,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || '' }}
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -78,19 +89,24 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/davidw475/ade-dev
+          # Beim Release kommt die Version aus inputs.tag, nicht aus github.ref (der Aufruf durch
+          # auto-release.yml läuft auf main); :latest gibt es dann nicht.
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ inputs.tag == '' && github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}},value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
             type=sha
       - name: Basis-Image wählen
         id: base
         # Beim Release das eben gebaute Basis-Image derselben Version, sonst :latest.
         run: |
-          case "$GITHUB_REF" in
-            refs/tags/v*) echo "image=ghcr.io/davidw475/ade-agent-base:${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT" ;;
-            *) echo "image=ghcr.io/davidw475/ade-agent-base:latest" >> "$GITHUB_OUTPUT" ;;
-          esac
+          if [ -n "$TAG" ]; then
+            echo "image=ghcr.io/davidw475/ade-agent-base:${TAG#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "image=ghcr.io/davidw475/ade-agent-base:latest" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          TAG: ${{ inputs.tag }}
       - id: build
         uses: docker/build-push-action@v6
         with:

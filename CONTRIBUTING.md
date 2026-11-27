@@ -59,8 +59,11 @@ gilt für Menschen genauso.
 
 ## Releases
 
-Releases macht der Maintainer. Ein Tag `vX.Y.Z` (oder `vX.Y.Z-rc.N` als Vorabversion) startet
-[`release.yml`](.github/workflows/release.yml):
+Releases macht der Maintainer, und zwar über `CHANGELOG.md` (ADR-024): Steht nach einem Merge auf
+`main` oben eine Version `## [X.Y.Z] – JJJJ-MM-TT` (oder `## [X.Y.Z-rc.N] – …` als Vorabversion),
+zu der es noch keinen Tag gibt, setzt
+[`auto-release.yml`](.github/workflows/auto-release.yml) den Tag `vX.Y.Z` auf diesen Commit und
+startet [`release.yml`](.github/workflows/release.yml):
 
 - **GoReleaser** baut `ade_linux_amd64.tar.gz` und `ade_linux_arm64.tar.gz` (Version `vX.Y.Z` im
   Binary), `checksums.txt` und je Archiv eine SPDX-SBOM, lädt `install.sh` mit hoch und übernimmt
@@ -69,24 +72,22 @@ Releases macht der Maintainer. Ein Tag `vX.Y.Z` (oder `vX.Y.Z-rc.N` als Vorabver
 - **Images** (`images.yml`, parallel): `ghcr.io/davidw475/ade-agent-base` und `ade-dev` mit dem Tag
   `X.Y.Z` (ohne `v`; bei Vollversionen zusätzlich `X.Y`), SBOM und Provenance. Das Binary nutzt
   standardmäßig genau `ade-agent-base:X.Y.Z` (`sandbox.DefaultImage`), deshalb werden die Images
-  bei jedem Tag gebaut, auch ohne Änderung unter `images/`.
+  bei jedem Release gebaut, auch ohne Änderung unter `images/`.
+
+Die Version liest [`scripts/changelog-version.sh`](scripts/changelog-version.sh). Es prüft Format,
+Datum und Reihenfolge; dieselbe Prüfung läuft in jedem PR (Job „Shell-Skripte“).
 
 Ablauf:
 
-1. In `CHANGELOG.md` den Abschnitt `[Unveröffentlicht]` in `## [X.Y.Z] – JJJJ-MM-TT` umbenennen
-   (bei Vorabversionen `## [X.Y.Z-rc.N] – …`), einen neuen leeren `[Unveröffentlicht]` anlegen
-   und die Vergleichslinks am Ende ergänzen; per PR nach `main`. Ohne passenden Abschnitt bricht
-   der Release-Workflow ab.
-2. Lokal prüfen (optional, braucht [GoReleaser](https://goreleaser.com/install/)):
-   `goreleaser check` und `goreleaser release --snapshot --clean --skip=sbom`. In PRs, die die
-   Release-Konfiguration ändern, läuft derselbe Snapshot samt `install.sh` in der CI
+1. In `CHANGELOG.md` den Abschnitt `[Unveröffentlicht]` in `## [X.Y.Z] – JJJJ-MM-TT` umbenennen,
+   einen neuen leeren `[Unveröffentlicht]` anlegen und die Vergleichslinks am Ende ergänzen; per PR
+   nach `main`. **Der Merge veröffentlicht.** Lokal prüfen: `scripts/changelog-version.sh` gibt die
+   neue Version aus.
+2. Optional vorher (braucht [GoReleaser](https://goreleaser.com/install/)): `goreleaser check` und
+   `goreleaser release --snapshot --clean --skip=sbom`. In PRs, die die Release-Konfiguration
+   ändern, läuft derselbe Snapshot samt `install.sh` in der CI
    ([`release-snapshot.yml`](.github/workflows/release-snapshot.yml)).
-3. Tag auf dem gemergten Commit setzen und pushen:
-   ```sh
-   git switch main && git pull
-   git tag -a vX.Y.Z -m "ADE vX.Y.Z" && git push origin vX.Y.Z
-   ```
-4. Beide Jobs des Release-Laufs müssen grün sein (`gh run watch`). Danach prüfen:
+3. Nach dem Merge den Lauf verfolgen: `gh run watch` (Workflow „Auto-Release“). Danach prüfen:
    ```sh
    gh release view vX.Y.Z
    gh release download vX.Y.Z -p 'ade_linux_amd64.tar.gz' -D /tmp/ade-rel
@@ -95,7 +96,12 @@ Ablauf:
    ADE_VERSION=vX.Y.Z sh install.sh && ade version
    ```
    Schlägt nur der Image-Build fehl, ist das Release schon veröffentlicht: Fehler beheben und den
-   Lauf über „Re-run failed jobs“ wiederholen.
+   Lauf über „Re-run failed jobs“ wiederholen. Scheitert der Lauf, bevor das Release entsteht, den
+   Fehler beheben und „Auto-Release“ von Hand starten (`gh workflow run auto-release.yml`): Gibt
+   es den Tag schon, aber kein Release, holt der Workflow es nach.
+
+Ein von Hand gepushter Tag (`git tag -a vX.Y.Z -m "ADE vX.Y.Z" && git push origin vX.Y.Z`)
+startet `release.yml` weiterhin direkt; der CHANGELOG-Abschnitt muss trotzdem existieren.
 
 ## Konventionen
 

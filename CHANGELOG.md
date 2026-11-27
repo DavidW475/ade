@@ -19,6 +19,9 @@ Abschnitt der jeweiligen Version als Release-Notizen.
   und `ade-dev` mit gleicher Version (`:X.Y.Z`), mit SBOM und Build-Provenance
   (`gh attestation verify …`). Ein Snapshot-Build samt `install.sh` läuft in der CI, wenn sich
   die Release-Konfiguration ändert. Release-Ablauf in CONTRIBUTING.md.
+- **Automatische Releases** (M11): Steht nach einem Merge auf `main` oben im CHANGELOG eine neue
+  Version `## [X.Y.Z] – JJJJ-MM-TT`, setzt `auto-release.yml` den Tag und startet den
+  Release-Lauf. `scripts/changelog-version.sh` liest und prüft die Überschrift, auch schon im PR.
 - **Fabrik-Vorlagen** (M10): `bugfix` (Fehler per Test reproduzieren, beheben, Tests grün),
   `review-only` (zwei Reviewer parallel, Zusammenfassung, kein PR) und `refactor` (schrittweise
   mit Test nach jedem Schritt); `feature` mit Review und Test parallel und Rücksprung bei

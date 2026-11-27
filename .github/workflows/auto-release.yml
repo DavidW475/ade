@@ -1,0 +1,80 @@
+name: Auto-Release
+
+# Automatische Releases aus CHANGELOG.md: Steht nach einem Merge auf main oben im CHANGELOG eine
+# Version `## [X.Y.Z] – JJJJ-MM-TT`, zu der es noch keinen Tag gibt, setzt dieser Workflow den
+# Tag vX.Y.Z auf den Commit und ruft release.yml auf (Binaries, Images, Attestierung).
+# Ein Tag, der mit GITHUB_TOKEN gepusht wird, startet release.yml nicht selbst; deshalb der
+# direkte Aufruf. Die Version liest scripts/changelog-version.sh.
+on:
+  push:
+    branches: [main]
+    paths: [CHANGELOG.md]
+  # Von Hand: wie oben; gibt es den Tag schon, aber kein Release (Lauf gescheitert), wird das
+  # Release nachgeholt.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Version erkennen und taggen
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Version aus CHANGELOG.md
+        id: version
+        # Erst zuweisen: Ein Fehler in $(…) als Argument von echo bräche den Schritt nicht ab.
+        run: |
+          version=$(scripts/changelog-version.sh CHANGELOG.md)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Tag setzen
+        id: tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$VERSION" ]; then
+            echo "Keine Version im CHANGELOG, nichts zu tun."
+            exit 0
+          fi
+          tag="v$VERSION"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && ! gh release view "$tag" >/dev/null 2>&1; then
+              echo "Tag $tag ohne Release, Release wird nachgeholt."
+              echo "tag=$tag" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Tag $tag gibt es schon ($(git rev-list -n 1 "$tag")), nichts zu tun."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "ADE $tag" "$GITHUB_SHA"
+          git push origin "refs/tags/$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "### Release $tag" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tag auf $GITHUB_SHA gesetzt, Release läuft." >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Release
+    needs: tag
+    if: needs.tag.outputs.tag != ''
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write

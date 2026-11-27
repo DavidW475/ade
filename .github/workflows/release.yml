@@ -1,8 +1,17 @@
 name: Release
 
+# Zwei Wege: ein von Hand gepushter Tag oder auto-release.yml, das den Tag aus CHANGELOG.md
+# setzt und diesen Workflow direkt aufruft (Tags, die mit GITHUB_TOKEN gepusht werden, starten
+# keine Workflows).
 on:
   push:
     tags: ["v*"]
+  workflow_call:
+    inputs:
+      tag:
+        description: Release-Tag (vX.Y.Z), muss schon existieren
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -15,9 +24,12 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: refs/tags/${{ env.TAG }}
           fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
@@ -33,7 +45,7 @@ jobs:
         # Ohne Frontend-Build fehlt nur das eingebettete Dashboard; die Tests brauchen es nicht.
       - name: Release-Notizen aus CHANGELOG.md
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${TAG#v}"
           awk -v v="$version" '
             /^## \[/ { if (found) exit; if (index($0, "[" v "]")) { found = 1; next } }
             /^\[[^]]+\]: / { if (found) exit }
@@ -50,6 +62,7 @@ jobs:
           args: release --clean --release-notes=${{ runner.temp }}/notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ env.TAG }}
       # Provenance für alles in checksums.txt (Archive und ihre SBOMs);
       # prüfen mit `gh attestation verify ade_linux_amd64.tar.gz --repo DavidW475/ade`.
       - uses: actions/attest-build-provenance@v4
@@ -61,6 +74,8 @@ jobs:
   images:
     name: Images
     uses: ./.github/workflows/images.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
     permissions:
       contents: read
       packages: write
