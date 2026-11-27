@@ -13,7 +13,9 @@ import (
 	"github.com/DavidW475/ade/internal/agent"
 	"github.com/DavidW475/ade/internal/agent/adapter"
 	"github.com/DavidW475/ade/internal/agent/adapter/claude"
+	"github.com/DavidW475/ade/internal/agent/adapter/codex"
 	"github.com/DavidW475/ade/internal/apperr"
+	"github.com/DavidW475/ade/internal/provider"
 	"github.com/DavidW475/ade/internal/store"
 )
 
@@ -45,13 +47,29 @@ type AdaptersResponse struct {
 	Adapters []adapter.Info `json:"adapters"`
 	// PermissionModes sind die Berechtigungsmodi des claude-Adapters.
 	PermissionModes []string `json:"permission_modes"`
-	Default         string   `json:"default"`
+	// Modes sind die Werte für permission_mode je Adapter (codex: Sandbox-Modi).
+	Modes map[string][]string `json:"modes"`
+	// Providers nennt den Anbieter je Adapter (für die Auswahl der Modell-Aliase).
+	Providers map[string]string `json:"providers"`
+	// Models sind die Modell-Aliase aus der Konfiguration.
+	Models  []provider.Alias `json:"models"`
+	Default string           `json:"default"`
 }
 
 func (s *Server) handleListAdapters(w http.ResponseWriter, _ *http.Request) {
+	infos := s.opts.Agents.Adapters().Infos()
+	provs := map[string]string{}
+	for _, a := range infos {
+		if p := provider.ForAdapter(a.Name); p != "" {
+			provs[a.Name] = p
+		}
+	}
 	writeJSON(w, http.StatusOK, AdaptersResponse{
-		Adapters:        s.opts.Agents.Adapters().Infos(),
+		Adapters:        infos,
 		PermissionModes: claude.PermissionModes,
+		Modes:           map[string][]string{"claude": claude.PermissionModes, "codex": codex.SandboxModes},
+		Providers:       provs,
+		Models:          s.opts.Agents.Catalog().Aliases(),
 		Default:         s.opts.DefaultAdapter,
 	})
 }

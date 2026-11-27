@@ -30,3 +30,13 @@ approvals:
     allow: ["Read(**)", "Glob(**)", "Grep(**)", "Edit(**)", "Write(**)", "TodoWrite", "Bash(go test *)", "Bash(npm test)"]
     ask: ["Edit(.github/**)"]
     deny: ["Read(**/.env)"]
+
+# Budgets in USD (M8); 0 oder weglassen heißt keine Grenze. Wird eine Grenze erreicht, beendet
+# ADE den Agenten (Status „pausiert“) und legt eine Freigabe an: „Budget erhöhen“ gibt einen
+# weiteren Schritt frei (Session: das Session-Budget, Monat: 10 % des Monatsbudgets, mindestens
+# 1 $) und setzt den Agenten fort, „Ablehnen“ beendet ihn.
+budget:
+  # Je Session; beim Start im Dashboard überschreibbar.
+  session_usd: 5
+  # Alle Sessions des Projekts im Kalendermonat (UTC), auch in verworfenen Workspaces.
+  monthly_usd: 100

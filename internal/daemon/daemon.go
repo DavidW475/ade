@@ -17,6 +17,7 @@ import (
 	"github.com/DavidW475/ade/internal/agent"
 	"github.com/DavidW475/ade/internal/agent/adapter"
 	"github.com/DavidW475/ade/internal/agent/adapter/claude"
+	"github.com/DavidW475/ade/internal/agent/adapter/codex"
 	"github.com/DavidW475/ade/internal/agent/adapter/pty"
 	"github.com/DavidW475/ade/internal/api"
 	"github.com/DavidW475/ade/internal/apperr"
@@ -24,6 +25,7 @@ import (
 	"github.com/DavidW475/ade/internal/config"
 	"github.com/DavidW475/ade/internal/ide"
 	"github.com/DavidW475/ade/internal/project"
+	"github.com/DavidW475/ade/internal/provider"
 	"github.com/DavidW475/ade/internal/proxy"
 	"github.com/DavidW475/ade/internal/sandbox"
 	"github.com/DavidW475/ade/internal/store"
@@ -57,7 +59,13 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	defer workspaces.Close()
 
 	sb := newSandbox(cfg, version, log)
-	sb.SetEgressSink(func(ws string, evs []proxy.Event) { storeEgress(st, log, ws, evs) })
+	var agents *agent.Manager
+	sb.SetEgressSink(func(ws string, evs []proxy.Event) {
+		storeEgress(st, log, ws, evs)
+		if agents != nil {
+			agents.RecordProxyUsage(context.Background(), ws, proxyUsage(evs))
+		}
+	})
 	sb.SetSpecSource(workspaces.SandboxSpec)
 	defer sb.Close()
 
@@ -86,17 +94,20 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 		}
 	}()
 
-	agents := agent.NewManager(agent.Options{
+	agents = agent.NewManager(agent.Options{
 		Store:          st,
 		Projects:       projects,
 		Workspaces:     workspaces,
-		Adapters:       adapter.NewRegistry(claude.New(), pty.New()),
+		Adapters:       adapter.NewRegistry(claude.New(), codex.New(), pty.New()),
 		DataDir:        cfg.DataDir,
 		Logger:         log,
 		DefaultAdapter: cfg.Defaults.Adapter,
 		AdapterEnv:     adapterEnv(cfg, log),
 		SandboxEnv:     sandboxAdapterEnv(cfg),
 		Hooks:          newHooks(cfg, approvals, sb.HookAvailable(), log),
+		Access:         providerAccess(cfg),
+		Catalog:        provider.NewCatalog(cfg),
+		Budgets:        approvals,
 	})
 	if err := agents.Recover(ctx); err != nil {
 		return err
@@ -167,6 +178,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 			Sandbox:    sb,
 			Egress:     st,
 			Approvals:  approvals,
+			Usage:      st,
 			// Wie der Manager: ohne Konfiguration gilt claude.
 			DefaultAdapter: defaultAdapter(cfg),
 		}),
@@ -228,7 +240,7 @@ func defaultAdapter(cfg *config.Config) string {
 func adapterEnv(cfg *config.Config, log *slog.Logger) func(string) []string {
 	keys := map[string]struct{ provider, env string }{
 		"claude": {"anthropic", "ANTHROPIC_API_KEY"},
-		"codex":  {"openai", "OPENAI_API_KEY"},
+		"codex":  {"openai", "CODEX_API_KEY"},
 	}
 	return func(name string) []string {
 		k, ok := keys[name]
@@ -252,6 +264,48 @@ func adapterEnv(cfg *config.Config, log *slog.Logger) func(string) []string {
 // für die Basis-URL und für den Platzhalter-Key, den die CLI statt des echten Keys sieht.
 var injectedProviders = map[string]struct{ baseURL, key string }{
 	"anthropic": {"ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"},
+	// Codex beachtet OPENAI_BASE_URL nicht; providerAccess gibt die Basis-URL als Argument.
+	"openai": {"OPENAI_BASE_URL", "OPENAI_API_KEY"},
+}
+
+// openAIBaseURL ist die Basis-URL der OpenAI-API über den Egress-Proxy.
+var openAIBaseURL = sandbox.ProviderBaseURL(provider.OpenAI) + "/v1"
+
+// providerAccess bestimmt für einen Adapter, ob der Proxy in der Sandbox den Key einfügt
+// (dann misst er auch die Nutzung) und welche Basis-URL die CLI als Argument braucht.
+func providerAccess(cfg *config.Config) func(string, bool) (*adapter.ProviderAccess, bool) {
+	return func(name string, sandboxed bool) (*adapter.ProviderAccess, bool) {
+		prov := provider.ForAdapter(name)
+		if !sandboxed || prov == "" {
+			return nil, false
+		}
+		if p, ok := cfg.Providers[prov]; !ok || p.APIKey == "" {
+			return nil, false
+		}
+		if _, ok := injectedProviders[prov]; !ok {
+			return nil, false
+		}
+		if name == "codex" {
+			return &adapter.ProviderAccess{BaseURL: openAIBaseURL, KeyEnv: injectedProviders[prov].key}, true
+		}
+		return nil, true
+	}
+}
+
+// proxyUsage holt die Token-Nutzung aus Egress-Events.
+func proxyUsage(evs []proxy.Event) []agent.ProxyUsage {
+	var out []agent.ProxyUsage
+	for _, e := range evs {
+		if e.Usage == nil {
+			continue
+		}
+		u := e.Usage
+		out = append(out, agent.ProxyUsage{
+			Provider: e.Provider, Model: u.Model, Time: e.Time,
+			Tokens: provider.Usage{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite},
+		})
+	}
+	return out
 }
 
 // KeyPlaceholder steht im Container statt eines API-Keys; der Proxy ersetzt ihn.

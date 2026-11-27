@@ -64,13 +64,17 @@ type Policy struct {
 type Provider struct {
 	// Upstream ist die Basis-URL der API.
 	Upstream *url.URL
-	// Header nimmt den API-Key auf.
+	// Header nimmt den API-Key auf, Prefix steht davor (z. B. "Bearer ").
 	Header string
+	Prefix string
+	// Dialect ist die Zählweise der Token-Nutzung in den Antworten (DialectAnthropic, DialectOpenAI).
+	Dialect string
 }
 
 // Providers sind die Anbieter mit Secret-Injection.
 var Providers = map[string]Provider{
-	"anthropic": {Upstream: mustURL("https://api.anthropic.com"), Header: "X-Api-Key"},
+	"anthropic": {Upstream: mustURL("https://api.anthropic.com"), Header: "X-Api-Key", Dialect: DialectAnthropic},
+	"openai":    {Upstream: mustURL("https://api.openai.com"), Header: "Authorization", Prefix: "Bearer ", Dialect: DialectOpenAI},
 }
 
 func mustURL(s string) *url.URL {
@@ -106,6 +110,8 @@ type Event struct {
 	BytesIn    int64  `json:"bytes_in"`
 	DurationMS int64  `json:"duration_ms"`
 	Error      string `json:"error,omitempty"`
+	// Usage ist die Token-Nutzung aus der Antwort einer Anbieter-API (nur KindAPI).
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 // Options konfiguriert den Proxy.
@@ -528,7 +534,21 @@ func (s *Server) provider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ev.Allowed, ev.Reason = true, ReasonProvider
-	s.reverse(w, r, &ev, start, func(out *httputil.ProxyRequest) {
+	var scan *usageScanner
+	s.reverseWith(w, r, &ev, start, func(resp *http.Response) {
+		if resp.StatusCode < 300 {
+			scan = newUsageScanner(prov.Dialect, resp.Header.Get("Content-Type"))
+		}
+	}, func() io.Writer {
+		if scan == nil {
+			return nil
+		}
+		return scan
+	}, func() {
+		if scan != nil {
+			ev.Usage = scan.Result()
+		}
+	}, func(out *httputil.ProxyRequest) {
 		u := *prov.Upstream
 		u.Path = strings.TrimSuffix(u.Path, "/") + path
 		u.RawPath = ""
@@ -538,19 +558,35 @@ func (s *Server) provider(w http.ResponseWriter, r *http.Request) {
 		// Was der Agent als Zugang schickt, ist ein Platzhalter – ersetzen, nie weiterreichen.
 		out.Out.Header.Del("Authorization")
 		out.Out.Header.Del("X-Api-Key")
-		out.Out.Header.Set(prov.Header, key)
+		out.Out.Header.Set(prov.Header, prov.Prefix+key)
 		out.Out.Header.Del("Proxy-Authorization")
+		// Unkomprimiert anfordern, damit der Proxy die Token-Nutzung mitlesen kann (der
+		// Transport fordert selbst gzip an und entpackt).
+		out.Out.Header.Del("Accept-Encoding")
 	})
 }
 
 // reverse leitet eine Anfrage weiter, zählt Bytes und meldet das Event am Ende.
 func (s *Server) reverse(w http.ResponseWriter, r *http.Request, ev *Event, start time.Time, rewrite func(*httputil.ProxyRequest)) {
+	s.reverseWith(w, r, ev, start, nil, nil, nil, rewrite)
+}
+
+// reverseWith ist reverse mit Haken: onResponse sieht die Antwort des Ziels, tee liefert einen
+// Writer, der den Antwort-Body mitliest (nil: keiner), done läuft vor dem Melden des Events.
+func (s *Server) reverseWith(w http.ResponseWriter, r *http.Request, ev *Event, start time.Time,
+	onResponse func(*http.Response), tee func() io.Writer, done func(), rewrite func(*httputil.ProxyRequest)) {
 	body := &countingReader{r: r.Body}
 	if r.Body != nil && r.Body != http.NoBody {
 		r.Body = body
 	}
-	rec := &recorder{ResponseWriter: w}
+	rec := &recorder{ResponseWriter: w, tee: tee}
 	rp := &httputil.ReverseProxy{
+		ModifyResponse: func(resp *http.Response) error {
+			if onResponse != nil {
+				onResponse(resp)
+			}
+			return nil
+		},
 		Rewrite:       rewrite,
 		Transport:     s.transport,
 		FlushInterval: -1,
@@ -571,6 +607,9 @@ func (s *Server) reverse(w http.ResponseWriter, r *http.Request, ev *Event, star
 		ev.Status = http.StatusOK
 	}
 	ev.BytesOut, ev.BytesIn = body.n.Load(), rec.n
+	if done != nil {
+		done()
+	}
 	s.record(*ev, start)
 }
 
@@ -591,6 +630,9 @@ type recorder struct {
 	http.ResponseWriter
 	status int
 	n      int64
+	tee    func() io.Writer
+	w      io.Writer
+	teeSet bool
 }
 
 func (r *recorder) WriteHeader(code int) {
@@ -606,6 +648,15 @@ func (r *recorder) Write(b []byte) (int, error) {
 	}
 	n, err := r.ResponseWriter.Write(b)
 	r.n += int64(n)
+	if !r.teeSet {
+		r.teeSet = true
+		if r.tee != nil {
+			r.w = r.tee()
+		}
+	}
+	if r.w != nil && n > 0 {
+		_, _ = r.w.Write(b[:n])
+	}
 	return n, err
 }
 

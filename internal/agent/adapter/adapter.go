@@ -56,6 +56,23 @@ type Spec struct {
 	Sandbox bool
 	// Hook ist der Freigabe-Hook (nil: keiner, die CLI entscheidet über PermissionMode).
 	Hook *Hook
+	// Provider beschreibt den Zugang zum Anbieter, falls ADE ihn vorgibt (nil: eigene
+	// Anmeldung der CLI). Adapter, die eine Basis-URL nicht über die Umgebung setzen können
+	// (codex), brauchen sie als Argument.
+	Provider *ProviderAccess
+}
+
+// ProviderAccess ist der Zugang zu einer Anbieter-API.
+type ProviderAccess struct {
+	// BaseURL ist die Basis-URL der API (in der Sandbox der Egress-Proxy).
+	BaseURL string
+	// KeyEnv ist die Umgebungsvariable mit dem Key (in der Sandbox ein Platzhalter).
+	KeyEnv string
+}
+
+// Tokens sind Token-Zahlen (gleiche Zählweise wie Cost).
+type Tokens struct {
+	Input, Output, CacheRead, CacheWrite int64
 }
 
 // Cmd ist ein Prozessaufruf. Path wird über $PATH aufgelöst.
@@ -66,6 +83,8 @@ type Cmd struct {
 	Env []string
 	// Input wird direkt nach dem Start auf stdin geschrieben (z. B. die erste Anweisung).
 	Input []byte
+	// CloseStdin schließt stdin nach Input (CLIs, die bis EOF lesen).
+	CloseStdin bool
 }
 
 // Sink nimmt die Ergebnisse von Parse entgegen. Aufrufe kommen nur aus der Parse-Goroutine.
@@ -76,6 +95,10 @@ type Sink interface {
 	SetResumeID(id string)
 	// TurnDone meldet, dass der Agent fertig ist und auf die nächste Anweisung wartet.
 	TurnDone()
+	// Baseline liefert die Tokens, die für die Session beim Start des Prozesses schon gezählt
+	// waren. Adapter, deren CLI pro Unterhaltung kumulierte Zahlen meldet (codex beim
+	// Fortsetzen), ziehen sie ab.
+	Baseline() Tokens
 }
 
 // Adapter bindet eine Agent-CLI an.

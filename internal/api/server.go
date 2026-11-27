@@ -48,6 +48,15 @@ type Options struct {
 	Egress EgressStore
 	// Approvals ist optional; ohne ihn fehlen die Freigabe-Routen.
 	Approvals *approval.Service
+	// Usage liefert Kosten und Tokens (optional; ohne ihn fehlt GET /api/usage).
+	Usage UsageStore
+}
+
+// UsageStore ist der Teil der Datenbank für Kosten.
+type UsageStore interface {
+	UsageTotal(ctx context.Context, f store.UsageFilter) (store.UsageTotal, error)
+	UsageByProject(ctx context.Context, since time.Time) (map[string]store.UsageTotal, error)
+	UsageByWorkspace(ctx context.Context, projectID string) (map[string]store.UsageTotal, error)
 }
 
 // EgressStore ist der Teil der Datenbank für die Netzwerk-Ansicht.
@@ -81,6 +90,7 @@ func New(opts Options) *Server {
 	s.routesIDE(mux)
 	s.routesSandbox(mux)
 	s.routesApprovals(mux)
+	s.routesUsage(mux)
 	unknown := func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "unbekannter API-Pfad")
 	}
