@@ -11,12 +11,29 @@ data_dir: ~/.local/share/ade
 workspaces_dir: ~/.ade/workspaces
 
 # API-Keys immer als Referenz angeben, nie im Klartext. In der Sandbox fügt der Egress-Proxy den
-# Key ein (zuerst für anthropic); der Container sieht nur einen Platzhalter.
+# Key ein (anthropic für claude, openai für codex); der Container sieht nur einen Platzhalter.
+# Dann zählt der Proxy auch die Tokens. Ohne Key nutzt die CLI ihre eigene Anmeldung.
 providers:
   anthropic:
     api_key: env:ANTHROPIC_API_KEY
   # openai:
   #   api_key: env:OPENAI_API_KEY
+
+# Modell-Aliase (doc/factory.md#4-modelle-und-anbieter): Beim Start eines Agenten und in
+# Fabriken statt Modell-IDs verwenden. Der Anbieter muss zum Adapter passen
+# (claude → anthropic, codex → openai). Namen ohne Alias gehen unverändert an die CLI.
+models:
+  opus:   { provider: anthropic, id: claude-opus-5-5 }
+  sonnet: { provider: anthropic, id: claude-sonnet-5-5 }
+  haiku:  { provider: anthropic, id: claude-haiku-5-5 }
+  gpt:    { provider: openai,    id: gpt-5.3-codex }
+
+# Preise in USD je Million Tokens, um die eingebaute Tabelle (Schätzwerte, siehe Dashboard)
+# zu ergänzen oder zu korrigieren. Schlüssel ist eine Modell-ID oder ihr Anfang; der längste
+# Treffer gilt. Ohne Preis zählt ADE nur Tokens.
+# pricing:
+#   claude-opus-5-5: { input: 4, output: 20, cache_read: 0.4, cache_write: 5 }
+#   gpt-5.3-codex:   { input: 1.75, output: 14, cache_read: 0.175 }
 
 defaults:
   adapter: claude

@@ -27,6 +27,7 @@ type recSink struct {
 func (s *recSink) Emit(typ string, payload any) { s.events = append(s.events, rec{typ, payload}) }
 func (s *recSink) SetResumeID(id string)        { s.resume = append(s.resume, id) }
 func (s *recSink) TurnDone()                    { s.turns++ }
+func (s *recSink) Baseline() adapter.Tokens     { return adapter.Tokens{} }
 
 func (s *recSink) types() []string {
 	out := make([]string, len(s.events))

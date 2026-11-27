@@ -74,8 +74,18 @@ type Cost struct {
 	CacheWriteTokens int64 `json:"cache_write_tokens,omitempty"`
 	DurationMS       int64 `json:"duration_ms,omitempty"`
 	Turns            int   `json:"turns,omitempty"`
+	// Model ist das Modell des Durchgangs, falls die CLI es meldet.
+	Model string `json:"model,omitempty"`
+	// Estimated: Die CLI meldet keine USD; ADE berechnet TurnUSD aus Tokens und Preistabelle.
+	// Adapter setzen es, der Manager füllt TurnUSD.
+	Estimated bool `json:"estimated,omitempty"`
+	// Metered: Der Egress-Proxy hat die Nutzung gemessen; TurnUSD ist seine Summe seit dem
+	// letzten Durchgang, nicht die Meldung der CLI. Setzt der Manager.
+	Metered bool `json:"metered,omitempty"`
 	// TotalUSD sind die Gesamtkosten der Session; setzt der Manager.
 	TotalUSD float64 `json:"total_usd"`
+	// BudgetUSD ist das Budget der Session (0: keins); setzt der Manager.
+	BudgetUSD float64 `json:"budget_usd,omitempty"`
 }
 
 // Error ist die Payload von TypeError.

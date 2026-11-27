@@ -37,6 +37,35 @@ type Config struct {
 	Setup []string `yaml:"setup" json:"setup,omitempty"`
 	// Approvals legt fest, welche Werkzeuge ohne Rückfrage laufen (Sandbox/lokal).
 	Approvals *approval.Config `yaml:"approvals" json:"approvals,omitempty"`
+	// Budget begrenzt die Kosten der Agenten (M8).
+	Budget *Budget `yaml:"budget" json:"budget,omitempty"`
+}
+
+// Budget sind Kostengrenzen in USD; 0 heißt keine Grenze.
+type Budget struct {
+	// SessionUSD gilt je Session (überschreibbar beim Start).
+	SessionUSD float64 `yaml:"session_usd" json:"session_usd,omitempty"`
+	// MonthlyUSD gilt für alle Sessions des Projekts im Kalendermonat (UTC).
+	MonthlyUSD float64 `yaml:"monthly_usd" json:"monthly_usd,omitempty"`
+}
+
+// MaxBudgetUSD ist die größte erlaubte Budget-Angabe.
+const MaxBudgetUSD = 1e6
+
+// SessionBudget liefert das Session-Budget (0: keins); c darf nil sein.
+func (c *Config) SessionBudget() float64 {
+	if c == nil || c.Budget == nil {
+		return 0
+	}
+	return c.Budget.SessionUSD
+}
+
+// MonthlyBudget liefert das Monatsbudget (0: keins); c darf nil sein.
+func (c *Config) MonthlyBudget() float64 {
+	if c == nil || c.Budget == nil {
+		return 0
+	}
+	return c.Budget.MonthlyUSD
 }
 
 // ConfigError ist eine ungültige project.yaml.
@@ -93,6 +122,16 @@ func (c *Config) validate(ctx context.Context) string {
 	}
 	if err := c.Approvals.Validate(); err != nil {
 		return err.Error()
+	}
+	if b := c.Budget; b != nil {
+		for _, v := range []struct {
+			name string
+			v    float64
+		}{{"budget.session_usd", b.SessionUSD}, {"budget.monthly_usd", b.MonthlyUSD}} {
+			if v.v < 0 || v.v > MaxBudgetUSD || v.v != v.v {
+				return fmt.Sprintf("%s: zwischen 0 und %.0f", v.name, MaxBudgetUSD)
+			}
+		}
 	}
 	return ""
 }

@@ -16,6 +16,7 @@ import (
 const (
 	ApprovalTool   = "tool"   // Werkzeug-Aufruf eines Agenten (PreToolUse-Hook)
 	ApprovalEgress = "egress" // geblockte Anfrage an den Egress-Proxy
+	ApprovalBudget = "budget" // Budget überschritten, Session pausiert (M8)
 )
 
 // Status einer Freigabe.

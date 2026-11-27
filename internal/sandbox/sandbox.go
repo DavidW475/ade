@@ -335,10 +335,23 @@ func (m *Manager) inspect(ctx context.Context, refs ...string) ([]Container, err
 	out, err := m.run(ctx, nil, append([]string{"container", "inspect", "--"}, refs...)...)
 	if err != nil {
 		var de *Error
-		if errors.As(err, &de) && strings.Contains(strings.ToLower(de.Stderr), "no such") && len(refs) == 1 {
+		if !errors.As(err, &de) || !strings.Contains(strings.ToLower(de.Stderr), "no such") {
+			return nil, err
+		}
+		if len(refs) == 1 {
 			return nil, nil
 		}
-		return nil, err
+		// Ein Container ist zwischen Auflisten und Inspizieren verschwunden (Verwerfen,
+		// paralleles ade gc): einzeln nachfragen und die fehlenden überspringen (#66).
+		var cs []Container
+		for _, ref := range refs {
+			c, err := m.inspect(ctx, ref)
+			if err != nil {
+				return nil, err
+			}
+			cs = append(cs, c...)
+		}
+		return cs, nil
 	}
 	var raw []inspectJSON
 	if err := json.Unmarshal(out, &raw); err != nil {

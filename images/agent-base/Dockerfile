@@ -14,6 +14,8 @@ ARG OPENVSCODE_SHA256_AMD64=b433bf4f0227321a7014d8460d10a8f958adc0f45aa79bd889e8
 ARG OPENVSCODE_SHA256_ARM64=36d9c14036489b63de84ebace837fcacf7e60e669a0dc715802c5443684ea4dc
 # Claude Code (npm-Paket @anthropic-ai/claude-code); "latest" oder eine feste Version.
 ARG CLAUDE_CODE_VERSION=latest
+# Codex CLI (npm-Paket @openai/codex); "latest" oder eine feste Version.
+ARG CODEX_VERSION=latest
 ARG TARGETARCH
 
 LABEL org.opencontainers.image.title="ade-agent-base" \
@@ -42,7 +44,7 @@ RUN set -eu; \
     ln -s /opt/openvscode-server/bin/openvscode-server /usr/local/bin/openvscode-server; \
     rm /tmp/ovs.tar.gz
 
-RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}" \
  && npm cache clean --force
 
 # Der node-User (UID 1000) wird zu ade. ADE startet den Container mit der UID des Nutzers;

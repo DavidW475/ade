@@ -15,6 +15,8 @@ import (
 // API-Schreibzugriffe scheitern an der fehlenden Anmeldung, nicht am Proxy.
 var Presets = map[string][]string{
 	"anthropic": {"api.anthropic.com", "console.anthropic.com", "platform.claude.com", "claude.ai", "statsig.anthropic.com"},
+	// Codex CLI: API, Anmeldung mit ChatGPT-Konto und Modell-Liste.
+	"openai": {"api.openai.com", "auth.openai.com", "chatgpt.com"},
 	"github-readonly": {
 		"github.com", "api.github.com", "codeload.github.com", "raw.githubusercontent.com",
 		"objects.githubusercontent.com", "release-assets.githubusercontent.com", "ghcr.io", "pkg-containers.githubusercontent.com",
@@ -25,7 +27,7 @@ var Presets = map[string][]string{
 }
 
 // DefaultPresets gelten, wenn .ade/sandbox.yaml keinen egress-Abschnitt hat.
-var DefaultPresets = []string{"anthropic", "github-readonly", "npm", "pypi", "go-proxy"}
+var DefaultPresets = []string{"anthropic", "openai", "github-readonly", "npm", "pypi", "go-proxy"}
 
 // Werte für egress.on_blocked.
 const (

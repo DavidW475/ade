@@ -105,18 +105,26 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
+// BudgetTimeout ist die Wartezeit auf eine Budget-Freigabe. Der Agent ist währenddessen
+// beendet; es wartet also kein Prozess.
+const BudgetTimeout = 24 * time.Hour
+
 // create legt eine offene Freigabe an und startet ihren Timeout.
 func (s *Service) create(ctx context.Context, a *store.Approval) error {
+	return s.createFor(ctx, a, s.opts.Timeout)
+}
+
+func (s *Service) createFor(ctx context.Context, a *store.Approval, timeout time.Duration) error {
 	a.ID = randomHex(6)
-	a.ExpiresAt = time.Now().Add(s.opts.Timeout)
+	a.ExpiresAt = time.Now().Add(timeout)
 	if err := s.opts.Store.CreateApproval(ctx, a); err != nil {
 		return err
 	}
 	w := &waiter{done: make(chan struct{})}
 	id := a.ID
-	w.timer = time.AfterFunc(s.opts.Timeout, func() {
+	w.timer = time.AfterFunc(timeout, func() {
 		_, _ = s.finish(context.Background(), id, store.ApprovalExpired, store.DecisionDeny,
-			"keine Entscheidung innerhalb von "+s.opts.Timeout.String())
+			"keine Entscheidung innerhalb von "+timeout.String())
 	})
 	s.mu.Lock()
 	s.waiters[id] = w
@@ -453,6 +461,24 @@ func toolTitle(tool string, input json.RawMessage) string {
 		return tool
 	}
 	return tool + ": " + arg
+}
+
+// --- Budgets ----------------------------------------------------------------------------
+
+// RequestBudget legt eine Budget-Freigabe an (agent.Budgets). decided läuft in einer eigenen
+// Goroutine, sobald entschieden, abgelaufen oder abgebrochen ist.
+func (s *Service) RequestBudget(ctx context.Context, a *store.Approval, decided func(*store.Approval)) error {
+	a.Kind = store.ApprovalBudget
+	if err := s.createFor(ctx, a, BudgetTimeout); err != nil {
+		return err
+	}
+	go func() { //nolint:gosec // G118: wartet über die Anfrage hinaus bis zur Entscheidung
+		res, err := s.wait(context.Background(), a.ID)
+		if err == nil && res != nil {
+			decided(res)
+		}
+	}()
+	return nil
 }
 
 // --- Egress -----------------------------------------------------------------------------

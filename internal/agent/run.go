@@ -50,6 +50,18 @@ type run struct {
 	resumeID   string
 	killTimer  *time.Timer
 	sessionUSD float64
+
+	// Kosten und Budget (budget.go)
+	projectID    string
+	adapter      string
+	model        string // Modell-ID für die Preistabelle
+	metered      bool   // der Egress-Proxy misst die Nutzung
+	turnBaseUSD  float64
+	base         adapter.Tokens // Tokens der Session beim Start des Prozesses
+	budgetUSD    float64
+	monthlyUSD   float64
+	monthlyAllow float64
+	pause        *budgetPause // gesetzt, wenn ein Budget den Lauf beendet
 }
 
 // launch registriert den Lauf und startet ihn im Hintergrund.
@@ -58,6 +70,12 @@ func (m *Manager) launch(sess *store.Session, a adapter.Adapter, ws *store.Works
 	r := &run{
 		m: m, id: sess.ID, workspaceID: ws.ID, caps: a.Capabilities(), sandbox: ws.Sandbox, done: make(chan struct{}), cancel: cancel,
 		status: store.SessionStarting, resumeID: sess.ResumeID, sessionUSD: sess.CostUSD,
+		projectID: ws.ProjectID, adapter: a.Name(), model: spec.Model, turnBaseUSD: sess.CostUSD,
+		base:      adapter.Tokens{Input: sess.InputTokens, Output: sess.OutputTokens, CacheRead: sess.CacheReadTokens, CacheWrite: sess.CacheWriteTokens},
+		budgetUSD: sess.BudgetUSD, monthlyAllow: sess.MonthlyAllowUSD,
+	}
+	if p, err := m.opts.Projects.Get(m.ctx, ws.ProjectID); err == nil {
+		r.monthlyUSD = p.Config.MonthlyBudget()
 	}
 	m.mu.Lock()
 	if m.closing {
@@ -85,6 +103,9 @@ func (m *Manager) launch(sess *store.Session, a adapter.Adapter, ws *store.Works
 		delete(m.runs, r.id)
 		m.mu.Unlock()
 		m.finish(r.id, status, msg, exit)
+		if status == store.SessionPaused {
+			m.requestBudget(r)
+		}
 		// Vor done: Wer auf das Ende wartet (Feedback, Löschen), sieht den gesicherten Stand.
 		m.collect(ws.ID, r.id)
 		close(r.done)
@@ -118,6 +139,19 @@ func (r *run) execute(ctx context.Context, a adapter.Adapter, ws *store.Workspac
 	}
 	if r.sandbox {
 		spec.Workdir = sandbox.Workdir
+	}
+	if m.opts.Access != nil {
+		access, metered := m.opts.Access(a.Name(), r.sandbox)
+		spec.Provider = access
+		r.mu.Lock()
+		r.metered = metered
+		r.mu.Unlock()
+		if err := m.opts.Store.UpdateSession(ctx, r.id, store.SessionUpdate{Metered: &metered}); err != nil {
+			m.log.Error("Session speichern", "session", r.id, "err", err)
+		}
+	}
+	if reason := r.checkBudget(ctx, false); reason != "" {
+		return store.SessionPaused, reason, nil
 	}
 	if r.caps.Approvals && m.opts.Hooks != nil {
 		hook, env := m.opts.Hooks.Prepare(r.id, r.sandbox)
@@ -180,6 +214,13 @@ func (r *run) execute(ctx context.Context, a adapter.Adapter, ws *store.Workspac
 		if err := r.write(c.Input); err != nil {
 			m.emit(r.id, adapter.TypeError, adapter.Error{Message: "Anweisung konnte nicht übergeben werden: " + err.Error()})
 		}
+	}
+	if c.CloseStdin && !r.caps.Terminal {
+		r.mu.Lock()
+		if r.stdin != nil {
+			_ = r.stdin.Close()
+		}
+		r.mu.Unlock()
 	}
 	if r.caps.Terminal {
 		return r.waitPTY(cmd)
@@ -297,6 +338,13 @@ func (r *run) exitStatus(cmd *exec.Cmd, waitErr error, stderr string) (string, s
 			reason = "Daemon wurde beendet"
 		case store.SessionDone:
 			reason = "beendet – Feedback läuft in einer neuen Session"
+		case store.SessionPaused:
+			reason = "Budget überschritten"
+			r.mu.Lock()
+			if r.pause != nil {
+				reason = r.pause.reason()
+			}
+			r.mu.Unlock()
 		}
 		return stopAs, reason, exit
 	}
@@ -423,14 +471,8 @@ type sink struct{ r *run }
 func (s *sink) Emit(typ string, payload any) {
 	r := s.r
 	if c, ok := payload.(adapter.Cost); ok {
-		r.mu.Lock()
-		r.sessionUSD += c.TurnUSD
-		c.TotalUSD = r.sessionUSD
-		r.mu.Unlock()
-		if err := r.m.opts.Store.UpdateSession(context.Background(), r.id, store.SessionUpdate{AddCostUSD: c.TurnUSD}); err != nil {
-			r.m.log.Error("Kosten speichern", "session", r.id, "err", err)
-		}
-		payload = c
+		payload = r.turnCost(c)
+		defer r.checkBudget(context.Background(), true)
 	}
 	if typ == adapter.TypeStatus {
 		// Statusmeldungen der CLI (z. B. Modell beim Start) als Information weitergeben,
@@ -460,6 +502,8 @@ func (s *sink) SetResumeID(id string) {
 }
 
 func (s *sink) TurnDone() { s.r.setStatus(store.SessionIdle, "") }
+
+func (s *sink) Baseline() adapter.Tokens { return s.r.base }
 
 // tailWriter behält die letzten max Bytes.
 type tailWriter struct {

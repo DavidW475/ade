@@ -28,6 +28,8 @@ const (
 	SessionStopped = "stopped"
 	// SessionInterrupted: durch Beenden oder Absturz des Daemons unterbrochen.
 	SessionInterrupted = "interrupted"
+	// SessionPaused: Budget überschritten; wartet auf eine Freigabe (M8).
+	SessionPaused = "paused"
 )
 
 // ActiveSessionStates sind Status, in denen zu einer Session ein Prozess gehört (oder gleich gehören wird).
@@ -44,28 +46,46 @@ func SessionActive(status string) bool {
 
 // Session ist ein Lauf eines Agenten (oder Terminals) in einem Workspace.
 type Session struct {
-	ID             string     `json:"id"`
-	WorkspaceID    string     `json:"workspace_id"`
-	ProjectID      string     `json:"project_id"`
-	Adapter        string     `json:"adapter"`
-	Task           string     `json:"task,omitempty"`
-	Command        []string   `json:"command,omitempty"`
-	Model          string     `json:"model,omitempty"`
-	PermissionMode string     `json:"permission_mode,omitempty"`
-	Role           string     `json:"role,omitempty"`
-	Status         string     `json:"status"`
-	Error          string     `json:"error,omitempty"`
-	ExitCode       *int       `json:"exit_code,omitempty"`
-	ResumeID       string     `json:"resume_id,omitempty"`
-	PID            int        `json:"-"`
-	CostUSD        float64    `json:"cost_usd"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	EndedAt        *time.Time `json:"ended_at,omitempty"`
+	ID          string   `json:"id"`
+	WorkspaceID string   `json:"workspace_id"`
+	ProjectID   string   `json:"project_id"`
+	Adapter     string   `json:"adapter"`
+	Task        string   `json:"task,omitempty"`
+	Command     []string `json:"command,omitempty"`
+	Model       string   `json:"model,omitempty"`
+	// ModelID ist die aufgelöste Modell-ID, wenn Model ein Alias ist.
+	ModelID        string  `json:"model_id,omitempty"`
+	PermissionMode string  `json:"permission_mode,omitempty"`
+	Role           string  `json:"role,omitempty"`
+	Status         string  `json:"status"`
+	Error          string  `json:"error,omitempty"`
+	ExitCode       *int    `json:"exit_code,omitempty"`
+	ResumeID       string  `json:"resume_id,omitempty"`
+	PID            int     `json:"-"`
+	CostUSD        float64 `json:"cost_usd"`
+	// Tokens sind die Summen der Nutzung (Tabelle usage).
+	InputTokens      int64 `json:"input_tokens"`
+	OutputTokens     int64 `json:"output_tokens"`
+	CacheReadTokens  int64 `json:"cache_read_tokens"`
+	CacheWriteTokens int64 `json:"cache_write_tokens"`
+	// Unpriced: Für einen Teil der Tokens war kein Preis bekannt (Kosten unvollständig).
+	Unpriced bool `json:"unpriced,omitempty"`
+	// Metered: Der Egress-Proxy misst die Nutzung (Sandbox mit Secret-Injection).
+	Metered bool `json:"metered,omitempty"`
+	// BudgetUSD ist das Budget der Session (0: keins).
+	BudgetUSD float64 `json:"budget_usd,omitempty"`
+	// MonthlyAllowUSD: Nach Freigabe darf die Session bis zu diesen Monatskosten des
+	// Projekts weiterlaufen.
+	MonthlyAllowUSD float64    `json:"monthly_allow_usd,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	EndedAt         *time.Time `json:"ended_at,omitempty"`
 }
 
 const sessionCols = `s.id, s.workspace_id, w.project_id, s.adapter, s.task, s.command, s.model, s.permission_mode,
-	s.role, s.status, s.error, s.exit_code, s.resume_id, s.pid, s.cost_usd, s.created_at, s.updated_at, s.ended_at`
+	s.role, s.status, s.error, s.exit_code, s.resume_id, s.pid, s.cost_usd, s.created_at, s.updated_at, s.ended_at,
+	s.model_id, s.input_tokens, s.output_tokens, s.cache_read_tokens, s.cache_write_tokens, s.unpriced, s.metered,
+	s.budget_usd, s.monthly_allow_usd`
 
 const sessionFrom = ` FROM sessions s JOIN workspaces w ON w.id = s.workspace_id`
 
@@ -76,7 +96,8 @@ func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 	var ended sql.NullString
 	if err := row.Scan(&s.ID, &s.WorkspaceID, &s.ProjectID, &s.Adapter, &s.Task, &command, &s.Model,
 		&s.PermissionMode, &s.Role, &s.Status, &s.Error, &exit, &s.ResumeID, &s.PID, &s.CostUSD,
-		&created, &updated, &ended); err != nil {
+		&created, &updated, &ended, &s.ModelID, &s.InputTokens, &s.OutputTokens, &s.CacheReadTokens,
+		&s.CacheWriteTokens, &s.Unpriced, &s.Metered, &s.BudgetUSD, &s.MonthlyAllowUSD); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(command), &s.Command)
@@ -102,10 +123,11 @@ func (s *Store) CreateSession(ctx context.Context, sess *Session) error {
 		cmd = []byte("[]")
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO sessions (id, workspace_id, adapter, task, command, model, permission_mode, role, status, resume_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sessions (id, workspace_id, adapter, task, command, model, permission_mode, role, status, resume_id,
+		 model_id, metered, budget_usd)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sess.ID, sess.WorkspaceID, sess.Adapter, sess.Task, string(cmd), sess.Model, sess.PermissionMode,
-		sess.Role, sess.Status, sess.ResumeID)
+		sess.Role, sess.Status, sess.ResumeID, sess.ModelID, sess.Metered, sess.BudgetUSD)
 	if isForeignKeyViolation(err) {
 		return apperr.NotFound("Workspace %s nicht gefunden", sess.WorkspaceID)
 	}
@@ -185,8 +207,10 @@ type SessionUpdate struct {
 	ExitCode *int
 	ResumeID *string
 	PID      *int
-	// AddCostUSD wird zu cost_usd addiert.
-	AddCostUSD float64
+	// Metered, BudgetUSD und MonthlyAllowUSD setzen die gleichnamigen Felder.
+	Metered         *bool
+	BudgetUSD       *float64
+	MonthlyAllowUSD *float64
 	// Ended setzt ended_at auf jetzt; ClearEnded setzt es zurück (Fortsetzen).
 	Ended      bool
 	ClearEnded bool
@@ -210,11 +234,13 @@ func (s *Store) UpdateSession(ctx context.Context, id string, u SessionUpdate) e
 		exit_code = CASE WHEN ? THEN NULL ELSE COALESCE(?, exit_code) END,
 		resume_id = COALESCE(?, resume_id),
 		pid       = COALESCE(?, pid),
-		cost_usd  = cost_usd + ?,
+		metered   = COALESCE(?, metered),
+		budget_usd = COALESCE(?, budget_usd),
+		monthly_allow_usd = COALESCE(?, monthly_allow_usd),
 		ended_at  = CASE WHEN ? THEN ? ELSE ended_at END,
 		updated_at = ?
 		WHERE id = ?`,
-		u.Status, u.Error, u.ClearExitCode, u.ExitCode, u.ResumeID, u.PID, u.AddCostUSD,
+		u.Status, u.Error, u.ClearExitCode, u.ExitCode, u.ResumeID, u.PID, u.Metered, u.BudgetUSD, u.MonthlyAllowUSD,
 		u.Ended || u.ClearEnded, ended, now, id)
 	if err != nil {
 		return err

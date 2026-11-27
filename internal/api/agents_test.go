@@ -32,6 +32,7 @@ type agentServer struct {
 	auth    *Auth
 	base    string // http://localhost:<port>
 	project string
+	st      *store.Store
 }
 
 // newAgentServer startet einen echten HTTP-Server (für WebSockets) mit Fake- und pty-Adapter
@@ -72,11 +73,11 @@ func newAgentServer(t *testing.T) *agentServer {
 	srv := httptest.NewUnstartedServer(nil)
 	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
 	auth := NewAuth(testSecret)
-	h := New(Options{Version: "test", Port: port, Store: st, Auth: auth, Logger: log, Projects: ps, Workspaces: ws, Agents: am, DefaultAdapter: "fake"})
+	h := New(Options{Version: "test", Port: port, Store: st, Auth: auth, Logger: log, Projects: ps, Workspaces: ws, Agents: am, DefaultAdapter: "fake", Usage: st})
 	srv.Config.Handler = h
 	srv.Start()
 	t.Cleanup(srv.Close)
-	return &agentServer{srv: srv, handler: h, auth: auth, base: "http://localhost:" + port, project: p.ID}
+	return &agentServer{srv: srv, handler: h, auth: auth, base: "http://localhost:" + port, project: p.ID, st: st}
 }
 
 func (a *agentServer) call(t *testing.T, method, path, body string, wantCode int, out any) {

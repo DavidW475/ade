@@ -18,6 +18,7 @@ import (
 	"github.com/DavidW475/ade/internal/agent/adapter"
 	"github.com/DavidW475/ade/internal/apperr"
 	"github.com/DavidW475/ade/internal/project"
+	"github.com/DavidW475/ade/internal/provider"
 	"github.com/DavidW475/ade/internal/store"
 	"github.com/DavidW475/ade/internal/workspace"
 )
@@ -47,6 +48,15 @@ type Options struct {
 	SandboxEnv func(adapter string) []string
 	// Hooks liefert den Freigabe-Hook für Adapter mit Capabilities.Approvals (optional).
 	Hooks Hooks
+	// Access liefert den Zugang eines Adapters zu seinem Anbieter (Basis-URL, falls die CLI
+	// sie als Argument braucht) und ob der Egress-Proxy die Nutzung misst (optional).
+	Access func(adapter string, sandbox bool) (access *adapter.ProviderAccess, metered bool)
+	// Catalog löst Modell-Aliase auf und berechnet Kosten (nil: keine Aliase, nur
+	// eingebaute Preise).
+	Catalog *provider.Catalog
+	// Budgets fragt nach Freigabe, wenn ein Budget überschritten ist (nil: Session bleibt
+	// pausiert, bis sie jemand fortsetzt).
+	Budgets Budgets
 	// FlushInterval und StopTimeout überschreiben die Standardwerte (Tests).
 	FlushInterval time.Duration
 	StopTimeout   time.Duration
@@ -58,6 +68,12 @@ type Hooks interface {
 	Prepare(sessionID string, sandbox bool) (*adapter.Hook, []string)
 	// Release gibt die Zugänge einer beendeten Session frei.
 	Release(sessionID string)
+}
+
+// Budgets legt Budget-Freigaben an (doc/factory.md#3-ausführung).
+type Budgets interface {
+	// RequestBudget legt die Freigabe a an; decided läuft nach der Entscheidung.
+	RequestBudget(ctx context.Context, a *store.Approval, decided func(*store.Approval)) error
 }
 
 // Manager startet und überwacht Agent-Sessions.
@@ -89,6 +105,9 @@ func NewManager(opts Options) *Manager {
 	if opts.DefaultAdapter == "" {
 		opts.DefaultAdapter = "claude"
 	}
+	if opts.Catalog == nil {
+		opts.Catalog = provider.NewCatalog(nil)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		opts: opts, log: opts.Logger, ctx: ctx, cancel: cancel,
@@ -98,6 +117,9 @@ func NewManager(opts Options) *Manager {
 
 // Adapters liefert die Registry.
 func (m *Manager) Adapters() *adapter.Registry { return m.opts.Adapters }
+
+// Catalog liefert Modell-Aliase und Preise.
+func (m *Manager) Catalog() *provider.Catalog { return m.opts.Catalog }
 
 // StartRequest ist der Body von POST /api/agents.
 type StartRequest struct {
@@ -114,6 +136,8 @@ type StartRequest struct {
 	// Sandbox gilt für einen neuen Workspace (nil: defaults.sandbox). Bei einem bestehenden
 	// Workspace muss sie, falls gesetzt, zu ihm passen.
 	Sandbox *bool `json:"sandbox,omitempty"`
+	// BudgetUSD ist das Budget der Session (nil: budget.session_usd aus project.yaml, 0: keins).
+	BudgetUSD *float64 `json:"budget_usd,omitempty"`
 }
 
 // Start legt eine Session an und startet den Prozess im Hintergrund, sobald das Setup des
@@ -162,6 +186,17 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 	if len(req.Task) > 100<<10 {
 		return nil, apperr.Invalid("Aufgabe ist zu lang (höchstens 100 KiB)")
 	}
+	modelID, err := m.resolveModel(name, req.Model)
+	if err != nil {
+		return nil, err
+	}
+	budget := p.Config.SessionBudget()
+	if req.BudgetUSD != nil {
+		if b := *req.BudgetUSD; b < 0 || b > project.MaxBudgetUSD || b != b {
+			return nil, apperr.Invalid("budget_usd: zwischen 0 und %.0f", project.MaxBudgetUSD)
+		}
+		budget = *req.BudgetUSD
+	}
 	sandboxed := m.opts.Workspaces.SandboxDefault()
 	if req.Sandbox != nil {
 		sandboxed = *req.Sandbox
@@ -176,7 +211,7 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 		sandboxed = ws.Sandbox
 	}
 	// Vorab prüfen, ob sich der Aufruf bauen lässt (z. B. CLI installiert, Optionen gültig).
-	if _, err := a.Command(adapter.Spec{Workdir: "/", Task: req.Task, Command: req.Command, Model: req.Model, PermissionMode: req.PermissionMode, Sandbox: sandboxed}); err != nil {
+	if _, err := a.Command(adapter.Spec{Workdir: "/", Task: req.Task, Command: req.Command, Model: modelID, PermissionMode: req.PermissionMode, Sandbox: sandboxed}); err != nil {
 		return nil, apperr.Invalid("%v", err)
 	}
 
@@ -203,6 +238,10 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 		PermissionMode: req.PermissionMode,
 		Role:           extra.Role,
 		Status:         store.SessionStarting,
+		BudgetUSD:      budget,
+	}
+	if modelID != req.Model {
+		sess.ModelID = modelID
 	}
 	if err := m.opts.Store.CreateSession(ctx, sess); err != nil {
 		return nil, err
@@ -215,12 +254,29 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 	if extra.Prompt != "" {
 		prompt = extra.Prompt
 	}
-	spec := adapter.Spec{SessionID: sess.ID, Workdir: ws.Path, Task: prompt, Command: req.Command, Model: req.Model, PermissionMode: req.PermissionMode, Sandbox: ws.Sandbox}
+	spec := adapter.Spec{SessionID: sess.ID, Workdir: ws.Path, Task: prompt, Command: req.Command, Model: modelID, PermissionMode: req.PermissionMode, Sandbox: ws.Sandbox}
 	if err := m.launch(sess, a, ws, spec); err != nil {
 		return nil, err
 	}
 	m.log.Info("Session gestartet", "id", sess.ID, "workspace", ws.ID, "adapter", name)
 	return m.opts.Store.GetSession(ctx, sess.ID)
+}
+
+// resolveModel löst einen Modell-Alias für den Adapter name auf. Namen, die kein Alias sind,
+// gehen unverändert an die CLI.
+func (m *Manager) resolveModel(name, model string) (string, error) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return "", nil
+	}
+	id, prov, alias := m.opts.Catalog.Resolve(model)
+	if !alias {
+		return model, nil
+	}
+	if want := provider.ForAdapter(name); want != "" && prov != want {
+		return "", apperr.Invalid("Modell %s gehört zu %s, der Adapter %s spricht %s", model, prov, name, want)
+	}
+	return id, nil
 }
 
 func (m *Manager) resolveWorkspace(ctx context.Context, projectID, workspaceID string) (*store.Workspace, *project.View, error) {
@@ -366,7 +422,11 @@ func (m *Manager) Input(ctx context.Context, id, text string) (*View, error) {
 	}
 	m.emit(id, adapter.TypeStatus, adapter.Status{Status: store.SessionStarting, Reason: "wird fortgesetzt"})
 	m.emit(id, adapter.TypeMessage, adapter.Message{Role: "user", Text: text})
-	spec := adapter.Spec{SessionID: id, Workdir: ws.Path, Task: text, Model: sess.Model, PermissionMode: sess.PermissionMode, ResumeID: sess.ResumeID, Sandbox: ws.Sandbox}
+	model := sess.Model
+	if sess.ModelID != "" {
+		model = sess.ModelID
+	}
+	spec := adapter.Spec{SessionID: id, Workdir: ws.Path, Task: text, Model: model, PermissionMode: sess.PermissionMode, ResumeID: sess.ResumeID, Sandbox: ws.Sandbox}
 	if err := m.launch(sess, a, ws, spec); err != nil {
 		return nil, err
 	}

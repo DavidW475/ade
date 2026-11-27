@@ -178,6 +178,22 @@ func TestExampleProjectConfig(t *testing.T) {
 	}
 }
 
+func TestBudgetConfig(t *testing.T) {
+	cfg, err := ParseConfig(context.Background(), []byte("budget:\n  session_usd: 2.5\n  monthly_usd: 50\n"))
+	if err != nil || cfg.SessionBudget() != 2.5 || cfg.MonthlyBudget() != 50 {
+		t.Fatalf("Budget = %+v, %v", cfg.Budget, err)
+	}
+	var none *Config
+	if none.SessionBudget() != 0 || (&Config{}).MonthlyBudget() != 0 {
+		t.Error("ohne Budget")
+	}
+	for _, bad := range []string{"budget:\n  session_usd: -1\n", "budget:\n  monthly_usd: 1e9\n", "budget:\n  daily_usd: 1\n"} {
+		if _, err := ParseConfig(context.Background(), []byte(bad)); err == nil {
+			t.Errorf("%q: kein Fehler", bad)
+		}
+	}
+}
+
 func TestApprovalsConfig(t *testing.T) {
 	cfg, err := ParseConfig(context.Background(), []byte("approvals:\n  local:\n    allow: [\"Bash(make *)\"]\n"))
 	if err != nil {

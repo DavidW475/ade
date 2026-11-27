@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,7 +37,31 @@ type Config struct {
 	Sandbox Sandbox `yaml:"sandbox"`
 	// Approvals konfiguriert Freigaben.
 	Approvals Approvals `yaml:"approvals"`
+	// Models bildet Aliase (z. B. "opus") auf Anbieter und Modell-ID ab (doc/factory.md#4-modelle-und-anbieter).
+	Models map[string]Model `yaml:"models"`
+	// Pricing ergänzt oder überschreibt die eingebauten Preise; Schlüssel ist eine Modell-ID
+	// oder ihr Anfang (längster Treffer gilt).
+	Pricing map[string]Price `yaml:"pricing"`
 }
+
+// Model ist das Ziel eines Modell-Alias.
+type Model struct {
+	// Provider ist der Anbieter (anthropic, openai).
+	Provider string `yaml:"provider" json:"provider"`
+	// ID ist die Modell-ID beim Anbieter.
+	ID string `yaml:"id" json:"id"`
+}
+
+// Price sind Preise in USD je Million Tokens.
+type Price struct {
+	Input      float64 `yaml:"input" json:"input"`
+	Output     float64 `yaml:"output" json:"output"`
+	CacheRead  float64 `yaml:"cache_read" json:"cache_read"`
+	CacheWrite float64 `yaml:"cache_write" json:"cache_write"`
+}
+
+// KnownProviders sind die Anbieter, die ADE kennt.
+var KnownProviders = []string{"anthropic", "openai"}
 
 // DefaultApprovalTimeout ist die Wartezeit auf eine Freigabe ohne approvals.timeout.
 const DefaultApprovalTimeout = 10 * time.Minute
@@ -133,6 +158,8 @@ func Default() (*Config, error) {
 		Defaults:      Defaults{Adapter: "claude", Sandbox: true},
 		IDE:           IDE{IdleTimeout: DefaultIDEIdleTimeout},
 		Approvals:     Approvals{Timeout: DefaultApprovalTimeout},
+		Models:        map[string]Model{},
+		Pricing:       map[string]Price{},
 	}, nil
 }
 
@@ -158,6 +185,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Providers == nil {
 		cfg.Providers = map[string]Provider{}
+	}
+	if cfg.Models == nil {
+		cfg.Models = map[string]Model{}
+	}
+	if cfg.Pricing == nil {
+		cfg.Pricing = map[string]Price{}
 	}
 	for _, p := range []*string{&cfg.DataDir, &cfg.WorkspacesDir, &cfg.IDE.Binary, &cfg.Sandbox.Docker} {
 		if *p, err = expandHome(*p); err != nil {
@@ -228,7 +261,43 @@ func (c *Config) validate() error {
 	if t := c.Approvals.Timeout; t < 10*time.Second || t > 2*time.Hour {
 		return fmt.Errorf("approvals.timeout %s: zwischen 10s und 2h", t)
 	}
+	for name, m := range c.Models {
+		if !validName(name) {
+			return fmt.Errorf("models: ungültiger Alias %q (Buchstaben, Ziffern, . _ -)", name)
+		}
+		if !slices.Contains(KnownProviders, m.Provider) {
+			return fmt.Errorf("models.%s.provider %q: unbekannt (erlaubt: %s)", name, m.Provider, strings.Join(KnownProviders, ", "))
+		}
+		if !validName(m.ID) {
+			return fmt.Errorf("models.%s.id %q: ungültige Modell-ID", name, m.ID)
+		}
+	}
+	for id, p := range c.Pricing {
+		if !validName(id) {
+			return fmt.Errorf("pricing: ungültige Modell-ID %q", id)
+		}
+		if p.Input < 0 || p.Output < 0 || p.CacheRead < 0 || p.CacheWrite < 0 {
+			return fmt.Errorf("pricing.%s: Preise dürfen nicht negativ sein", id)
+		}
+	}
 	return nil
+}
+
+// validName prüft Aliase und Modell-IDs: nicht leer, kein führendes "-", nur Buchstaben,
+// Ziffern und . _ - : / @ (z. B. "claude-opus-5-5", "gpt-5.3-codex", "openai/gpt-5").
+func validName(s string) bool {
+	if s == "" || len(s) > 200 || s[0] == '-' {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case strings.ContainsRune("._-:/@[]", r):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func expandHome(p string) (string, error) {

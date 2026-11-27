@@ -106,6 +106,11 @@ func TestLoadRejectsInvalid(t *testing.T) {
 		"relatives-ide":      "ide:\n  binary: bin/ovs\n",
 		"ide-idle-zu-kurz":   "ide:\n  idle_timeout: 10s\n",
 		"ide-idle-kaputt":    "ide:\n  idle_timeout: bald\n",
+		"model-anbieter":     "models:\n  x: { provider: mistral, id: m }\n",
+		"model-ohne-id":      "models:\n  x: { provider: openai }\n",
+		"model-id-option":    "models:\n  x: { provider: openai, id: --help }\n",
+		"alias-leerzeichen":  "models:\n  \"a b\": { provider: openai, id: m }\n",
+		"preis-negativ":      "pricing:\n  gpt-5: { input: -1 }\n",
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -116,6 +121,19 @@ func TestLoadRejectsInvalid(t *testing.T) {
 				t.Fatal("Fehler erwartet")
 			}
 		})
+	}
+}
+
+func TestLoadModelsAndPricing(t *testing.T) {
+	home := setHome(t)
+	path := filepath.Join(home, "config.yaml")
+	writeFile(t, path, "models:\n  opus: { provider: anthropic, id: claude-opus-5-5 }\npricing:\n  my-model: { input: 1, output: 2 }\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Models["opus"].ID != "claude-opus-5-5" || cfg.Pricing["my-model"].Output != 2 {
+		t.Errorf("Models %+v, Pricing %+v", cfg.Models, cfg.Pricing)
 	}
 }
 

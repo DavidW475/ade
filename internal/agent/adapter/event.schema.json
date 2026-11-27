@@ -24,7 +24,7 @@
             "type": "object",
             "required": ["status"],
             "properties": {
-              "status": { "enum": ["starting", "running", "idle", "done", "failed", "stopped", "interrupted"] },
+              "status": { "enum": ["starting", "running", "idle", "done", "failed", "stopped", "interrupted", "paused"] },
               "reason": { "type": "string" },
               "exit_code": { "type": "integer" },
               "model": { "type": "string" }
@@ -106,7 +106,35 @@
               "cache_read_tokens": { "type": "integer" },
               "cache_write_tokens": { "type": "integer" },
               "duration_ms": { "type": "integer" },
-              "turns": { "type": "integer" }
+              "turns": { "type": "integer" },
+              "model": { "type": "string" },
+              "estimated": { "type": "boolean", "description": "Die CLI meldet keine USD; ADE hat sie aus Tokens und Preistabelle berechnet." },
+              "metered": { "type": "boolean", "description": "turn_usd ist die vom Egress-Proxy gemessene Summe seit dem letzten Durchgang." },
+              "budget_usd": { "type": "number", "description": "Budget der Session (fehlt: keins)." }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "usage" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "description": "Vom Egress-Proxy gemessene Nutzung einer API-Anfrage (M8); erzeugt der Manager, die Timeline zeigt sie nicht an.",
+            "required": ["input_tokens", "output_tokens", "cost_usd", "priced", "total_usd"],
+            "properties": {
+              "provider": { "type": "string" },
+              "model": { "type": "string" },
+              "input_tokens": { "type": "integer" },
+              "output_tokens": { "type": "integer" },
+              "cache_read_tokens": { "type": "integer" },
+              "cache_write_tokens": { "type": "integer" },
+              "cost_usd": { "type": "number" },
+              "priced": { "type": "boolean" },
+              "total_usd": { "type": "number" },
+              "budget_usd": { "type": "number" }
             }
           }
         }
