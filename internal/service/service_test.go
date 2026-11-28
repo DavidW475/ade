@@ -22,7 +22,7 @@ func (f *fakeSystemctl) run(_ context.Context, args ...string) ([]byte, error) {
 		return []byte("Failed to connect to bus: No medium found\n"), errors.New("exit status 1")
 	}
 	if args[0] == f.failCmd {
-		return []byte("kaputt"), errors.New("exit status 1")
+		return []byte("broken"), errors.New("exit status 1")
 	}
 	if args[0] == "is-active" {
 		if f.active {
@@ -57,7 +57,7 @@ func TestUnit(t *testing.T) {
 		configMarker + "/home/u/.config/ade/config.yaml",
 	} {
 		if !strings.Contains(u, want) {
-			t.Errorf("Unit enthält nicht %q:\n%s", want, u)
+			t.Errorf("unit does not contain %q:\n%s", want, u)
 		}
 	}
 }
@@ -68,7 +68,7 @@ func TestUnitEscaping(t *testing.T) {
 	u := m.Unit()
 	want := `ExecStart="/opt/my \"ade\"/100%%/$$HOME\\x" serve`
 	if !strings.Contains(u, want) {
-		t.Errorf("Unit enthält nicht %q:\n%s", want, u)
+		t.Errorf("unit does not contain %q:\n%s", want, u)
 	}
 }
 
@@ -76,18 +76,18 @@ func TestInstall(t *testing.T) {
 	f := &fakeSystemctl{}
 	m := newTest(t, f)
 	if m.Installed() {
-		t.Fatal("vor Install installiert")
+		t.Fatal("installed before Install")
 	}
 	if err := m.Install(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	want := [][]string{{"show-environment"}, {"daemon-reload"}, {"enable", Name}, {"restart", Name}}
 	if !reflect.DeepEqual(f.calls, want) {
-		t.Errorf("Aufrufe = %v, erwartet %v", f.calls, want)
+		t.Errorf("calls = %v, want %v", f.calls, want)
 	}
 	data, err := os.ReadFile(m.UnitPath())
 	if err != nil || string(data) != m.Unit() {
-		t.Fatalf("Unit-Datei = %q, %v", data, err)
+		t.Fatalf("unit file = %q, %v", data, err)
 	}
 	if !m.Installed() || m.InstalledConfig() != m.ConfigPath {
 		t.Errorf("Installed = %v, Config = %q", m.Installed(), m.InstalledConfig())
@@ -102,7 +102,7 @@ func TestInstallWithoutSystemd(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	if m.Installed() {
-		t.Error("Unit trotz Fehler geschrieben")
+		t.Error("unit written despite the error")
 	}
 }
 
@@ -110,7 +110,7 @@ func TestInstallSystemctlFails(t *testing.T) {
 	f := &fakeSystemctl{failCmd: "enable"}
 	m := newTest(t, f)
 	err := m.Install(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "enable") || !strings.Contains(err.Error(), "kaputt") {
+	if err == nil || !strings.Contains(err.Error(), "enable") || !strings.Contains(err.Error(), "broken") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -119,7 +119,7 @@ func TestUninstall(t *testing.T) {
 	f := &fakeSystemctl{}
 	m := newTest(t, f)
 	if err := m.Uninstall(context.Background()); err == nil {
-		t.Fatal("Uninstall ohne Unit ohne Fehler")
+		t.Fatal("Uninstall without a unit returned no error")
 	}
 	if err := m.Install(context.Background()); err != nil {
 		t.Fatal(err)
@@ -129,11 +129,11 @@ func TestUninstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	if m.Installed() {
-		t.Error("Unit noch vorhanden")
+		t.Error("unit still exists")
 	}
 	want := [][]string{{"show-environment"}, {"disable", "--now", Name}, {"show-environment"}, {"daemon-reload"}}
 	if !reflect.DeepEqual(f.calls, want) {
-		t.Errorf("Aufrufe = %v, erwartet %v", f.calls, want)
+		t.Errorf("calls = %v, want %v", f.calls, want)
 	}
 }
 
@@ -148,7 +148,7 @@ func TestUninstallWithoutSystemdRemovesUnit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if m.Installed() {
-		t.Error("Unit noch vorhanden")
+		t.Error("unit still exists")
 	}
 }
 
@@ -156,10 +156,10 @@ func TestActive(t *testing.T) {
 	f := &fakeSystemctl{}
 	m := newTest(t, f)
 	if m.Active(context.Background()) {
-		t.Error("inaktiv als aktiv gemeldet")
+		t.Error("inactive reported as active")
 	}
 	f.active = true
 	if !m.Active(context.Background()) {
-		t.Error("aktiv als inaktiv gemeldet")
+		t.Error("active reported as inactive")
 	}
 }

@@ -21,8 +21,8 @@ import (
 
 type fakeAuth struct {
 	mu       sync.Mutex
-	tickets  map[string]string // Ticket → Workspace
-	sessions map[string]string // Session → Workspace
+	tickets  map[string]string // ticket → workspace
+	sessions map[string]string // session → workspace
 }
 
 func (a *fakeAuth) RedeemIDE(ticket, ws string) (string, bool) {
@@ -56,10 +56,10 @@ func (f *fakeIDEs) Acquire(_ context.Context, ws string) (*ide.Upstream, error) 
 		return nil, f.err
 	}
 	if ws != "abc" {
-		return nil, errors.New("falscher Workspace " + ws)
+		return nil, errors.New("wrong workspace " + ws)
 	}
 	f.acquired.Add(1)
-	return &ide.Upstream{URL: f.url, Token: "tkn-geheim", Release: func() { f.released.Add(1) }}, nil
+	return &ide.Upstream{URL: f.url, Token: "tkn-secret", Release: func() { f.released.Add(1) }}, nil
 }
 
 type seen struct {
@@ -68,14 +68,14 @@ type seen struct {
 	cookie string
 }
 
-// upstream spielt openvscode-server: prüft den Token und bietet ein WebSocket-Echo.
+// upstream plays openvscode-server: checks the token and offers a WebSocket echo.
 func upstream(t *testing.T, s *seen) *url.URL {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		s.host, s.cookie = r.Host, r.Header.Get("Cookie")
 		s.mu.Unlock()
-		if c, err := r.Cookie("vscode-tkn"); err != nil || c.Value != "tkn-geheim" {
+		if c, err := r.Cookie("vscode-tkn"); err != nil || c.Value != "tkn-secret" {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -146,10 +146,10 @@ func TestRequiresSession(t *testing.T) {
 	auth.sessions["fremd"] = "andere"
 
 	for name, cookies := range map[string][]*http.Cookie{
-		"ohne Cookie":       nil,
-		"falsches Cookie":   {{Name: Cookie, Value: "erfunden"}},
-		"anderer Workspace": {{Name: Cookie, Value: "fremd"}},
-		"nur IDE-Token":     {{Name: "vscode-tkn", Value: "tkn-geheim"}},
+		"without cookie":  nil,
+		"wrong cookie":    {{Name: Cookie, Value: "made-up"}},
+		"other workspace": {{Name: Cookie, Value: "foreign"}},
+		"IDE token only":  {{Name: "vscode-tkn", Value: "tkn-secret"}},
 	} {
 		w := req(g, "GET", "ws-abc.localhost:7000", "/", cookies...)
 		if w.Code != http.StatusUnauthorized {
@@ -157,19 +157,19 @@ func TestRequiresSession(t *testing.T) {
 		}
 	}
 	if ides.acquired.Load() != 0 {
-		t.Error("IDE ohne Session angefordert")
+		t.Error("IDE requested without a session")
 	}
 	if w := req(g, "GET", "foo.localhost:7000", "/"); w.Code != http.StatusNotFound {
-		t.Errorf("fremde Subdomain: Code = %d", w.Code)
+		t.Errorf("foreign subdomain: code = %d", w.Code)
 	}
 }
 
 func TestLoginAndProxy(t *testing.T) {
 	g, _, ides, s := setup(t)
 
-	// Ticket für einen anderen Workspace gilt hier nicht.
+	// A ticket for another workspace does not apply here.
 	if w := req(g, "GET", "ws-abc.localhost:7000", LoginPath+"?ticket=t2"); w.Code != http.StatusUnauthorized {
-		t.Errorf("fremdes Ticket: Code = %d", w.Code)
+		t.Errorf("foreign ticket: code = %d", w.Code)
 	}
 
 	w := req(g, "GET", "ws-abc.localhost:7000", LoginPath+"?ticket=t1")
@@ -185,24 +185,24 @@ func TestLoginAndProxy(t *testing.T) {
 	if c.Name != Cookie || !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || c.Domain != "" || c.Path != "/" {
 		t.Errorf("Cookie = %#v", c)
 	}
-	// Ticket gilt nur einmal.
+	// A ticket only works once.
 	if w := req(g, "GET", "ws-abc.localhost:7000", LoginPath+"?ticket=t1"); w.Code != http.StatusUnauthorized {
-		t.Errorf("zweites Einlösen: Code = %d", w.Code)
+		t.Errorf("second redemption: code = %d", w.Code)
 	}
 
 	w = req(g, "GET", "ws-abc.localhost:7000", "/static/x.js", c,
-		&http.Cookie{Name: "vscode-tkn", Value: "vom-browser"}, &http.Cookie{Name: "andere", Value: "1"})
+		&http.Cookie{Name: "vscode-tkn", Value: "from-browser"}, &http.Cookie{Name: "other", Value: "1"})
 	if w.Code != http.StatusOK || w.Body.String() != "IDE /static/x.js" {
 		t.Fatalf("Proxy: Code = %d, Body = %q", w.Code, w.Body.String())
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.host != "ws-abc.localhost:7000" {
-		t.Errorf("Host beim Upstream = %q", s.host)
+		t.Errorf("host at the upstream = %q", s.host)
 	}
-	if strings.Contains(s.cookie, Cookie+"=") || strings.Contains(s.cookie, "vom-browser") ||
-		!strings.Contains(s.cookie, "vscode-tkn=tkn-geheim") || !strings.Contains(s.cookie, "andere=1") {
-		t.Errorf("Cookie beim Upstream = %q", s.cookie)
+	if strings.Contains(s.cookie, Cookie+"=") || strings.Contains(s.cookie, "from-browser") ||
+		!strings.Contains(s.cookie, "vscode-tkn=tkn-secret") || !strings.Contains(s.cookie, "other=1") {
+		t.Errorf("cookie at the upstream = %q", s.cookie)
 	}
 	if ides.acquired.Load() != 1 || ides.released.Load() != 1 {
 		t.Errorf("acquired = %d, released = %d", ides.acquired.Load(), ides.released.Load())
@@ -237,13 +237,13 @@ func TestWebSocketThroughGateway(t *testing.T) {
 		t.Fatalf("Echo = %q, %v", data, err)
 	}
 	if ides.released.Load() != 0 {
-		t.Error("Verbindung freigegeben, obwohl der WebSocket offen ist")
+		t.Error("connection released although the WebSocket is open")
 	}
 	_ = c.Close(websocket.StatusNormalClosure, "")
 	deadline := time.Now().Add(2 * time.Second)
 	for ides.released.Load() != 1 {
 		if time.Now().After(deadline) {
-			t.Fatal("Verbindung nach Schließen nicht freigegeben")
+			t.Fatal("connection not released after closing")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -252,9 +252,9 @@ func TestWebSocketThroughGateway(t *testing.T) {
 func TestAcquireError(t *testing.T) {
 	g, auth, ides, _ := setup(t)
 	auth.sessions["s"] = "abc"
-	ides.err = errors.New("openvscode-server unerwartet beendet")
+	ides.err = errors.New("openvscode-server exited unexpectedly")
 	w := req(g, "GET", "ws-abc.localhost:7000", "/", &http.Cookie{Name: Cookie, Value: "s"})
-	if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), "unerwartet beendet") {
+	if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), "exited unexpectedly") {
 		t.Errorf("Code = %d, Body = %s", w.Code, w.Body.String())
 	}
 }

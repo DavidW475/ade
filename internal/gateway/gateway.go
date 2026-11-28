@@ -1,10 +1,10 @@
-// Package gateway leitet Anfragen an ws-<id>.localhost:<port> an die Browser-IDE des
-// Workspaces weiter (ADR-004), einschließlich WebSocket-Upgrades.
+// Package gateway forwards requests to ws-<id>.localhost:<port> to the workspace's browser IDE
+// (ADR-004), including WebSocket upgrades.
 //
-// Ablauf: Das Dashboard holt ein kurzlebiges IDE-Ticket und öffnet
-// http://ws-<id>.localhost:<port>/_ade/login?ticket=…. Das Gateway tauscht das Ticket gegen
-// ein HttpOnly-Cookie, das nur für diese Subdomain gilt. Jede weitere Anfrage braucht dieses
-// Cookie. Den Connection-Token der IDE setzt das Gateway selbst ein; der Browser sieht ihn nie.
+// Flow: the dashboard fetches a short-lived IDE ticket and opens
+// http://ws-<id>.localhost:<port>/_ade/login?ticket=…. The gateway exchanges the ticket for
+// an HttpOnly cookie that only applies to this subdomain. Every further request needs this
+// cookie. The gateway inserts the IDE's connection token itself; the browser never sees it.
 package gateway
 
 import (
@@ -23,22 +23,22 @@ import (
 	"github.com/DavidW475/ade/internal/ide"
 )
 
-// Cookie ist der Name des Session-Cookies auf einer IDE-Subdomain.
+// Cookie is the name of the session cookie on an IDE subdomain.
 const Cookie = "ade_ide"
 
-// LoginPath ist der Pfad, unter dem das Gateway ein IDE-Ticket einlöst.
+// LoginPath is the path at which the gateway redeems an IDE ticket.
 const LoginPath = "/_ade/login"
 
-// tokenCookie ist das Cookie, über das openvscode-server den Connection-Token prüft.
-const tokenCookie = "vscode-tkn" //nolint:gosec // G101: Cookie-Name, kein Secret
+// tokenCookie is the cookie through which openvscode-server checks the connection token.
+const tokenCookie = "vscode-tkn" //nolint:gosec // G101: cookie name, not a secret
 
-// AcquireTimeout begrenzt das Warten auf eine startende IDE.
+// AcquireTimeout limits waiting for a starting IDE.
 const AcquireTimeout = 60 * time.Second
 
 var hostRE = regexp.MustCompile(`^ws-([a-z0-9]{1,32})\.localhost$`)
 
-// WorkspaceFromHost liefert die Workspace-ID aus einem Hostnamen ws-<id>.localhost
-// (ohne Port).
+// WorkspaceFromHost returns the workspace ID from a host name ws-<id>.localhost
+// (without port).
 func WorkspaceFromHost(host string) (string, bool) {
 	m := hostRE.FindStringSubmatch(strings.ToLower(strings.TrimSuffix(host, ".")))
 	if m == nil {
@@ -47,36 +47,36 @@ func WorkspaceFromHost(host string) (string, bool) {
 	return m[1], true
 }
 
-// Host liefert den Hostnamen (mit Port) der IDE eines Workspaces.
+// Host returns the host name (with port) of a workspace's IDE.
 func Host(workspace, port string) string { return "ws-" + workspace + ".localhost:" + port }
 
-// Auth prüft IDE-Tickets und -Sessions.
+// Auth checks IDE tickets and sessions.
 type Auth interface {
 	RedeemIDE(ticket, workspace string) (string, bool)
 	ValidIDESession(id, workspace string) bool
 }
 
-// IDEs liefert laufende IDEs.
+// IDEs returns running IDEs.
 type IDEs interface {
 	Acquire(ctx context.Context, workspace string) (*ide.Upstream, error)
 }
 
-// Options konfiguriert das Gateway.
+// Options configures the gateway.
 type Options struct {
 	Auth Auth
 	IDEs IDEs
-	// DashboardURL ist die Adresse des Dashboards (für Links auf Fehlerseiten).
+	// DashboardURL is the address of the dashboard (for links on error pages).
 	DashboardURL string
 	Logger       *slog.Logger
 }
 
-// Gateway ist der HTTP-Handler für IDE-Subdomains. Host- und Origin-Prüfung erledigt der
-// API-Server davor.
+// Gateway is the HTTP handler for IDE subdomains. The API server in front of it does the host
+// and origin check.
 type Gateway struct {
 	opts Options
 }
 
-// New erzeugt ein Gateway.
+// New creates a gateway.
 func New(opts Options) *Gateway {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
@@ -88,7 +88,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host, _, _ := strings.Cut(r.Host, ":")
 	ws, ok := WorkspaceFromHost(host)
 	if !ok {
-		http.Error(w, "unbekannte IDE-Adresse", http.StatusNotFound)
+		http.Error(w, "unknown IDE address", http.StatusNotFound)
 		return
 	}
 	if r.URL.Path == LoginPath {
@@ -97,8 +97,8 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := r.Cookie(Cookie)
 	if err != nil || !g.opts.Auth.ValidIDESession(c.Value, ws) {
-		g.page(w, http.StatusUnauthorized, "Nicht angemeldet",
-			"Die IDE ist nur über das ADE-Dashboard erreichbar. Bitte dort „IDE öffnen“ wählen.")
+		g.page(w, http.StatusUnauthorized, "Not logged in",
+			"The IDE is only reachable through the ADE dashboard. Please choose “Open IDE” there.")
 		return
 	}
 
@@ -111,10 +111,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, apperr.ErrNotFound):
 			code = http.StatusNotFound
 		case errors.Is(err, context.DeadlineExceeded):
-			code, msg = http.StatusGatewayTimeout, "Die IDE startet noch. Bitte die Seite neu laden."
+			code, msg = http.StatusGatewayTimeout, "The IDE is still starting. Please reload the page."
 		}
-		g.opts.Logger.Warn("IDE nicht erreichbar", "workspace", ws, "err", err)
-		g.page(w, code, "IDE nicht verfügbar", msg)
+		g.opts.Logger.Warn("IDE not reachable", "workspace", ws, "err", err)
+		g.page(w, code, "IDE not available", msg)
 		return
 	}
 	defer up.Release()
@@ -122,24 +122,24 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(up.URL)
-			// Host und Origin bleiben die der Subdomain; openvscode-server vergleicht sie.
+			// Host and origin stay those of the subdomain; openvscode-server compares them.
 			pr.Out.Host = pr.In.Host
 			setCookies(pr.Out, up.Token)
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			if !errors.Is(err, context.Canceled) {
-				g.opts.Logger.Warn("Gateway: Weiterleitung fehlgeschlagen", "workspace", ws, "err", err)
+				g.opts.Logger.Warn("gateway: forwarding failed", "workspace", ws, "err", err)
 			}
 			w.WriteHeader(http.StatusBadGateway)
 		},
-		// Antworten (z. B. Server-Sent Events, Logs) sofort weiterreichen.
+		// Pass responses on right away (e.g. server-sent events, logs).
 		FlushInterval: -1,
 	}
 	proxy.ServeHTTP(w, r)
 }
 
-// setCookies entfernt das ADE-Cookie und den vom Browser gesendeten Connection-Token und
-// setzt den echten Token ein.
+// setCookies removes the ADE cookie and the connection token sent by the browser and
+// inserts the real token.
 func setCookies(r *http.Request, token string) {
 	cookies := r.Cookies()
 	r.Header.Del("Cookie")
@@ -149,25 +149,25 @@ func setCookies(r *http.Request, token string) {
 		}
 		r.AddCookie(c)
 	}
-	r.AddCookie(&http.Cookie{Name: tokenCookie, Value: token}) //nolint:gosec // G124: Request-Cookie an den Upstream, Attribute gelten nicht
+	r.AddCookie(&http.Cookie{Name: tokenCookie, Value: token}) //nolint:gosec // G124: request cookie to the upstream, attributes do not apply
 }
 
 func (g *Gateway) login(w http.ResponseWriter, r *http.Request, ws string) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "nur GET", http.StatusMethodNotAllowed)
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
 	id, ok := g.opts.Auth.RedeemIDE(r.URL.Query().Get("ticket"), ws)
 	if !ok {
-		g.opts.Logger.Warn("IDE-Anmeldung mit ungültigem Ticket", "workspace", ws, "remote", r.RemoteAddr)
-		g.page(w, http.StatusUnauthorized, "Anmeldelink ungültig",
-			"Der Link ist abgelaufen oder wurde schon benutzt. Bitte im Dashboard erneut „IDE öffnen“ wählen.")
+		g.opts.Logger.Warn("IDE login with an invalid ticket", "workspace", ws, "remote", r.RemoteAddr)
+		g.page(w, http.StatusUnauthorized, "Login link invalid",
+			"The link has expired or was already used. Please choose “Open IDE” in the dashboard again.")
 		return
 	}
-	// Host-only-Cookie (ohne Domain): gilt nur für ws-<id>.localhost. SameSite=Lax statt
-	// Strict, weil der Weg vom Dashboard hierher eine Cross-Site-Navigation ist
-	// (localhost und ws-<id>.localhost sind verschiedene Sites). Kein Secure-Flag: http://localhost.
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124, siehe oben
+	// Host-only cookie (without domain): only applies to ws-<id>.localhost. SameSite=Lax instead
+	// of Strict, because the way from the dashboard to here is a cross-site navigation
+	// (localhost and ws-<id>.localhost are different sites). No Secure flag: http://localhost.
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124, see above
 		Name:     Cookie,
 		Value:    id,
 		Path:     "/",
@@ -186,9 +186,9 @@ func (g *Gateway) page(w http.ResponseWriter, code int, title, msg string) {
 	w.WriteHeader(code)
 	link := ""
 	if g.opts.DashboardURL != "" {
-		link = fmt.Sprintf(`<p><a href="%s">Zum Dashboard</a></p>`, html.EscapeString(g.opts.DashboardURL))
+		link = fmt.Sprintf(`<p><a href="%s">To the dashboard</a></p>`, html.EscapeString(g.opts.DashboardURL))
 	}
-	_, _ = fmt.Fprintf(w, `<!doctype html><html lang="de"><meta charset="utf-8"><title>ADE – %s</title>
+	_, _ = fmt.Fprintf(w, `<!doctype html><html lang="en"><meta charset="utf-8"><title>ADE – %s</title>
 <style>body{font:16px system-ui,sans-serif;max-width:40rem;margin:4rem auto;padding:0 1rem;color:#222}</style>
 <h1>%s</h1><p>%s</p>%s</html>`, html.EscapeString(title), html.EscapeString(title), html.EscapeString(msg), link)
 }

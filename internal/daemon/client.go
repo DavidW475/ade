@@ -16,16 +16,16 @@ import (
 	"github.com/DavidW475/ade/internal/config"
 )
 
-// ErrNotRunning bedeutet, dass auf der konfigurierten Adresse kein Daemon antwortet.
-var ErrNotRunning = errors.New("ADE-Daemon läuft nicht")
+// ErrNotRunning means that no daemon answers at the configured address.
+var ErrNotRunning = errors.New("ADE daemon is not running")
 
-// Client spricht mit einem laufenden Daemon.
+// Client talks to a running daemon.
 type Client struct {
 	cfg  *config.Config
 	http *http.Client
 }
 
-// NewClient erzeugt einen Client für die Adresse aus cfg.
+// NewClient creates a client for the address from cfg.
 func NewClient(cfg *config.Config) *Client {
 	return &Client{cfg: cfg, http: &http.Client{Timeout: 5 * time.Second}}
 }
@@ -37,12 +37,12 @@ func (c *Client) newRequest(ctx context.Context, method, p string) (*http.Reques
 	if err != nil {
 		return nil, err
 	}
-	// Der Daemon akzeptiert nur localhost als Host (ADR-008).
+	// The daemon only accepts localhost as host (ADR-008).
 	req.Host = "localhost:" + c.cfg.Port()
 	return req, nil
 }
 
-// Health fragt GET /api/health ab. Antwortet niemand, ist der Fehler ErrNotRunning.
+// Health queries GET /api/health. If nobody answers, the error is ErrNotRunning.
 func (c *Client) Health(ctx context.Context) (*api.HealthResponse, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, "/api/health")
 	if err != nil {
@@ -55,12 +55,12 @@ func (c *Client) Health(ctx context.Context) (*api.HealthResponse, error) {
 	defer func() { _ = resp.Body.Close() }()
 	var h api.HealthResponse
 	if err := json.NewDecoder(resp.Body).Decode(&h); err != nil || h.Service != "ade" {
-		return nil, fmt.Errorf("auf %s antwortet etwas anderes als ADE (HTTP %d)", c.cfg.Listen, resp.StatusCode)
+		return nil, fmt.Errorf("something other than ADE answers on %s (HTTP %d)", c.cfg.Listen, resp.StatusCode)
 	}
 	return &h, nil
 }
 
-// WaitHealthy wartet, bis der Daemon antwortet, oder bis ctx abläuft.
+// WaitHealthy waits until the daemon answers or ctx expires.
 func (c *Client) WaitHealthy(ctx context.Context) (*api.HealthResponse, error) {
 	t := time.NewTicker(100 * time.Millisecond)
 	defer t.Stop()
@@ -80,11 +80,11 @@ func (c *Client) WaitHealthy(ctx context.Context) (*api.HealthResponse, error) {
 	}
 }
 
-// LoginURL holt ein Einmal-Token und liefert die Anmelde-URL für den Browser.
+// LoginURL fetches a one-time token and returns the login URL for the browser.
 func (c *Client) LoginURL(ctx context.Context) (string, error) {
 	data, err := os.ReadFile(c.cfg.SecretPath())
 	if err != nil {
-		return "", fmt.Errorf("Daemon-Secret lesen: %w", err)
+		return "", fmt.Errorf("read daemon secret: %w", err)
 	}
 	req, err := c.newRequest(ctx, http.MethodPost, "/api/auth/tickets")
 	if err != nil {
@@ -97,7 +97,7 @@ func (c *Client) LoginURL(ctx context.Context) (string, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("Anmelde-Ticket anfordern: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("request login ticket: HTTP %d", resp.StatusCode)
 	}
 	var tr api.TicketResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
@@ -106,7 +106,7 @@ func (c *Client) LoginURL(ctx context.Context) (string, error) {
 	return c.cfg.BaseURL() + tr.LoginPath, nil
 }
 
-// APIError ist eine Fehlerantwort der API.
+// APIError is an error response of the API.
 type APIError struct {
 	Status int
 	Msg    string
@@ -114,12 +114,12 @@ type APIError struct {
 
 func (e *APIError) Error() string { return e.Msg }
 
-// Do ruft die API mit dem Daemon-Secret auf. in wird als JSON gesendet (nil: kein Body),
-// die Antwort nach out dekodiert (nil: verwerfen).
+// Do calls the API with the daemon secret. in is sent as JSON (nil: no body), the
+// response is decoded into out (nil: discard).
 func (c *Client) Do(ctx context.Context, method, p string, in, out any) error {
 	secret, err := os.ReadFile(c.cfg.SecretPath())
 	if err != nil {
-		return fmt.Errorf("Daemon-Secret lesen: %w", err)
+		return fmt.Errorf("read daemon secret: %w", err)
 	}
 	var body io.Reader
 	if in != nil {
@@ -138,7 +138,7 @@ func (c *Client) Do(ctx context.Context, method, p string, in, out any) error {
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	// Workspaces anlegen kann dauern; hier gilt das Timeout des Kontexts.
+	// Creating workspaces can take a while; the context's timeout applies here.
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		return err

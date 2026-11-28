@@ -19,7 +19,7 @@ func setHome(t *testing.T) string {
 func TestLoadMissingFileUsesDefaults(t *testing.T) {
 	home := setHome(t)
 
-	cfg, err := Load(filepath.Join(home, "gibt-es-nicht.yaml"))
+	cfg, err := Load(filepath.Join(home, "does-not-exist.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ ide:
 		t.Errorf("DataDir = %q, want %q", cfg.DataDir, want)
 	}
 	if want := filepath.Join(home, ".ade", "workspaces"); cfg.WorkspacesDir != want {
-		t.Errorf("WorkspacesDir = %q, want Default %q", cfg.WorkspacesDir, want)
+		t.Errorf("WorkspacesDir = %q, want default %q", cfg.WorkspacesDir, want)
 	}
 	if cfg.Providers["anthropic"].APIKey != "env:ANTHROPIC_API_KEY" {
 		t.Errorf("Providers = %#v", cfg.Providers)
@@ -97,20 +97,20 @@ func TestLoadEmptyFile(t *testing.T) {
 
 func TestLoadRejectsInvalid(t *testing.T) {
 	cases := map[string]string{
-		"nicht-loopback":     "listen: 0.0.0.0:7000\n",
-		"fremde-ip":          "listen: 192.168.1.5:7000\n",
-		"ohne-port":          "listen: 127.0.0.1\n",
-		"port-null":          "listen: 127.0.0.1:0\n",
-		"unbekannter-schl":   "lissten: 127.0.0.1:7000\n",
-		"relativer-data-dir": "data_dir: daten\n",
-		"relatives-ide":      "ide:\n  binary: bin/ovs\n",
-		"ide-idle-zu-kurz":   "ide:\n  idle_timeout: 10s\n",
-		"ide-idle-kaputt":    "ide:\n  idle_timeout: bald\n",
-		"model-anbieter":     "models:\n  x: { provider: mistral, id: m }\n",
-		"model-ohne-id":      "models:\n  x: { provider: openai }\n",
+		"not-loopback":       "listen: 0.0.0.0:7000\n",
+		"foreign-ip":         "listen: 192.168.1.5:7000\n",
+		"without-port":       "listen: 127.0.0.1\n",
+		"port-zero":          "listen: 127.0.0.1:0\n",
+		"unknown-key":        "lissten: 127.0.0.1:7000\n",
+		"relative-data-dir":  "data_dir: data\n",
+		"relative-ide":       "ide:\n  binary: bin/ovs\n",
+		"ide-idle-too-short": "ide:\n  idle_timeout: 10s\n",
+		"ide-idle-broken":    "ide:\n  idle_timeout: soon\n",
+		"model-provider":     "models:\n  x: { provider: mistral, id: m }\n",
+		"model-without-id":   "models:\n  x: { provider: openai }\n",
 		"model-id-option":    "models:\n  x: { provider: openai, id: --help }\n",
-		"alias-leerzeichen":  "models:\n  \"a b\": { provider: openai, id: m }\n",
-		"preis-negativ":      "pricing:\n  gpt-5: { input: -1 }\n",
+		"alias-space":        "models:\n  \"a b\": { provider: openai, id: m }\n",
+		"price-negative":     "pricing:\n  gpt-5: { input: -1 }\n",
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -118,7 +118,7 @@ func TestLoadRejectsInvalid(t *testing.T) {
 			path := filepath.Join(home, "config.yaml")
 			writeFile(t, path, content)
 			if _, err := Load(path); err == nil {
-				t.Fatal("Fehler erwartet")
+				t.Fatal("expected an error")
 			}
 		})
 	}
@@ -179,9 +179,9 @@ func TestResolve(t *testing.T) {
 	if v, err := Resolve("klartext"); err != nil || v != "klartext" {
 		t.Errorf("Klartext = %q, %v", v, err)
 	}
-	for _, ref := range []string{"env:ADE_TEST_EMPTY", "env:ADE_TEST_GIBTS_NICHT", "env:"} {
+	for _, ref := range []string{"env:ADE_TEST_EMPTY", "env:ADE_TEST_DOES_NOT_EXIST", "env:"} {
 		if _, err := Resolve(ref); err == nil {
-			t.Errorf("%s: Fehler erwartet", ref)
+			t.Errorf("%s: expected an error", ref)
 		}
 	}
 	p := Provider{APIKey: "env:ADE_TEST_KEY"}

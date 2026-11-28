@@ -14,8 +14,8 @@ import (
 	"github.com/DavidW475/ade/internal/config"
 )
 
-// EnsureRunning prüft, ob ein Daemon läuft, und startet sonst `<exe> serve` im Hintergrund.
-// started ist true, wenn ein neuer Daemon gestartet wurde.
+// EnsureRunning checks whether a daemon is running and otherwise starts `<exe> serve` in the background.
+// started is true if a new daemon was started.
 func EnsureRunning(ctx context.Context, cfg *config.Config, configPath string) (h *api.HealthResponse, started bool, err error) {
 	c := NewClient(cfg)
 	if h, err := c.Health(ctx); err == nil {
@@ -33,16 +33,16 @@ func EnsureRunning(ctx context.Context, cfg *config.Config, configPath string) (
 	}
 	logf, err := os.OpenFile(cfg.LogPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return nil, false, fmt.Errorf("Daemon-Log öffnen: %w", err)
+		return nil, false, fmt.Errorf("open daemon log: %w", err)
 	}
 	defer func() { _ = logf.Close() }()
 
 	cmd := exec.Command(exe, "serve", "--config", configPath)
 	cmd.Stdout, cmd.Stderr = logf, logf
-	// Eigene Session: Der Daemon überlebt das Schließen des Terminals.
+	// Own session: the daemon survives closing the terminal.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		return nil, false, fmt.Errorf("Daemon starten: %w", err)
+		return nil, false, fmt.Errorf("start daemon: %w", err)
 	}
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
@@ -60,20 +60,20 @@ func EnsureRunning(ctx context.Context, cfg *config.Config, configPath string) (
 	select {
 	case <-healthy:
 		if healthErr != nil {
-			return nil, true, fmt.Errorf("Daemon antwortet nicht (Log: %s): %w", cfg.LogPath(), healthErr)
+			return nil, true, fmt.Errorf("daemon does not answer (log: %s): %w", cfg.LogPath(), healthErr)
 		}
 		return health, true, nil
 	case err := <-exited:
 		cancel()
 		<-healthy
-		return nil, true, fmt.Errorf("Daemon ist sofort beendet (%w):\n%s", err, tail(cfg.LogPath(), 10))
+		return nil, true, fmt.Errorf("daemon exited immediately (%w):\n%s", err, tail(cfg.LogPath(), 10))
 	}
 }
 
 func tail(path string, n int) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "(kein Log)"
+		return "(no log)"
 	}
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	if len(lines) > n {

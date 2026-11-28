@@ -1,4 +1,4 @@
-// Package apperr definiert Fehlerarten, die die API auf HTTP-Statuscodes abbildet.
+// Package apperr defines error kinds that the API maps to HTTP status codes.
 package apperr
 
 import (
@@ -6,14 +6,14 @@ import (
 	"fmt"
 )
 
-// Fehlerarten. Mit errors.Is prüfbar.
+// Error kinds. Can be checked with errors.Is.
 var (
-	ErrNotFound = errors.New("nicht gefunden")
-	ErrInvalid  = errors.New("ungültige Eingabe")
-	ErrConflict = errors.New("Konflikt")
+	ErrNotFound = errors.New("not found")
+	ErrInvalid  = errors.New("invalid input")
+	ErrConflict = errors.New("conflict")
 )
 
-// Error ist ein Fehler mit Art und nutzerlesbarer Meldung.
+// Error is an error with a kind and a user-readable message.
 type Error struct {
 	Kind error
 	Msg  string
@@ -22,17 +22,17 @@ type Error struct {
 func (e *Error) Error() string { return e.Msg }
 func (e *Error) Unwrap() error { return e.Kind }
 
-// NotFound erzeugt einen Fehler der Art ErrNotFound.
+// NotFound creates an error of kind ErrNotFound.
 func NotFound(format string, args ...any) error {
 	return &Error{Kind: ErrNotFound, Msg: fmt.Sprintf(format, args...)}
 }
 
-// Invalid erzeugt einen Fehler der Art ErrInvalid.
+// Invalid creates an error of kind ErrInvalid.
 func Invalid(format string, args ...any) error {
 	return &Error{Kind: ErrInvalid, Msg: fmt.Sprintf(format, args...)}
 }
 
-// Conflict erzeugt einen Fehler der Art ErrConflict.
+// Conflict creates an error of kind ErrConflict.
 func Conflict(format string, args ...any) error {
 	return &Error{Kind: ErrConflict, Msg: fmt.Sprintf(format, args...)}
 }

@@ -11,13 +11,13 @@ import (
 	"strings"
 )
 
-// Grenzen für Patches im Diff, damit riesige Änderungen die API nicht verstopfen.
+// Limits for patches in the diff, so huge changes do not clog the API.
 const (
 	MaxFilePatch  = 256 << 10
 	MaxTotalPatch = 4 << 20
 )
 
-// FileChange ist eine geänderte Datei.
+// FileChange is a changed file.
 type FileChange struct {
 	Path      string `json:"path"`
 	OldPath   string `json:"old_path,omitempty"`
@@ -26,11 +26,11 @@ type FileChange struct {
 	Deletions int    `json:"deletions"`
 	Binary    bool   `json:"binary"`
 	Patch     string `json:"patch,omitempty"`
-	// Truncated ist true, wenn der Patch wegen seiner Größe weggelassen wurde.
+	// Truncated is true if the patch was left out because of its size.
 	Truncated bool `json:"truncated,omitempty"`
 }
 
-// Diff ist der Unterschied zwischen einem Basis-Commit und dem Arbeitsbaum.
+// Diff is the difference between a base commit and the working tree.
 type Diff struct {
 	Base      string       `json:"base_commit"`
 	Head      string       `json:"head_commit"`
@@ -49,11 +49,11 @@ var statusNames = map[byte]string{
 	'U': "unmerged",
 }
 
-// WorktreeDiff vergleicht den Arbeitsbaum von dir (committete, gestagte, ungestagte und
-// neue, nicht ignorierte Dateien) mit dem Commit base.
+// WorktreeDiff compares the working tree of dir (committed, staged, unstaged and new,
+// non-ignored files) with the commit base.
 //
-// Dafür wird ein temporärer Index verwendet (GIT_INDEX_FILE): Der Index des Workspaces
-// bleibt unverändert, auch wenn ein Agent gerade darin arbeitet.
+// A temporary index is used for that (GIT_INDEX_FILE): the workspace's index stays
+// unchanged, even while an agent is working in it.
 func WorktreeDiff(ctx context.Context, w Worktree, base string, withPatch bool) (*Diff, error) {
 	out, err := Run(ctx, workspaceCmd(w, nil, "rev-parse", "--verify", "HEAD^{commit}"))
 	if err != nil {
@@ -109,15 +109,15 @@ func WorktreeDiff(ctx context.Context, w Worktree, base string, withPatch bool) 
 	return d, nil
 }
 
-// remoteTempIndex legt die Kopie des Index am Ort des Runners an (im Container unter /tmp)
-// und gibt ihren Pfad aus. Ohne Index bleibt nur der Pfad; git beginnt dann leer.
+// remoteTempIndex creates the copy of the index where the runner is (in the container under
+// /tmp) and prints its path. Without an index only the path remains; git then starts empty.
 const remoteTempIndex = `f=$(mktemp /tmp/ade-index-XXXXXX) || exit 1
 i=$(git rev-parse --git-path index) || exit 1
 cp -- "$i" "$f" 2>/dev/null || rm -f -- "$f"
 printf '%s' "$f"`
 
-// tempIndex kopiert den Index des Repos in eine temporäre Datei. Die Kopie spart
-// git add das erneute Hashen unveränderter Dateien.
+// tempIndex copies the repository's index into a temporary file. The copy saves git add
+// from rehashing unchanged files.
 func tempIndex(ctx context.Context, w Worktree) (string, func(), error) {
 	if w.Runner != nil {
 		run := func(argv ...string) ([]byte, error) {
@@ -135,7 +135,7 @@ func tempIndex(ctx context.Context, w Worktree) (string, func(), error) {
 		}
 		path := strings.TrimSpace(string(out))
 		if !strings.HasPrefix(path, "/tmp/ade-index-") {
-			return "", nil, fmt.Errorf("temporärer Index: unerwartete Ausgabe %q", path)
+			return "", nil, fmt.Errorf("temporary index: unexpected output %q", path)
 		}
 		cleanup := func() { _, _ = run("rm", "-f", "--", path) }
 		return path, cleanup, nil
@@ -162,8 +162,8 @@ func tempIndex(ctx context.Context, w Worktree) (string, func(), error) {
 			return "", nil, err
 		}
 	} else {
-		// Ohne Index (frisches Repo) startet git mit einem leeren Index; eine leere Datei
-		// wäre ungültig.
+		// Without an index (fresh repository) git starts with an empty index; an empty file
+		// would be invalid.
 		_ = tmp.Close()
 		cleanup()
 		return tmp.Name(), cleanup, nil
@@ -175,14 +175,14 @@ func tempIndex(ctx context.Context, w Worktree) (string, func(), error) {
 	return tmp.Name(), cleanup, nil
 }
 
-// parseNameStatus liest `git diff --name-status -z`: "M\0pfad\0" bzw. "R100\0alt\0neu\0".
+// parseNameStatus reads `git diff --name-status -z`: "M\0path\0" or "R100\0old\0new\0".
 func parseNameStatus(out []byte) ([]FileChange, error) {
 	fields := splitZ(out)
 	var files []FileChange
 	for i := 0; i < len(fields); {
 		code := fields[i]
 		if code == "" {
-			return nil, fmt.Errorf("name-status: leerer Statuscode")
+			return nil, fmt.Errorf("name-status: empty status code")
 		}
 		status, ok := statusNames[code[0]]
 		if !ok {
@@ -191,13 +191,13 @@ func parseNameStatus(out []byte) ([]FileChange, error) {
 		f := FileChange{Status: status}
 		if code[0] == 'R' || code[0] == 'C' {
 			if i+2 >= len(fields) {
-				return nil, fmt.Errorf("name-status: unvollständiger Eintrag")
+				return nil, fmt.Errorf("name-status: incomplete entry")
 			}
 			f.OldPath, f.Path = fields[i+1], fields[i+2]
 			i += 3
 		} else {
 			if i+1 >= len(fields) {
-				return nil, fmt.Errorf("name-status: unvollständiger Eintrag")
+				return nil, fmt.Errorf("name-status: incomplete entry")
 			}
 			f.Path = fields[i+1]
 			i += 2
@@ -207,24 +207,24 @@ func parseNameStatus(out []byte) ([]FileChange, error) {
 	return files, nil
 }
 
-// applyNumStat liest `git diff --numstat -z` in derselben Reihenfolge wie name-status:
-// "plus\tminus\tpfad\0" bzw. bei Umbenennungen "plus\tminus\t\0alt\0neu\0".
-// Binärdateien haben "-\t-".
+// applyNumStat reads `git diff --numstat -z` in the same order as name-status:
+// "plus\tminus\tpath\0" or for renames "plus\tminus\t\0old\0new\0".
+// Binary files have "-\t-".
 func applyNumStat(files []FileChange, out []byte) error {
 	fields := splitZ(out)
 	n := 0
 	for i := 0; i < len(fields); n++ {
 		parts := strings.SplitN(fields[i], "\t", 3)
 		if len(parts) != 3 {
-			return fmt.Errorf("numstat: unerwartetes Format %q", fields[i])
+			return fmt.Errorf("numstat: unexpected format %q", fields[i])
 		}
-		if parts[2] == "" { // Umbenennung: zwei weitere Felder
+		if parts[2] == "" { // rename: two more fields
 			i += 3
 		} else {
 			i++
 		}
 		if n >= len(files) {
-			return fmt.Errorf("numstat: mehr Einträge als name-status")
+			return fmt.Errorf("numstat: more entries than name-status")
 		}
 		if parts[0] == "-" && parts[1] == "-" {
 			files[n].Binary = true
@@ -234,13 +234,13 @@ func applyNumStat(files []FileChange, out []byte) error {
 		files[n].Deletions, _ = strconv.Atoi(parts[1])
 	}
 	if n != len(files) {
-		return fmt.Errorf("numstat: %d Einträge, name-status: %d", n, len(files))
+		return fmt.Errorf("numstat: %d entries, name-status: %d", n, len(files))
 	}
 	return nil
 }
 
-// attachPatches teilt die Patch-Ausgabe an den "diff --git"-Kopfzeilen auf. Die Reihenfolge
-// entspricht der von name-status. Passt die Anzahl nicht, bleiben die Patches leer.
+// attachPatches splits the patch output at the "diff --git" header lines. The order
+// matches that of name-status. If the count does not match, the patches stay empty.
 func attachPatches(files []FileChange, patch []byte) {
 	var chunks [][]byte
 	header := []byte("diff --git ")

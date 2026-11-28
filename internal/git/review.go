@@ -12,12 +12,12 @@ import (
 	"syscall"
 )
 
-// WorkspaceArgs stehen vor git-Befehlen, die der Daemon in einem Workspace ausführt. Ein
-// Agent kann dort die Repo-Konfiguration ändern; Hooks und fsmonitor würden sonst Befehle
-// außerhalb der Sandbox ausführen.
+// WorkspaceArgs come before git commands the daemon runs in a workspace. An agent can
+// change the repository configuration there; hooks and fsmonitor would otherwise run commands
+// outside the sandbox.
 var WorkspaceArgs = []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"}
 
-// Fallback-Identität für Commits, wenn git keine konfigurierte kennt.
+// Fallback identity for commits when git knows no configured one.
 const (
 	FallbackName  = "ADE"
 	FallbackEmail = "ade@localhost"
@@ -27,8 +27,8 @@ func workspaceCmd(w Worktree, env []string, args ...string) Cmd {
 	return w.cmd(env, append(append([]string{}, WorkspaceArgs...), args...)...)
 }
 
-// IdentityEnv liefert Umgebungsvariablen für Autor und Committer, falls in dir kein
-// user.name bzw. user.email konfiguriert ist.
+// IdentityEnv returns environment variables for author and committer if no user.name or
+// user.email is configured in dir.
 func IdentityEnv(ctx context.Context, dir string) []string { return identityEnv(ctx, Local(dir)) }
 
 func identityEnv(ctx context.Context, w Worktree) []string {
@@ -46,8 +46,8 @@ func identityEnv(ctx context.Context, w Worktree) []string {
 	return env
 }
 
-// CommitAll committet alle Änderungen im Arbeitsbaum von w (auch neue, nicht ignorierte
-// Dateien) ohne Hooks und Signatur. Liefert false, wenn es nichts zu committen gab.
+// CommitAll commits all changes in the working tree of w (including new, non-ignored files)
+// without hooks and signature. Returns false if there was nothing to commit.
 func CommitAll(ctx context.Context, w Worktree, message string) (bool, error) {
 	out, err := Run(ctx, workspaceCmd(w, nil, "status", "--porcelain", "-z", "--untracked-files=all"))
 	if err != nil {
@@ -67,7 +67,7 @@ func CommitAll(ctx context.Context, w Worktree, message string) (bool, error) {
 	return true, nil
 }
 
-// FetchBranch holt den Branch aus dem Repository src nach repo und überschreibt ihn dort.
+// FetchBranch fetches the branch from the repository src into repo and overwrites it there.
 func FetchBranch(ctx context.Context, repo, src, branch string) error {
 	ref := "refs/heads/" + branch
 	_, err := Run(ctx, Cmd{Dir: repo, Args: []string{
@@ -77,7 +77,7 @@ func FetchBranch(ctx context.Context, repo, src, branch string) error {
 	return err
 }
 
-// CheckedOutIn liefert den Arbeitsbaum, in dem branch ausgecheckt ist (leer: nirgends).
+// CheckedOutIn returns the working tree in which branch is checked out (empty: nowhere).
 func CheckedOutIn(ctx context.Context, repo, branch string) (string, error) {
 	out, err := Run(ctx, Cmd{Dir: repo, Args: []string{"worktree", "list", "--porcelain", "-z"}})
 	if err != nil {
@@ -97,7 +97,7 @@ func CheckedOutIn(ctx context.Context, repo, branch string) (string, error) {
 	return "", nil
 }
 
-// IsAncestor meldet, ob a ein Vorfahre von b ist (oder gleich).
+// IsAncestor reports whether a is an ancestor of b (or equal).
 func IsAncestor(ctx context.Context, repo, a, b string) (bool, error) {
 	_, err := Run(ctx, Cmd{Dir: repo, Args: []string{"merge-base", "--is-ancestor", a, b}})
 	if err == nil {
@@ -109,8 +109,8 @@ func IsAncestor(ctx context.Context, repo, a, b string) (bool, error) {
 	return false, err
 }
 
-// MergeTree berechnet den Merge von base und head, ohne Arbeitsbaum oder Refs zu ändern.
-// Liefert den Tree oder bei Konflikten die betroffenen Dateien.
+// MergeTree computes the merge of base and head without changing a working tree or refs.
+// Returns the tree or, on conflicts, the affected files.
 func MergeTree(ctx context.Context, repo, base, head string) (tree string, conflicts []string, err error) {
 	out, err := Run(ctx, Cmd{Dir: repo, Args: []string{
 		"merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", base, head,
@@ -120,7 +120,7 @@ func MergeTree(ctx context.Context, repo, base, head string) (tree string, confl
 		return "", nil, err
 	}
 	if len(fields) == 0 {
-		return "", nil, fmt.Errorf("merge-tree: keine Ausgabe")
+		return "", nil, fmt.Errorf("merge-tree: no output")
 	}
 	if err != nil {
 		for _, f := range fields[1:] {
@@ -142,8 +142,8 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-// MergeCommit legt einen Merge-Commit mit den Eltern base und head an und setzt branch
-// darauf – nur, wenn branch noch auf base zeigt. Für nicht ausgecheckte Branches.
+// MergeCommit creates a merge commit with the parents base and head and points branch to it
+// – only if branch still points to base. For branches that are not checked out.
 func MergeCommit(ctx context.Context, repo, branch, base, head, tree, message string) (string, error) {
 	env := IdentityEnv(ctx, repo)
 	out, err := Run(ctx, Cmd{Dir: repo, Env: env, Args: []string{
@@ -161,8 +161,8 @@ func MergeCommit(ctx context.Context, repo, branch, base, head, tree, message st
 	return commit, nil
 }
 
-// MergeInWorktree führt git merge --no-ff im Arbeitsbaum aus, in dem der Basis-Branch
-// ausgecheckt ist. Schlägt der Merge fehl, wird er abgebrochen.
+// MergeInWorktree runs git merge --no-ff in the working tree in which the base branch is
+// checked out. If the merge fails, it is aborted.
 func MergeInWorktree(ctx context.Context, worktree, head, message string) (string, error) {
 	env := IdentityEnv(ctx, worktree)
 	if _, err := Run(ctx, Cmd{Dir: worktree, Env: env, Args: []string{
@@ -176,7 +176,7 @@ func MergeInWorktree(ctx context.Context, worktree, head, message string) (strin
 	return Output(ctx, worktree, "rev-parse", "HEAD")
 }
 
-// DeleteBranch löscht einen lokalen Branch, falls er existiert.
+// DeleteBranch deletes a local branch if it exists.
 func DeleteBranch(ctx context.Context, repo, branch string) error {
 	if !BranchExists(ctx, repo, branch) {
 		return nil
@@ -185,34 +185,34 @@ func DeleteBranch(ctx context.Context, repo, branch string) error {
 	return err
 }
 
-// RemoteURL liefert die URL eines Remotes oder einen Fehler, wenn es fehlt.
+// RemoteURL returns the URL of a remote or an error if it is missing.
 func RemoteURL(ctx context.Context, repo, remote string) (string, error) {
 	return Output(ctx, repo, "remote", "get-url", "--", remote)
 }
 
-// Push schiebt branch unter gleichem Namen zum Remote.
+// Push pushes branch to the remote under the same name.
 func Push(ctx context.Context, repo, remote, branch string) error {
 	ref := "refs/heads/" + branch
 	_, err := Run(ctx, Cmd{Dir: repo, Args: []string{"push", "--quiet", "--", remote, ref + ":" + ref}})
 	return err
 }
 
-// MaxBlob ist die größte Datei, die Blob liefert.
+// MaxBlob is the largest file Blob returns.
 const MaxBlob = 4 << 20
 
-// ErrTooLarge meldet eine Datei über MaxBlob.
-var ErrTooLarge = errors.New("Datei zu groß")
+// ErrTooLarge reports a file above MaxBlob.
+var ErrTooLarge = errors.New("file too large")
 
-// Blob liefert den Inhalt von path im Commit rev; ok ist false, wenn die Datei dort fehlt.
+// Blob returns the contents of path in the commit rev; ok is false if the file is missing there.
 func Blob(ctx context.Context, w Worktree, rev, path string) (data []byte, ok bool, err error) {
 	return blob(ctx, w.cmd(nil), rev+":"+path)
 }
 
-// WorktreeBlob liefert den Inhalt von path im Arbeitsbaum, so wie git ihn sieht
-// (Symlinks als Linkziel, Filter angewendet). Der Index des Workspaces bleibt unverändert.
+// WorktreeBlob returns the contents of path in the working tree as git sees it
+// (symlinks as link target, filters applied). The workspace's index stays unchanged.
 func WorktreeBlob(ctx context.Context, w Worktree, path string) (data []byte, ok bool, err error) {
-	// Gelöschte Dateien: git add würde am Pfad scheitern. Lstat folgt keinem Link am Ende;
-	// Pfade hinter Symlinks weist git add selbst zurück.
+	// Deleted files: git add would fail at the path. Lstat does not follow a link at the end;
+	// git add itself rejects paths behind symlinks.
 	if _, err := os.Lstat(filepath.Join(w.Path, path)); errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	}
@@ -231,7 +231,7 @@ func WorktreeBlob(ctx context.Context, w Worktree, path string) (data []byte, ok
 func blob(ctx context.Context, c Cmd, object string) ([]byte, bool, error) {
 	size, err := Run(ctx, Cmd{Dir: c.Dir, Env: c.Env, Runner: c.Runner, Args: append(append([]string{}, c.Args...), "cat-file", "-s", object)})
 	if err != nil {
-		// Fehlende Datei (oder fehlender Pfad im Commit) ist kein Fehler.
+		// A missing file (or a missing path in the commit) is not an error.
 		return nil, false, nil
 	}
 	var n int64
@@ -248,7 +248,7 @@ func blob(ctx context.Context, c Cmd, object string) ([]byte, bool, error) {
 	return out, true, nil
 }
 
-// IsBinary schätzt wie git, ob Daten binär sind (NUL-Byte in den ersten 8000 Bytes).
+// IsBinary estimates like git whether data is binary (NUL byte in the first 8000 bytes).
 func IsBinary(data []byte) bool {
 	if len(data) > 8000 {
 		data = data[:8000]
@@ -263,7 +263,7 @@ func firstLine(s string) string {
 	return s
 }
 
-// SameDevice meldet, ob zwei Pfade auf demselben Dateisystem liegen. Im Zweifel true.
+// SameDevice reports whether two paths are on the same file system. True when in doubt.
 var SameDevice = func(a, b string) bool {
 	da, errA := deviceOf(a)
 	db, errB := deviceOf(b)
@@ -280,7 +280,7 @@ func deviceOf(path string) (uint64, error) {
 	}
 	sys, ok := st.Sys().(*syscall.Stat_t)
 	if !ok {
-		return 0, errors.New("keine Geräte-ID")
+		return 0, errors.New("no device ID")
 	}
-	return uint64(sys.Dev), nil //nolint:unconvert // Dev ist nicht auf allen Plattformen uint64
+	return uint64(sys.Dev), nil //nolint:unconvert // Dev is not uint64 on all platforms
 }

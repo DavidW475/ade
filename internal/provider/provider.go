@@ -1,6 +1,6 @@
-// Package provider bündelt das Wissen über Modell-Anbieter (doc/architecture.md#2-komponenten):
-// welcher Adapter welchen Anbieter spricht, Modell-Aliase aus der Konfiguration und die
-// Kostenberechnung aus Token-Zahlen.
+// Package provider bundles the knowledge about model providers (doc/architecture.md#2-components):
+// which adapter talks to which provider, model aliases from the configuration and the
+// cost calculation from token counts.
 package provider
 
 import (
@@ -11,13 +11,13 @@ import (
 	"github.com/DavidW475/ade/internal/config"
 )
 
-// Anbieter.
+// Providers.
 const (
 	Anthropic = "anthropic"
 	OpenAI    = "openai"
 )
 
-// ForAdapter liefert den Anbieter, den ein Adapter spricht (leer: keiner, z. B. pty).
+// ForAdapter returns the provider an adapter talks to (empty: none, e.g. pty).
 func ForAdapter(adapter string) string {
 	switch adapter {
 	case "claude":
@@ -28,9 +28,9 @@ func ForAdapter(adapter string) string {
 	return ""
 }
 
-// Usage sind Token-Zahlen eines oder mehrerer API-Aufrufe. Input zählt nur Tokens, die
-// weder aus dem Prompt-Cache gelesen noch in ihn geschrieben wurden (Anthropic-Zählweise;
-// OpenAI zählt gelesene Cache-Tokens in input_tokens mit, das rechnen die Parser heraus).
+// Usage are token counts of one or more API calls. Input only counts tokens that were
+// neither read from nor written to the prompt cache (Anthropic counting; OpenAI includes read
+// cache tokens in input_tokens, the parsers subtract them).
 type Usage struct {
 	Input      int64 `json:"input_tokens"`
 	Output     int64 `json:"output_tokens"`
@@ -38,26 +38,26 @@ type Usage struct {
 	CacheWrite int64 `json:"cache_write_tokens"`
 }
 
-// Add addiert u und v.
+// Add adds u and v.
 func (u Usage) Add(v Usage) Usage {
 	return Usage{u.Input + v.Input, u.Output + v.Output, u.CacheRead + v.CacheRead, u.CacheWrite + v.CacheWrite}
 }
 
-// Sub liefert u - v, nie negativ.
+// Sub returns u - v, never negative.
 func (u Usage) Sub(v Usage) Usage {
 	return Usage{max(u.Input-v.Input, 0), max(u.Output-v.Output, 0), max(u.CacheRead-v.CacheRead, 0), max(u.CacheWrite-v.CacheWrite, 0)}
 }
 
-// Zero meldet, ob keine Tokens gezählt sind.
+// Zero reports whether no tokens are counted.
 func (u Usage) Zero() bool { return u == Usage{} }
 
-// PricesAsOf ist der Stand der eingebauten Preise. Sie sind Schätzwerte; maßgeblich sind die
-// Preisseiten der Anbieter. Abweichungen gehören in pricing in config.yaml.
+// PricesAsOf is the date of the built-in prices. They are estimates; the providers' pricing
+// pages are authoritative. Deviations belong in pricing in config.yaml.
 const PricesAsOf = "2026-11"
 
-// builtinPrices sind Listenpreise in USD je Million Tokens, Schlüssel ist der Anfang der
-// Modell-ID (längster Treffer gilt). Anthropic: Cache lesen 10 %, schreiben 125 % des
-// Eingabepreises; OpenAI: kein Aufpreis fürs Schreiben.
+// builtinPrices are list prices in USD per million tokens, the key is the start of the model
+// ID (longest match wins). Anthropic: cache read 10 %, write 125 % of the input price;
+// OpenAI: no surcharge for writing.
 var builtinPrices = map[string]config.Price{
 	// Anthropic
 	"claude-fable":      anthropic(10, 50),
@@ -88,14 +88,14 @@ func openai(in, cached, out float64) config.Price {
 	return config.Price{Input: in, Output: out, CacheRead: cached, CacheWrite: in}
 }
 
-// Catalog löst Aliase auf und berechnet Kosten.
+// Catalog resolves aliases and computes costs.
 type Catalog struct {
 	models map[string]config.Model
 	prices map[string]config.Price
-	keys   []string // Preis-Schlüssel, längste zuerst
+	keys   []string // price keys, longest first
 }
 
-// NewCatalog erzeugt einen Katalog aus der Konfiguration (nil: nur eingebaute Preise).
+// NewCatalog creates a catalog from the configuration (nil: built-in prices only).
 func NewCatalog(cfg *config.Config) *Catalog {
 	c := &Catalog{models: map[string]config.Model{}, prices: map[string]config.Price{}}
 	for k, v := range builtinPrices {
@@ -121,14 +121,14 @@ func NewCatalog(cfg *config.Config) *Catalog {
 	return c
 }
 
-// Alias ist ein Modell-Alias für die API.
+// Alias is a model alias for the API.
 type Alias struct {
 	Name     string `json:"name"`
 	Provider string `json:"provider"`
 	ID       string `json:"id"`
 }
 
-// Aliases liefert alle Aliase, sortiert nach Name.
+// Aliases returns all aliases, sorted by name.
 func (c *Catalog) Aliases() []Alias {
 	out := make([]Alias, 0, len(c.models))
 	for n, m := range c.models {
@@ -138,8 +138,8 @@ func (c *Catalog) Aliases() []Alias {
 	return out
 }
 
-// Resolve löst einen Alias auf. Ist name kein Alias, liefert es name unverändert mit
-// leerem Anbieter (die CLI kennt das Modell vielleicht selbst).
+// Resolve resolves an alias. If name is not an alias, it returns name unchanged with an
+// empty provider (the CLI may know the model itself).
 func (c *Catalog) Resolve(name string) (id, prov string, alias bool) {
 	if m, ok := c.models[name]; ok {
 		return m.ID, m.Provider, true
@@ -147,10 +147,10 @@ func (c *Catalog) Resolve(name string) (id, prov string, alias bool) {
 	return name, "", false
 }
 
-// Price liefert den Preis eines Modells (längster passender Anfang der ID).
+// Price returns the price of a model (longest matching start of the ID).
 func (c *Catalog) Price(model string) (config.Price, bool) {
 	model = strings.ToLower(strings.TrimSpace(model))
-	// Anbieter-Präfixe wie "anthropic/" oder "openai/" (LiteLLM, OpenRouter) ignorieren.
+	// Ignore provider prefixes like "anthropic/" or "openai/" (LiteLLM, OpenRouter).
 	if i := strings.LastIndexByte(model, '/'); i >= 0 {
 		model = model[i+1:]
 	}
@@ -165,7 +165,7 @@ func (c *Catalog) Price(model string) (config.Price, bool) {
 	return config.Price{}, false
 }
 
-// Cost berechnet die Kosten in USD. priced ist false, wenn der Preis des Modells unbekannt ist.
+// Cost computes the costs in USD. priced is false if the model's price is unknown.
 func (c *Catalog) Cost(model string, u Usage) (usd float64, priced bool) {
 	p, ok := c.Price(model)
 	if !ok {

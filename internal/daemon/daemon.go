@@ -1,4 +1,4 @@
-// Package daemon startet den ADE-Daemon und bietet den Client, mit dem die CLI ihn anspricht.
+// Package daemon starts the ADE daemon and provides the client the CLI uses to talk to it.
 package daemon
 
 import (
@@ -34,13 +34,13 @@ import (
 	"github.com/DavidW475/ade/internal/workspace"
 )
 
-// Run startet den Daemon und blockiert, bis ctx beendet wird.
+// Run starts the daemon and blocks until ctx is done.
 func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logger) error {
 	if err := privateDir(cfg.DataDir, log); err != nil {
 		return err
 	}
 
-	// Ein Daemon pro Datenverzeichnis – auch wenn ein zweiter auf einem anderen Port liefe.
+	// One daemon per data directory – even if a second one would run on another port.
 	lock, err := acquireLock(cfg.LockPath())
 	if err != nil {
 		return err
@@ -74,7 +74,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	approvals := approval.New(approval.Options{
 		Store: st, Timeout: cfg.Approvals.Timeout, Logger: log, Rules: projects.ApprovalConfig,
 		OnGrant: sb.ReloadPolicies,
-		// Lokale Lese-Rollen einer Fabrik arbeiten im Schnappschuss (agent/snapshot.go).
+		// Local read-only roles of a factory work in the snapshot (agent/snapshot.go).
 		Workdir: func(sess *store.Session) string {
 			if sess.ReadOnly {
 				return agent.SnapshotDir(cfg.DataDir, sess.ID)
@@ -85,21 +85,21 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	if err := approvals.Recover(ctx); err != nil {
 		return err
 	}
-	// Läuft vor sb.Close (defer-Reihenfolge): Wartende wecken, bevor die Proxys getrennt werden.
+	// Runs before sb.Close (defer order): wake waiting requests before the proxies are disconnected.
 	defer approvals.Close()
 	sb.SetQuestionHandler(approvals.Question)
 	workspaces.SetSandbox(sb, cfg.Defaults.Sandbox)
-	// Abgleich vor dem ersten Agenten, damit er keinen frisch gestarteten Container stoppt.
+	// Reconcile before the first agent, so it does not stop a freshly started container.
 	rctx, rcancel := context.WithTimeout(ctx, 30*time.Second)
 	if err := sb.Recover(rctx, knownWorkspace(st)); err != nil {
-		log.Info("Sandbox-Abgleich übersprungen", "grund", err)
+		log.Info("sandbox reconciliation skipped", "reason", err)
 	}
 	rcancel()
 	defer func() {
 		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := sb.StopAll(sctx); err != nil {
-			log.Debug("Sandbox-Container stoppen", "err", err)
+			log.Debug("stop sandbox containers", "err", err)
 		}
 	}()
 
@@ -121,7 +121,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	if err := agents.Recover(ctx); err != nil {
 		return err
 	}
-	// Läuft vor workspaces.Close (defer-Reihenfolge): erst Agenten beenden, dann Setups.
+	// Runs before workspaces.Close (defer order): first end agents, then setups.
 	defer agents.Close()
 
 	runs := factory.New(factory.Options{
@@ -131,11 +131,11 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	if err := runs.Recover(ctx); err != nil {
 		return err
 	}
-	// Läuft vor agents.Close (defer-Reihenfolge): Der Runner soll unterbrochene Sessions
-	// nicht gleich wieder fortsetzen.
+	// Runs before agents.Close (defer order): the runner should not resume interrupted
+	// sessions right away.
 	defer runs.Close()
 
-	// Läuft vor runs.Close (defer-Reihenfolge): keine neuen Runs, während der Runner endet.
+	// Runs before runs.Close (defer order): no new runs while the runner ends.
 	triggers := trigger.New(trigger.Options{Store: st, Projects: projects, Runs: runs, Logger: log})
 	triggers.Start()
 	defer triggers.Close()
@@ -161,7 +161,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 				return "", err
 			}
 			if w.Status == store.WorkspaceCreating || w.Status == store.WorkspaceError {
-				return "", apperr.Conflict("Workspace %s hat kein Arbeitsverzeichnis (Status %s)", id, w.Status)
+				return "", apperr.Conflict("workspace %s has no working directory (status %s)", id, w.Status)
 			}
 			return w.Path, nil
 		},
@@ -179,7 +179,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
-		return fmt.Errorf("auf %s lauschen: %w", cfg.Listen, err)
+		return fmt.Errorf("listen on %s: %w", cfg.Listen, err)
 	}
 
 	secret := api.RandomToken()
@@ -206,7 +206,7 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 			Usage:      st,
 			Runs:       runs,
 			Triggers:   triggers,
-			// Wie der Manager: ohne Konfiguration gilt claude.
+			// Like the manager: without configuration claude applies.
 			DefaultAdapter: defaultAdapter(cfg),
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -215,14 +215,14 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
-	log.Info("ADE-Daemon läuft", "listen", cfg.Listen, "url", cfg.BaseURL(), "version", version)
+	log.Info("ADE daemon running", "listen", cfg.Listen, "url", cfg.BaseURL(), "version", version)
 
 	select {
 	case err := <-errc:
 		return err
 	case <-ctx.Done():
 	}
-	log.Info("ADE-Daemon wird beendet")
+	log.Info("ADE daemon stopping")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -234,11 +234,11 @@ func Run(ctx context.Context, cfg *config.Config, version string, log *slog.Logg
 	return nil
 }
 
-// writeSecret schreibt das Secret atomar und nur für den Nutzer lesbar.
+// writeSecret writes the secret atomically and readable only by the user.
 func writeSecret(path, secret string) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".daemon.secret-*")
 	if err != nil {
-		return fmt.Errorf("Daemon-Secret schreiben: %w", err)
+		return fmt.Errorf("write daemon secret: %w", err)
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
 	if err := tmp.Chmod(0o600); err != nil {
@@ -262,8 +262,8 @@ func defaultAdapter(cfg *config.Config) string {
 	return "claude"
 }
 
-// adapterEnv liefert API-Keys aus der Konfiguration an die passenden Adapter. Ohne Eintrag
-// nutzt die CLI ihre eigene Anmeldung (ADR-010). Gilt nur für Agenten ohne Sandbox.
+// adapterEnv passes API keys from the configuration to the matching adapters. Without an
+// entry the CLI uses its own login (ADR-010). Only applies to agents without a sandbox.
 func adapterEnv(cfg *config.Config, log *slog.Logger) func(string) []string {
 	keys := map[string]struct{ provider, env string }{
 		"claude": {"anthropic", "ANTHROPIC_API_KEY"},
@@ -280,26 +280,26 @@ func adapterEnv(cfg *config.Config, log *slog.Logger) func(string) []string {
 		}
 		v, err := p.ResolveAPIKey()
 		if err != nil {
-			log.Warn("API-Key nicht auflösbar, die CLI nutzt ihre eigene Anmeldung", "provider", k.provider, "err", err)
+			log.Warn("API key cannot be resolved, the CLI uses its own login", "provider", k.provider, "err", err)
 			return nil
 		}
 		return []string{k.env + "=" + v}
 	}
 }
 
-// injectedProviders sind die Anbieter mit Secret-Injection über den Egress-Proxy: Variable
-// für die Basis-URL und für den Platzhalter-Key, den die CLI statt des echten Keys sieht.
+// injectedProviders are the providers with secret injection through the egress proxy: variable
+// for the base URL and for the placeholder key the CLI sees instead of the real key.
 var injectedProviders = map[string]struct{ baseURL, key string }{
 	"anthropic": {"ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"},
-	// Codex beachtet OPENAI_BASE_URL nicht; providerAccess gibt die Basis-URL als Argument.
+	// Codex ignores OPENAI_BASE_URL; providerAccess passes the base URL as an argument.
 	"openai": {"OPENAI_BASE_URL", "OPENAI_API_KEY"},
 }
 
-// openAIBaseURL ist die Basis-URL der OpenAI-API über den Egress-Proxy.
+// openAIBaseURL is the base URL of the OpenAI API through the egress proxy.
 var openAIBaseURL = sandbox.ProviderBaseURL(provider.OpenAI) + "/v1"
 
-// providerAccess bestimmt für einen Adapter, ob der Proxy in der Sandbox den Key einfügt
-// (dann misst er auch die Nutzung) und welche Basis-URL die CLI als Argument braucht.
+// providerAccess determines for an adapter whether the proxy inserts the key in the sandbox
+// (then it also measures the usage) and which base URL the CLI needs as an argument.
 func providerAccess(cfg *config.Config) func(string, bool) (*adapter.ProviderAccess, bool) {
 	return func(name string, sandboxed bool) (*adapter.ProviderAccess, bool) {
 		prov := provider.ForAdapter(name)
@@ -319,7 +319,7 @@ func providerAccess(cfg *config.Config) func(string, bool) (*adapter.ProviderAcc
 	}
 }
 
-// proxyUsage holt die Token-Nutzung aus Egress-Events.
+// proxyUsage gets the token usage from egress events.
 func proxyUsage(evs []proxy.Event) []agent.ProxyUsage {
 	var out []agent.ProxyUsage
 	for _, e := range evs {
@@ -335,10 +335,10 @@ func proxyUsage(evs []proxy.Event) []agent.ProxyUsage {
 	return out
 }
 
-// KeyPlaceholder steht im Container statt eines API-Keys; der Proxy ersetzt ihn.
+// KeyPlaceholder is in the container instead of an API key; the proxy replaces it.
 const KeyPlaceholder = "ade-proxy-injects-the-key"
 
-// sandboxSecrets liefert die aufgelösten API-Keys für die Proxys (Secret-Injection).
+// sandboxSecrets returns the resolved API keys for the proxies (secret injection).
 func sandboxSecrets(cfg *config.Config, log *slog.Logger) func() map[string]string {
 	return func() map[string]string {
 		out := map[string]string{}
@@ -349,7 +349,7 @@ func sandboxSecrets(cfg *config.Config, log *slog.Logger) func() map[string]stri
 			}
 			v, err := p.ResolveAPIKey()
 			if err != nil {
-				log.Warn("API-Key nicht auflösbar", "provider", name, "err", err)
+				log.Warn("API key cannot be resolved", "provider", name, "err", err)
 				continue
 			}
 			out[name] = v
@@ -358,9 +358,9 @@ func sandboxSecrets(cfg *config.Config, log *slog.Logger) func() map[string]stri
 	}
 }
 
-// sandboxAdapterEnv liefert die Umgebung für Agenten in der Sandbox: Für jeden Anbieter mit
-// konfiguriertem Key zeigt die Basis-URL auf den Proxy, der Key ist nur ein Platzhalter.
-// Ohne Key nutzt die CLI ihre eigene Anmeldung über die Allowlist (Preset anthropic).
+// sandboxAdapterEnv returns the environment for agents in the sandbox: for every provider with
+// a configured key the base URL points to the proxy, the key is only a placeholder.
+// Without a key the CLI uses its own login through the allowlist (preset anthropic).
 func sandboxAdapterEnv(cfg *config.Config) func(string) []string {
 	return func(string) []string {
 		var env []string
@@ -368,7 +368,7 @@ func sandboxAdapterEnv(cfg *config.Config) func(string) []string {
 			if p, ok := cfg.Providers[name]; ok && p.APIKey != "" {
 				env = append(env, v.baseURL+"="+sandbox.ProviderBaseURL(name), v.key+"="+KeyPlaceholder)
 				if name == "anthropic" {
-					// Telemetrie u. Ä. ginge sonst mit dem Platzhalter direkt an Anthropic.
+					// Telemetry and the like would otherwise go to Anthropic directly with the placeholder.
 					env = append(env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 				}
 			}
@@ -387,18 +387,18 @@ func newSandbox(cfg *config.Config, version string, log *slog.Logger) *sandbox.M
 		if bin, err := sandbox.InstallProxyBinary(exe, filepath.Join(cfg.DataDir, "sandbox")); err == nil {
 			opts.ProxyBinary = bin
 		} else {
-			log.Warn("Egress-Proxy nicht verfügbar – Sandbox-Workspaces lassen sich nicht starten", "err", err)
+			log.Warn("egress proxy not available – sandbox workspaces cannot be started", "err", err)
 		}
 	}
 	return sandbox.New(opts)
 }
 
-// hooks stellt Claude-Sessions den Freigabe-Hook bereit (agent.Hooks): lokal das laufende
-// ade-Binary mit Token je Session, in der Sandbox das gemountete Binary, das über den
-// Egress-Proxy fragt.
+// hooks provides Claude sessions with the approval hook (agent.Hooks): locally the running
+// ade binary with a token per session, in the sandbox the mounted binary that asks through
+// the egress proxy.
 type hooks struct {
 	svc       *approval.Service
-	local     string // Shell-Befehl lokal (leer: kein Hook)
+	local     string // shell command locally (empty: no hook)
 	localURL  string
 	sandboxOK bool
 }
@@ -408,7 +408,7 @@ func newHooks(cfg *config.Config, svc *approval.Service, sandboxOK bool, log *sl
 	if exe, err := os.Executable(); err == nil {
 		h.local = approval.ShellQuote(exe) + " hook pretooluse"
 	} else {
-		log.Warn("Freigabe-Hook für lokale Agenten nicht verfügbar", "err", err)
+		log.Warn("approval hook for local agents not available", "err", err)
 	}
 	return h
 }
@@ -433,7 +433,7 @@ func (h *hooks) Release(sessionID string) {
 	h.svc.CancelSession(context.Background(), sessionID)
 }
 
-// storeEgress speichert Egress-Events eines Proxys.
+// storeEgress stores egress events of a proxy.
 func storeEgress(st *store.Store, log *slog.Logger, ws string, evs []proxy.Event) {
 	out := make([]store.EgressEvent, len(evs))
 	for i, e := range evs {
@@ -446,12 +446,12 @@ func storeEgress(st *store.Store, log *slog.Logger, ws string, evs []proxy.Event
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := st.AppendEgress(ctx, ws, out); err != nil {
-		log.Warn("Egress-Events speichern", "workspace", ws, "err", err)
+		log.Warn("store egress events", "workspace", ws, "err", err)
 	}
 }
 
-// knownWorkspace meldet, ob es einen Workspace gibt (für den Abgleich der Container).
-// Bei Datenbankfehlern gilt er als bekannt, damit nichts versehentlich gelöscht wird.
+// knownWorkspace reports whether a workspace exists (for reconciling the containers).
+// On database errors it counts as known, so nothing is deleted by accident.
 func knownWorkspace(st *store.Store) func(string) bool {
 	return func(id string) bool {
 		_, err := st.GetWorkspace(context.Background(), id)
@@ -459,7 +459,7 @@ func knownWorkspace(st *store.Store) func(string) bool {
 	}
 }
 
-// ideSandbox bindet den Sandbox-Manager an einen Workspace für die IDE.
+// ideSandbox binds the sandbox manager to a workspace for the IDE.
 type ideSandbox struct {
 	sb *sandbox.Manager
 	ws string
@@ -473,8 +473,8 @@ func (s ideSandbox) Signal(ctx context.Context, marker string, sig syscall.Signa
 	return s.sb.Signal(ctx, s.ws, marker, sig)
 }
 
-// HostPort liefert den Port der IDE-Weiterleitung des Proxys (das interne Netz des
-// Agent-Containers veröffentlicht keine Ports).
+// HostPort returns the port of the proxy's IDE forwarding (the agent container's internal
+// network publishes no ports).
 func (s ideSandbox) HostPort(ctx context.Context, _ int) (int, error) {
 	return s.sb.IDEHostPort(ctx, s.ws)
 }
@@ -483,28 +483,28 @@ func (s ideSandbox) WriteFile(ctx context.Context, path string, data []byte) err
 	return s.sb.WriteFile(ctx, s.ws, path, data)
 }
 
-// privateDir legt das Datenverzeichnis an und entzieht Gruppe und anderen den Zugriff,
-// falls es schon mit weiteren Rechten existiert (z. B. von Hand angelegt): Es enthält
-// Daemon-Secret, Datenbank und Logs.
+// privateDir creates the data directory and revokes access for group and others if it
+// already exists with more permissions (e.g. created by hand): it contains the daemon
+// secret, database and logs.
 func privateDir(dir string, log *slog.Logger) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("Datenverzeichnis anlegen: %w", err)
+		return fmt.Errorf("create data directory: %w", err)
 	}
 	fi, err := os.Stat(dir)
 	if err != nil {
-		return fmt.Errorf("Datenverzeichnis prüfen: %w", err)
+		return fmt.Errorf("check data directory: %w", err)
 	}
 	if m := fi.Mode().Perm(); m&0o077 != 0 {
-		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // G302: Verzeichnis braucht das x-Bit
-			return fmt.Errorf("Rechte des Datenverzeichnisses setzen: %w", err)
+		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // G302: a directory needs the x bit
+			return fmt.Errorf("set permissions of the data directory: %w", err)
 		}
-		log.Warn("Datenverzeichnis war für andere lesbar, Rechte auf 0700 gesetzt", "dir", dir, "vorher", fmt.Sprintf("%o", m))
+		log.Warn("data directory was readable by others, permissions set to 0700", "dir", dir, "before", fmt.Sprintf("%o", m))
 	}
 	return nil
 }
 
-// GC entfernt verwaiste Sandbox-Container, ohne dass ein Daemon läuft. Es hält dafür das
-// Lock des Datenverzeichnisses, damit nicht gleichzeitig ein Daemon startet.
+// GC removes orphaned sandbox containers without a running daemon. It holds the data
+// directory's lock for that, so that no daemon starts at the same time.
 func GC(ctx context.Context, cfg *config.Config, version string, dryRun bool, log *slog.Logger) ([]sandbox.Container, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return nil, err

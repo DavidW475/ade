@@ -1,4 +1,4 @@
-// Package config lädt die globale ADE-Konfiguration (~/.config/ade/config.yaml).
+// Package config loads the global ADE configuration (~/.config/ade/config.yaml).
 package config
 
 import (
@@ -16,43 +16,43 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// DefaultListen ist die Adresse, auf der der Daemon ohne Konfiguration lauscht.
+// DefaultListen is the address the daemon listens on without configuration.
 const DefaultListen = "127.0.0.1:7000"
 
-// Config ist die globale Konfiguration des Daemons.
+// Config is the global configuration of the daemon.
 type Config struct {
-	// Listen ist die Adresse des HTTP-Servers. Erlaubt sind nur Loopback-Adressen (ADR-008).
+	// Listen is the address of the HTTP server. Only loopback addresses are allowed (ADR-008).
 	Listen string `yaml:"listen"`
-	// DataDir enthält SQLite-Datenbank, Daemon-Secret und Log.
+	// DataDir contains the SQLite database, daemon secret and log.
 	DataDir string `yaml:"data_dir"`
-	// WorkspacesDir enthält die Workspace-Clones (Linux-Dateisystem, nicht /mnt/*).
+	// WorkspacesDir contains the workspace clones (Linux file system, not /mnt/*).
 	WorkspacesDir string `yaml:"workspaces_dir"`
-	// Providers enthält Anbieter-Konfigurationen (ab M6/M8 genutzt).
+	// Providers contains provider configurations.
 	Providers map[string]Provider `yaml:"providers"`
-	// Defaults sind Voreinstellungen für neue Agent-Sessions.
+	// Defaults are default settings for new agent sessions.
 	Defaults Defaults `yaml:"defaults"`
-	// IDE konfiguriert die Browser-IDE (openvscode-server).
+	// IDE configures the browser IDE (openvscode-server).
 	IDE IDE `yaml:"ide"`
-	// Sandbox konfiguriert die Docker-Sandbox.
+	// Sandbox configures the Docker sandbox.
 	Sandbox Sandbox `yaml:"sandbox"`
-	// Approvals konfiguriert Freigaben.
+	// Approvals configures approvals.
 	Approvals Approvals `yaml:"approvals"`
-	// Models bildet Aliase (z. B. "opus") auf Anbieter und Modell-ID ab (doc/factory.md#4-modelle-und-anbieter).
+	// Models maps aliases (e.g. "opus") to a provider and model ID (doc/factory.md#4-models-and-providers).
 	Models map[string]Model `yaml:"models"`
-	// Pricing ergänzt oder überschreibt die eingebauten Preise; Schlüssel ist eine Modell-ID
-	// oder ihr Anfang (längster Treffer gilt).
+	// Pricing extends or overrides the built-in prices; the key is a model ID or its prefix
+	// (longest match wins).
 	Pricing map[string]Price `yaml:"pricing"`
 }
 
-// Model ist das Ziel eines Modell-Alias.
+// Model is the target of a model alias.
 type Model struct {
-	// Provider ist der Anbieter (anthropic, openai).
+	// Provider is the provider (anthropic, openai).
 	Provider string `yaml:"provider" json:"provider"`
-	// ID ist die Modell-ID beim Anbieter.
+	// ID is the model ID at the provider.
 	ID string `yaml:"id" json:"id"`
 }
 
-// Price sind Preise in USD je Million Tokens.
+// Price are prices in USD per million tokens.
 type Price struct {
 	Input      float64 `yaml:"input" json:"input"`
 	Output     float64 `yaml:"output" json:"output"`
@@ -60,92 +60,92 @@ type Price struct {
 	CacheWrite float64 `yaml:"cache_write" json:"cache_write"`
 }
 
-// KnownProviders sind die Anbieter, die ADE kennt.
+// KnownProviders are the providers ADE knows.
 var KnownProviders = []string{"anthropic", "openai"}
 
-// DefaultApprovalTimeout ist die Wartezeit auf eine Freigabe ohne approvals.timeout.
+// DefaultApprovalTimeout is the waiting time for an approval without approvals.timeout.
 const DefaultApprovalTimeout = 10 * time.Minute
 
-// Approvals konfiguriert Freigaben (doc/architecture.md#43-freigaben).
+// Approvals configures approvals (doc/architecture.md#43-approvals).
 type Approvals struct {
-	// Timeout ist die Wartezeit auf eine Entscheidung im Dashboard; danach gilt die
-	// Anfrage als abgelehnt.
+	// Timeout is the waiting time for a decision in the dashboard; after that the request
+	// counts as denied.
 	Timeout time.Duration `yaml:"timeout"`
 }
 
-// Sandbox konfiguriert die Docker-Sandbox (doc/sandbox.md).
+// Sandbox configures the Docker sandbox (doc/sandbox.md).
 type Sandbox struct {
-	// Image ist das Standard-Image (leer: ghcr.io/davidw475/ade-agent-base passend zur
-	// ADE-Version). Projekte können in .ade/sandbox.yaml ein eigenes nennen.
+	// Image is the default image (empty: ghcr.io/davidw475/ade-agent-base matching the ADE
+	// version). Projects can name their own in .ade/sandbox.yaml.
 	Image string `yaml:"image"`
-	// Docker ist das docker-Binary (leer: docker im PATH), auch podman (die Laufzeit erkennt
-	// ADE selbst, doc/sandbox.md#6-container-laufzeiten).
+	// Docker is the docker binary (empty: docker in PATH), also podman (ADE detects the
+	// runtime itself, doc/sandbox.md#6-container-runtimes).
 	Docker string `yaml:"docker"`
 }
 
-// DefaultIDEIdleTimeout ist die Zeit ohne offenen IDE-Tab, nach der ADE eine IDE stoppt.
+// DefaultIDEIdleTimeout is the time without an open IDE tab after which ADE stops an IDE.
 const DefaultIDEIdleTimeout = 15 * time.Minute
 
-// IDE konfiguriert die Browser-IDE.
+// IDE configures the browser IDE.
 type IDE struct {
-	// Binary ist der Pfad zu einem eigenen openvscode-server. Leer heißt: ADE lädt die
-	// festgelegte Version bei Bedarf herunter und prüft ihre Prüfsumme.
+	// Binary is the path to an own openvscode-server. Empty means: ADE downloads the pinned
+	// version on demand and verifies its checksum.
 	Binary string `yaml:"binary"`
-	// IdleTimeout ist die Zeit ohne Verbindung, nach der eine IDE gestoppt wird.
+	// IdleTimeout is the time without a connection after which an IDE is stopped.
 	IdleTimeout time.Duration `yaml:"idle_timeout"`
 }
 
-// Provider beschreibt den Zugang zu einem Modell-Anbieter.
+// Provider describes the access to a model provider.
 type Provider struct {
-	// APIKey ist eine Referenz wie "env:ANTHROPIC_API_KEY", nie der Klartext-Key selbst.
+	// APIKey is a reference like "env:ANTHROPIC_API_KEY", never the plain-text key itself.
 	APIKey string `yaml:"api_key"`
 }
 
-// ResolveAPIKey löst die API-Key-Referenz auf (siehe Resolve).
+// ResolveAPIKey resolves the API key reference (see Resolve).
 func (p Provider) ResolveAPIKey() (string, error) { return Resolve(p.APIKey) }
 
-// Resolve löst einen Konfigurationswert auf. Werte der Form "env:VAR" werden durch den Inhalt
-// der Umgebungsvariable VAR ersetzt; eine leere oder fehlende Variable ist ein Fehler.
-// Andere Werte werden unverändert zurückgegeben.
+// Resolve resolves a configuration value. Values of the form "env:VAR" are replaced by the
+// contents of the environment variable VAR; an empty or missing variable is an error.
+// Other values are returned unchanged.
 func Resolve(v string) (string, error) {
 	name, ok := strings.CutPrefix(v, "env:")
 	if !ok {
 		return v, nil
 	}
 	if name == "" {
-		return "", errors.New(`Referenz "env:" ohne Variablennamen`)
+		return "", errors.New(`reference "env:" without a variable name`)
 	}
 	val := os.Getenv(name)
 	if val == "" {
-		return "", fmt.Errorf("Umgebungsvariable %s ist nicht gesetzt", name)
+		return "", fmt.Errorf("environment variable %s is not set", name)
 	}
 	return val, nil
 }
 
-// Defaults sind Voreinstellungen für neue Agent-Sessions.
+// Defaults are default settings for new agent sessions.
 type Defaults struct {
 	Adapter string `yaml:"adapter"`
 	Sandbox bool   `yaml:"sandbox"`
 }
 
-// DefaultPath liefert den Standardpfad der Konfigurationsdatei
-// ($ADE_CONFIG, sonst $XDG_CONFIG_HOME/ade/config.yaml bzw. ~/.config/ade/config.yaml).
+// DefaultPath returns the default path of the configuration file
+// ($ADE_CONFIG, otherwise $XDG_CONFIG_HOME/ade/config.yaml or ~/.config/ade/config.yaml).
 func DefaultPath() (string, error) {
 	if p := os.Getenv("ADE_CONFIG"); p != "" {
 		return p, nil
 	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("Konfigurationsverzeichnis ermitteln: %w", err)
+		return "", fmt.Errorf("determine config directory: %w", err)
 	}
 	return filepath.Join(dir, "ade", "config.yaml"), nil
 }
 
-// Default liefert die Konfiguration, die ohne config.yaml gilt.
+// Default returns the configuration that applies without config.yaml.
 func Default() (*Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("Home-Verzeichnis ermitteln: %w", err)
+		return nil, fmt.Errorf("determine home directory: %w", err)
 	}
 	dataHome := os.Getenv("XDG_DATA_HOME")
 	if dataHome == "" {
@@ -164,8 +164,8 @@ func Default() (*Config, error) {
 	}, nil
 }
 
-// Load liest die Konfiguration aus path. Fehlt die Datei, gelten die Defaults.
-// Angegebene Werte überschreiben die Defaults; unbekannte Schlüssel sind ein Fehler.
+// Load reads the configuration from path. If the file is missing, the defaults apply.
+// Given values override the defaults; unknown keys are an error.
 func Load(path string) (*Config, error) {
 	cfg, err := Default()
 	if err != nil {
@@ -176,7 +176,7 @@ func Load(path string) (*Config, error) {
 	case errors.Is(err, os.ErrNotExist):
 		return cfg, cfg.validate()
 	case err != nil:
-		return nil, fmt.Errorf("Konfiguration lesen: %w", err)
+		return nil, fmt.Errorf("read configuration: %w", err)
 	}
 
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -204,30 +204,30 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// DBPath ist der Pfad der SQLite-Datenbank.
+// DBPath is the path of the SQLite database.
 func (c *Config) DBPath() string { return filepath.Join(c.DataDir, "ade.db") }
 
-// LockPath ist der Pfad der Lock-Datei, die einen zweiten Daemon auf demselben
-// Datenverzeichnis verhindert. Sie enthält die PID des laufenden Daemons.
+// LockPath is the path of the lock file that prevents a second daemon on the same data
+// directory. It contains the PID of the running daemon.
 func (c *Config) LockPath() string { return filepath.Join(c.DataDir, "daemon.lock") }
 
-// SecretPath ist der Pfad des Daemon-Secrets, mit dem sich die CLI beim Daemon ausweist.
+// SecretPath is the path of the daemon secret the CLI uses to authenticate with the daemon.
 func (c *Config) SecretPath() string { return filepath.Join(c.DataDir, "daemon.secret") }
 
-// IDEDir enthält die heruntergeladene IDE, ihre Erweiterungen und die Daten je Workspace.
+// IDEDir contains the downloaded IDE, its extensions and the data per workspace.
 func (c *Config) IDEDir() string { return filepath.Join(c.DataDir, "ide") }
 
-// LogPath ist der Pfad des Daemon-Logs, wenn der Daemon über `ade start` gestartet wurde.
+// LogPath is the path of the daemon log when the daemon was started via `ade start`.
 func (c *Config) LogPath() string { return filepath.Join(c.DataDir, "daemon.log") }
 
-// Port liefert den Port aus Listen.
+// Port returns the port from Listen.
 func (c *Config) Port() string {
 	_, port, _ := net.SplitHostPort(c.Listen)
 	return port
 }
 
-// BaseURL ist die URL, unter der das Dashboard im Browser erreichbar ist.
-// Unter WSL leitet Windows `localhost` an die WSL weiter.
+// BaseURL is the URL at which the dashboard is reachable in the browser.
+// Under WSL, Windows forwards `localhost` to WSL.
 func (c *Config) BaseURL() string { return "http://localhost:" + c.Port() }
 
 func (c *Config) validate() error {
@@ -236,56 +236,56 @@ func (c *Config) validate() error {
 		return fmt.Errorf("listen %q: %w", c.Listen, err)
 	}
 	if port == "" || port == "0" {
-		return fmt.Errorf("listen %q: fester Port erforderlich", c.Listen)
+		return fmt.Errorf("listen %q: fixed port required", c.Listen)
 	}
 	if host != "localhost" {
 		ip := net.ParseIP(host)
 		if ip == nil || !ip.IsLoopback() {
-			return fmt.Errorf("listen %q: nur Loopback-Adressen sind erlaubt (z. B. 127.0.0.1)", c.Listen)
+			return fmt.Errorf("listen %q: only loopback addresses are allowed (e.g. 127.0.0.1)", c.Listen)
 		}
 	}
 	if c.DataDir == "" || !filepath.IsAbs(c.DataDir) {
-		return fmt.Errorf("data_dir %q: absoluter Pfad erforderlich", c.DataDir)
+		return fmt.Errorf("data_dir %q: absolute path required", c.DataDir)
 	}
 	if c.WorkspacesDir == "" || !filepath.IsAbs(c.WorkspacesDir) {
-		return fmt.Errorf("workspaces_dir %q: absoluter Pfad erforderlich", c.WorkspacesDir)
+		return fmt.Errorf("workspaces_dir %q: absolute path required", c.WorkspacesDir)
 	}
 	if c.IDE.Binary != "" && !filepath.IsAbs(c.IDE.Binary) {
-		return fmt.Errorf("ide.binary %q: absoluter Pfad erforderlich", c.IDE.Binary)
+		return fmt.Errorf("ide.binary %q: absolute path required", c.IDE.Binary)
 	}
 	if strings.HasPrefix(c.Sandbox.Image, "-") || strings.ContainsAny(c.Sandbox.Image, " \t\n") {
-		return fmt.Errorf("sandbox.image %q: ungültiger Image-Name", c.Sandbox.Image)
+		return fmt.Errorf("sandbox.image %q: invalid image name", c.Sandbox.Image)
 	}
 	if c.IDE.IdleTimeout < time.Minute {
-		return fmt.Errorf("ide.idle_timeout %s: mindestens 1m", c.IDE.IdleTimeout)
+		return fmt.Errorf("ide.idle_timeout %s: at least 1m", c.IDE.IdleTimeout)
 	}
 	if t := c.Approvals.Timeout; t < 10*time.Second || t > 2*time.Hour {
-		return fmt.Errorf("approvals.timeout %s: zwischen 10s und 2h", t)
+		return fmt.Errorf("approvals.timeout %s: between 10s and 2h", t)
 	}
 	for name, m := range c.Models {
 		if !validName(name) {
-			return fmt.Errorf("models: ungültiger Alias %q (Buchstaben, Ziffern, . _ -)", name)
+			return fmt.Errorf("models: invalid alias %q (letters, digits, . _ -)", name)
 		}
 		if !slices.Contains(KnownProviders, m.Provider) {
-			return fmt.Errorf("models.%s.provider %q: unbekannt (erlaubt: %s)", name, m.Provider, strings.Join(KnownProviders, ", "))
+			return fmt.Errorf("models.%s.provider %q: unknown (allowed: %s)", name, m.Provider, strings.Join(KnownProviders, ", "))
 		}
 		if !validName(m.ID) {
-			return fmt.Errorf("models.%s.id %q: ungültige Modell-ID", name, m.ID)
+			return fmt.Errorf("models.%s.id %q: invalid model ID", name, m.ID)
 		}
 	}
 	for id, p := range c.Pricing {
 		if !validName(id) {
-			return fmt.Errorf("pricing: ungültige Modell-ID %q", id)
+			return fmt.Errorf("pricing: invalid model ID %q", id)
 		}
 		if p.Input < 0 || p.Output < 0 || p.CacheRead < 0 || p.CacheWrite < 0 {
-			return fmt.Errorf("pricing.%s: Preise dürfen nicht negativ sein", id)
+			return fmt.Errorf("pricing.%s: prices must not be negative", id)
 		}
 	}
 	return nil
 }
 
-// validName prüft Aliase und Modell-IDs: nicht leer, kein führendes "-", nur Buchstaben,
-// Ziffern und . _ - : / @ (z. B. "claude-opus-5-5", "gpt-5.3-codex", "openai/gpt-5").
+// validName checks aliases and model IDs: not empty, no leading "-", only letters,
+// digits and . _ - : / @ (e.g. "claude-opus-5-5", "gpt-5.3-codex", "openai/gpt-5").
 func validName(s string) bool {
 	if s == "" || len(s) > 200 || s[0] == '-' {
 		return false
@@ -307,7 +307,7 @@ func expandHome(p string) (string, error) {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("Home-Verzeichnis ermitteln: %w", err)
+		return "", fmt.Errorf("determine home directory: %w", err)
 	}
 	return filepath.Join(home, strings.TrimPrefix(p, "~")), nil
 }

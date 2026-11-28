@@ -18,7 +18,7 @@ func TestCost(t *testing.T) {
 		want  float64
 		ok    bool
 	}{
-		// Überschrieben (längster Treffer schlägt "claude-sonnet")
+		// overridden (longest match beats "claude-sonnet")
 		{"claude-sonnet-4-5-20250929", Usage{Input: 1e6, Output: 1e6, CacheRead: 1e6, CacheWrite: 1e6}, 7.5, true},
 		{"claude-sonnet-4-6", Usage{Input: 1e6}, 3, true},
 		{"claude-opus-4-1", Usage{Output: 1e6}, 75, true},

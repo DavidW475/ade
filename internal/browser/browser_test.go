@@ -62,6 +62,6 @@ func TestOpenIgnoresExplorerExitCode(t *testing.T) {
 	}
 	runFn := func(string, ...string) error { return exec.Command("false").Run() }
 	if err := open("http://x", candidates(true), look, runFn); err != nil {
-		t.Fatalf("explorer.exe-Exit-Code wurde nicht ignoriert: %v", err)
+		t.Fatalf("explorer.exe exit code was not ignored: %v", err)
 	}
 }
