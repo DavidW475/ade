@@ -1,9 +1,9 @@
 package sandbox
 
-// Container-Laufzeiten (doc/sandbox.md, Abschnitt 6): ADE spricht immer die Docker-CLI-Syntax
-// (ADR-014), dahinter kann Docker (rootful oder rootless) oder Podman stehen. Die Laufzeit
-// bestimmt, mit welcher UID Prozesse im Container laufen, damit Dateien im Workspace auf dem
-// Host dem Nutzer gehören, und welche Optionen und Ressourcen-Grenzen verfügbar sind.
+// Container runtimes (doc/sandbox.md, section 6): ADE always speaks the Docker CLI syntax
+// (ADR-014); behind it can be Docker (rootful or rootless) or Podman. The runtime determines
+// with which UID processes run in the container, so that files in the workspace belong to the
+// user on the host, and which options and resource limits are available.
 
 import (
 	"encoding/json"
@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-// Arten von Container-Laufzeiten.
+// Kinds of container runtimes.
 const (
 	RuntimeDocker         = "docker"
 	RuntimeDockerRootless = "docker-rootless"
@@ -22,19 +22,19 @@ const (
 	RuntimePodmanRootful  = "podman-rootful"
 )
 
-// Runtime beschreibt die Container-Laufzeit hinter der Docker-CLI.
+// Runtime describes the container runtime behind the Docker CLI.
 type Runtime struct {
-	// Kind ist eine der Runtime*-Konstanten.
+	// Kind is one of the Runtime* constants.
 	Kind    string `json:"kind"`
 	Version string `json:"version"`
-	// Memory, CPU und PIDs melden, ob die Laufzeit die jeweilige Grenze durchsetzen kann
-	// (cgroup-Controller vorhanden bzw. an den Nutzer delegiert).
+	// Memory, CPU and PIDs report whether the runtime can enforce the respective limit
+	// (cgroup controller present or delegated to the user).
 	Memory bool `json:"memory"`
 	CPU    bool `json:"cpu"`
 	PIDs   bool `json:"pids"`
 }
 
-// Name ist die Bezeichnung der Laufzeit für Meldungen.
+// Name is the runtime's label for messages.
 func (r Runtime) Name() string {
 	switch r.Kind {
 	case RuntimeDockerRootless:
@@ -47,16 +47,16 @@ func (r Runtime) Name() string {
 	return "Docker"
 }
 
-// Podman meldet eine Podman-Laufzeit.
+// Podman reports a Podman runtime.
 func (r Runtime) Podman() bool { return r.Kind == RuntimePodman || r.Kind == RuntimePodmanRootful }
 
-// RootInContainer meldet, ob Prozesse im Container als root laufen müssen, damit ihre Dateien
-// auf dem Host dem Nutzer gehören: Unter rootless Docker ist root im Container der Nutzer auf
-// dem Host, jede andere UID landet in dessen subuid-Bereich. Ohne Capabilities hat dieser
-// root keine Rechte über die des Nutzers hinaus.
+// RootInContainer reports whether processes in the container must run as root so that their
+// files belong to the user on the host: under rootless Docker, root in the container is the
+// user on the host, any other UID ends up in their subuid range. Without capabilities this
+// root has no rights beyond the user's.
 func (r Runtime) RootInContainer() bool { return r.Kind == RuntimeDockerRootless }
 
-// dockerInfo sind die Felder von docker info, die ADE braucht.
+// dockerInfo are the fields of docker info that ADE needs.
 type dockerInfo struct {
 	ServerVersion   string
 	SecurityOptions []string
@@ -66,7 +66,7 @@ type dockerInfo struct {
 	ServerErrors    []string
 }
 
-// podmanInfo sind die Felder von podman info.
+// podmanInfo are the fields of podman info.
 type podmanInfo struct {
 	Host struct {
 		Security struct {
@@ -80,24 +80,24 @@ type podmanInfo struct {
 	} `json:"version"`
 }
 
-// ParseInfo liest die Ausgabe von „docker info --format '{{json .}}'“ bzw. derselben
-// Anfrage an podman (auch über einen docker-Shim von Podman).
+// ParseInfo reads the output of “docker info --format '{{json .}}'” or the same request to
+// podman (also through a docker shim of Podman).
 func ParseInfo(data []byte) (Runtime, error) {
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(data, &keys); err != nil {
-		return Runtime{}, fmt.Errorf("Ausgabe von info lesen: %w", err)
+		return Runtime{}, fmt.Errorf("read output of info: %w", err)
 	}
 	if _, ok := keys["host"]; ok {
 		var p podmanInfo
 		if err := json.Unmarshal(data, &p); err != nil {
-			return Runtime{}, fmt.Errorf("Ausgabe von podman info lesen: %w", err)
+			return Runtime{}, fmt.Errorf("read output of podman info: %w", err)
 		}
 		r := Runtime{Kind: RuntimePodmanRootful, Version: p.Version.Version}
 		if p.Host.Security.Rootless {
 			r.Kind = RuntimePodman
 		}
 		if p.Host.CgroupVersion == "v1" && !p.Host.Security.Rootless {
-			// cgroups v1 meldet keine Controller-Liste; rootful verwaltet Podman alle.
+			// cgroups v1 reports no controller list; rootful Podman manages all of them.
 			r.Memory, r.CPU, r.PIDs = true, true, true
 		} else {
 			r.Memory = slices.Contains(p.Host.CgroupControllers, "memory")
@@ -108,12 +108,12 @@ func ParseInfo(data []byte) (Runtime, error) {
 	}
 	var d dockerInfo
 	if err := json.Unmarshal(data, &d); err != nil {
-		return Runtime{}, fmt.Errorf("Ausgabe von docker info lesen: %w", err)
+		return Runtime{}, fmt.Errorf("read output of docker info: %w", err)
 	}
 	if d.ServerVersion == "" {
 		msg := strings.Join(d.ServerErrors, "; ")
 		if msg == "" {
-			msg = "keine Server-Version"
+			msg = "no server version"
 		}
 		return Runtime{}, errors.New(msg)
 	}
@@ -126,7 +126,7 @@ func ParseInfo(data []byte) (Runtime, error) {
 	return r, nil
 }
 
-// user ist die UID:GID für Prozesse in den Containern (siehe RootInContainer).
+// user is the UID:GID for processes in the containers (see RootInContainer).
 func (m *Manager) user() string {
 	if m.runtime().RootInContainer() {
 		return "0:0"
@@ -134,17 +134,17 @@ func (m *Manager) user() string {
 	return strconv.Itoa(m.opts.UID) + ":" + strconv.Itoa(m.opts.GID)
 }
 
-// userArgs sind die Optionen für docker create, die Nutzer und UID-Abbildung festlegen.
+// userArgs are the options for docker create that set the user and the UID mapping.
 func (m *Manager) userArgs() []string {
 	args := []string{"--user", m.user()}
 	if m.runtime().Kind == RuntimePodman {
-		// Die UID des Nutzers auf dem Host ist im Container dieselbe UID.
+		// The user's UID on the host is the same UID in the container.
 		args = append(args, "--userns", "keep-id")
 	}
 	return args
 }
 
-// runtime liefert die zuletzt erkannte Laufzeit (vor der ersten Erkennung: Docker rootful).
+// runtime returns the most recently detected runtime (before the first detection: Docker rootful).
 func (m *Manager) runtime() Runtime {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -154,9 +154,9 @@ func (m *Manager) runtime() Runtime {
 	return Runtime{Kind: RuntimeDocker, Memory: true, CPU: true, PIDs: true}
 }
 
-// checkResources prüft, ob die Laufzeit Speicher, CPU und Prozesse begrenzen kann. Agent- und
-// Proxy-Container haben immer Grenzen (Voreinstellungen bzw. feste Werte); fehlt ein
-// cgroup-Controller, verwirft Docker sie teils nur mit Warnung, deshalb lieber gleich abbrechen.
+// checkResources checks whether the runtime can limit memory, CPU and processes. Agent and
+// proxy containers always have limits (defaults or fixed values); if a cgroup controller is
+// missing, Docker sometimes drops them with only a warning, so better abort right away.
 func (m *Manager) checkResources() error {
 	rt := m.runtime()
 	var missing []string
@@ -171,13 +171,13 @@ func (m *Manager) checkResources() error {
 	if len(missing) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%s kann die Ressourcen-Grenzen der Sandbox nicht durchsetzen, es fehlt der cgroup-Controller %s "+
-		"(rootless muss systemd ihn an den Nutzer delegieren, siehe doc/sandbox.md#6-container-laufzeiten)",
+	return fmt.Errorf("%s cannot enforce the sandbox's resource limits, the cgroup controller %s is missing "+
+		"(rootless, systemd must delegate it to the user, see doc/sandbox.md#6-container-runtimes)",
 		rt.Name(), strings.Join(missing, ", "))
 }
 
-// egressNetworkOpts sind die Optionen des gemeinsamen Egress-Netzes. Podman kennt die
-// Docker-Option gegen Verkehr zwischen Containern nicht (Einschränkung, doc/sandbox.md).
+// egressNetworkOpts are the options of the shared egress network. Podman does not know the
+// Docker option against traffic between containers (limitation, doc/sandbox.md).
 func (m *Manager) egressNetworkOpts() []string {
 	if m.runtime().Podman() {
 		return nil
@@ -185,10 +185,10 @@ func (m *Manager) egressNetworkOpts() []string {
 	return []string{"--opt", "com.docker.network.bridge.enable_icc=false"}
 }
 
-// runtimeEnv sind Variablen, die alle Container wegen der Laufzeit brauchen.
+// runtimeEnv are variables all containers need because of the runtime.
 func (m *Manager) runtimeEnv() []string {
 	if m.runtime().RootInContainer() {
-		// Claude Code verweigert bypassPermissions als root außerhalb einer Sandbox.
+		// Claude Code refuses bypassPermissions as root outside a sandbox.
 		return []string{"IS_SANDBOX=1"}
 	}
 	return nil

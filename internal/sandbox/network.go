@@ -1,15 +1,15 @@
 package sandbox
 
-// Netz und Egress-Proxy eines Workspaces (doc/sandbox.md, Abschnitt 1 und 3):
+// Network and egress proxy of a workspace (doc/sandbox.md, sections 1 and 3):
 //
-//	ade-ws-<id>    Docker-Netz mit --internal: keine Route nach draußen
-//	ade-ws-<id>    Agent-Container, nur in diesem Netz (Alias agent)
-//	ade-proxy-<id> Proxy-Container (ade proxy), in ade-egress und ade-ws-<id> (Alias proxy)
-//	ade-egress     gemeinsames Netz aller Proxys mit Internet, ohne Verkehr zwischen Containern
+//	ade-ws-<id>    Docker network with --internal: no route to the outside
+//	ade-ws-<id>    agent container, only in this network (alias agent)
+//	ade-proxy-<id> proxy container (ade proxy), in ade-egress and ade-ws-<id> (alias proxy)
+//	ade-egress     shared network of all proxies with internet, without traffic between containers
 //
-// Docker veröffentlicht Ports von Containern in internen Netzen nicht. Der Daemon erreicht
-// deshalb Steuer-API und IDE über Ports des Proxy-Containers auf 127.0.0.1; der Proxy leitet
-// die IDE an agent:3000 weiter.
+// Docker does not publish ports of containers in internal networks. The daemon therefore
+// reaches the control API and the IDE through ports of the proxy container on 127.0.0.1; the
+// proxy forwards the IDE to agent:3000.
 
 import (
 	"bytes"
@@ -33,40 +33,40 @@ import (
 	"github.com/DavidW475/ade/internal/proxy"
 )
 
-// Namen und Werte des Sandbox-Netzes.
+// Names and values of the sandbox network.
 const (
 	EgressNetwork = "ade-egress"
-	// ProxyAlias ist der Name des Proxys im Workspace-Netz.
+	// ProxyAlias is the name of the proxy in the workspace network.
 	ProxyAlias = "proxy"
-	// AgentAlias ist der Name des Agent-Containers im Workspace-Netz.
+	// AgentAlias is the name of the agent container in the workspace network.
 	AgentAlias = "agent"
-	// NetVersion kennzeichnet den Aufbau der Container (proxy-1: Netz aus M6, proxy-2: dazu
-	// das ade-Binary für den Freigabe-Hook, M7); ältere werden beim nächsten Start neu angelegt.
+	// NetVersion marks the layout of the containers (proxy-1: network from M6, proxy-2: plus
+	// the ade binary for the approval hook, M7); older ones are recreated on the next start.
 	NetVersion = "proxy-2"
-	// ProxyBinary ist der Pfad des ade-Binarys im Proxy- und im Agent-Container.
+	// ProxyBinary is the path of the ade binary in the proxy and the agent container.
 	ProxyBinary = "/opt/ade/ade"
-	// noDNS ist der DNS-Server des Agent-Containers für externe Namen: eine Adresse aus
-	// TEST-NET-1, die im internen Netz nicht erreichbar ist. Container-Namen (proxy) löst
-	// Docker's eingebetteter DNS weiter auf; externe Namen löst nur der Proxy auf (#57).
+	// noDNS is the agent container's DNS server for external names: an address from
+	// TEST-NET-1 that is not reachable in the internal network. Docker's embedded DNS still
+	// resolves container names (proxy); only the proxy resolves external names (#57).
 	noDNS = "192.0.2.1"
 )
 
-// ProxyURL ist die Adresse des Proxys aus Sicht des Agent-Containers.
+// ProxyURL is the proxy's address from the agent container's point of view.
 var ProxyURL = "http://" + ProxyAlias + ":" + strconv.Itoa(proxy.Port)
 
-// ProviderBaseURL ist die Basis-URL der Secret-Injection für einen Anbieter.
+// ProviderBaseURL is the base URL of the secret injection for a provider.
 func ProviderBaseURL(provider string) string { return ProxyURL + "/p/" + provider }
 
-// NetworkName ist der Name des internen Netzes eines Workspaces.
+// NetworkName is the name of a workspace's internal network.
 func NetworkName(workspace string) string { return "ade-ws-" + workspace }
 
-// ProxyName ist der Name des Proxy-Containers eines Workspaces.
+// ProxyName is the name of a workspace's proxy container.
 func ProxyName(workspace string) string { return "ade-proxy-" + workspace }
 
-// proxyEnv sind die Proxy-Variablen im Agent-Container (Bequemlichkeit – erzwungen wird die
-// Isolation durch das interne Netz).
+// proxyEnv are the proxy variables in the agent container (a convenience – the isolation is
+// enforced by the internal network).
 func proxyEnv() []string {
-	// proxy selbst direkt ansprechen (Basis-URLs der Secret-Injection).
+	// address the proxy itself directly (base URLs of the secret injection).
 	noProxy := "localhost,127.0.0.1,::1," + ProxyAlias
 	return []string{
 		"HTTP_PROXY=" + ProxyURL, "HTTPS_PROXY=" + ProxyURL, "http_proxy=" + ProxyURL, "https_proxy=" + ProxyURL,
@@ -74,8 +74,8 @@ func proxyEnv() []string {
 	}
 }
 
-// ProxyCreateArgs liefert die Argumente für docker create des Proxy-Containers (für Tests
-// exportiert). Das Token kommt über die Umgebung der CLI, nicht über die Argumente.
+// ProxyCreateArgs returns the arguments for docker create of the proxy container (exported
+// for tests). The token comes through the CLI's environment, not through the arguments.
 func (m *Manager) ProxyCreateArgs(workspace string) []string {
 	args := []string{
 		"container", "create",
@@ -89,8 +89,8 @@ func (m *Manager) ProxyCreateArgs(workspace string) []string {
 		"--hostname", ProxyAlias,
 		"--network", EgressNetwork,
 	}
-	// Gleiche UID-Abbildung wie der Agent-Container: das gemountete Binary gehört dem Nutzer
-	// und ist nur für ihn lesbar.
+	// Same UID mapping as the agent container: the mounted binary belongs to the user and is
+	// only readable by them.
 	args = append(args, m.userArgs()...)
 	return append(args,
 		"--cap-drop", "ALL",
@@ -114,41 +114,41 @@ func (m *Manager) ProxyCreateArgs(workspace string) []string {
 	)
 }
 
-// ensureNetworks legt das Egress-Netz und das interne Netz des Workspaces an, falls nötig.
-// created meldet ein neu angelegtes Workspace-Netz.
+// ensureNetworks creates the egress network and the workspace's internal network if needed.
+// created reports a newly created workspace network.
 func (m *Manager) ensureNetworks(ctx context.Context, workspace string) (created bool, err error) {
 	if _, err := m.run(ctx, nil, "network", "inspect", "--format", "{{.Name}}", EgressNetwork); err != nil {
 		if !isNoSuch(err) {
-			return false, fmt.Errorf("Egress-Netz prüfen: %w", err)
+			return false, fmt.Errorf("check egress network: %w", err)
 		}
 		args := append([]string{"network", "create", "--driver", "bridge", "--label", LabelManaged + "=true"}, m.egressNetworkOpts()...)
 		_, err := m.run(ctx, nil, append(args, EgressNetwork)...)
 		if err != nil && !strings.Contains(err.Error(), "already exists") {
 			if strings.Contains(err.Error(), "bridge-nf-call-iptables") {
-				// rootless Docker braucht das Modul für enable_icc=false.
-				return false, fmt.Errorf("Egress-Netz anlegen: Kernelmodul br_netfilter fehlt (sudo modprobe br_netfilter, "+
-					"siehe doc/sandbox.md#6-container-laufzeiten): %w", err)
+				// rootless Docker needs the module for enable_icc=false.
+				return false, fmt.Errorf("create egress network: kernel module br_netfilter missing (sudo modprobe br_netfilter, "+
+					"see doc/sandbox.md#6-container-runtimes): %w", err)
 			}
-			return false, fmt.Errorf("Egress-Netz anlegen: %w", err)
+			return false, fmt.Errorf("create egress network: %w", err)
 		}
 	}
 	out, err := m.run(ctx, nil, "network", "inspect", "--format", `{{.Internal}} {{index .Labels "`+LabelDataDir+`"}}`, NetworkName(workspace))
 	if err == nil {
 		internal, dataDir, _ := strings.Cut(strings.TrimSpace(string(out)), " ")
 		if internal != "true" || dataDir != m.opts.DataDir {
-			return false, fmt.Errorf("Netz %s ist nicht das interne Netz dieser ADE-Instanz", NetworkName(workspace))
+			return false, fmt.Errorf("network %s is not the internal network of this ADE instance", NetworkName(workspace))
 		}
 		return false, nil
 	}
 	if !isNoSuch(err) {
-		return false, fmt.Errorf("Workspace-Netz prüfen: %w", err)
+		return false, fmt.Errorf("check workspace network: %w", err)
 	}
 	if _, err := m.run(ctx, nil, "network", "create", "--driver", "bridge", "--internal",
 		"--label", LabelManaged+"=true",
 		"--label", LabelWorkspace+"="+workspace,
 		"--label", LabelDataDir+"="+m.opts.DataDir,
 		NetworkName(workspace)); err != nil {
-		return false, fmt.Errorf("Workspace-Netz anlegen: %w", err)
+		return false, fmt.Errorf("create workspace network: %w", err)
 	}
 	return true, nil
 }
@@ -162,7 +162,7 @@ func isNoSuch(err error) bool {
 	return strings.Contains(s, "no such") || strings.Contains(s, "not found")
 }
 
-// getProxy liefert den Proxy-Container eines Workspaces oder nil.
+// getProxy returns a workspace's proxy container or nil.
 func (m *Manager) getProxy(ctx context.Context, workspace string) (*Container, error) {
 	cs, err := m.inspect(ctx, ProxyName(workspace))
 	if err != nil || len(cs) == 0 {
@@ -170,15 +170,15 @@ func (m *Manager) getProxy(ctx context.Context, workspace string) (*Container, e
 	}
 	c := cs[0]
 	if c.DataDir != m.opts.DataDir || c.Workspace != workspace || c.Role != RoleProxy {
-		return nil, fmt.Errorf("Container %s gehört nicht zu dieser ADE-Instanz", c.Name)
+		return nil, fmt.Errorf("container %s does not belong to this ADE instance", c.Name)
 	}
 	return &c, nil
 }
 
-// ensureProxy legt den Proxy-Container an (falls nötig) und startet ihn.
+// ensureProxy creates the proxy container (if needed) and starts it.
 func (m *Manager) ensureProxy(ctx context.Context, workspace string, recreate bool) (*Container, error) {
 	if m.opts.ProxyBinary == "" {
-		return nil, errors.New("kein ade-Binary für den Egress-Proxy konfiguriert")
+		return nil, errors.New("no ade binary configured for the egress proxy")
 	}
 	p, err := m.getProxy(ctx, workspace)
 	if err != nil {
@@ -186,13 +186,13 @@ func (m *Manager) ensureProxy(ctx context.Context, workspace string, recreate bo
 	}
 	if p != nil && (recreate || p.Net != NetVersion || p.Binary != m.opts.ProxyBinary) {
 		if _, err := m.run(ctx, nil, "container", "rm", "--force", "--", p.ID); err != nil {
-			return nil, fmt.Errorf("Proxy-Container ersetzen: %w", err)
+			return nil, fmt.Errorf("replace proxy container: %w", err)
 		}
 		p = nil
 	}
 	if p == nil {
 		if strings.ContainsAny(m.opts.ProxyBinary, ",\n") || !filepath.IsAbs(m.opts.ProxyBinary) {
-			return nil, fmt.Errorf("Pfad %q des ade-Binarys ist für einen Mount ungeeignet", m.opts.ProxyBinary)
+			return nil, fmt.Errorf("path %q of the ade binary is not suitable for a mount", m.opts.ProxyBinary)
 		}
 		token := randomToken()
 		cmd := m.command(ctx, m.ProxyCreateArgs(workspace)...)
@@ -200,19 +200,19 @@ func (m *Manager) ensureProxy(ctx context.Context, workspace string, recreate bo
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("Proxy-Container anlegen: %w", &Error{Args: []string{"create"}, Stderr: stderr.String(), Err: err})
+			return nil, fmt.Errorf("create proxy container: %w", &Error{Args: []string{"create"}, Stderr: stderr.String(), Err: err})
 		}
 		if _, err := m.run(ctx, nil, "network", "connect", "--alias", ProxyAlias, NetworkName(workspace), ProxyName(workspace)); err != nil {
-			return nil, fmt.Errorf("Proxy mit dem Workspace-Netz verbinden: %w", err)
+			return nil, fmt.Errorf("connect proxy to the workspace network: %w", err)
 		}
-		m.log.Info("Egress-Proxy angelegt", "workspace", workspace)
+		m.log.Info("egress proxy created", "workspace", workspace)
 		if p, err = m.getProxy(ctx, workspace); err != nil || p == nil {
-			return nil, fmt.Errorf("Proxy-Container nach dem Anlegen nicht gefunden: %w", err)
+			return nil, fmt.Errorf("proxy container not found after creating it: %w", err)
 		}
 	}
 	if !p.Running {
 		if _, err := m.run(ctx, nil, "container", "start", ProxyName(workspace)); err != nil {
-			return nil, fmt.Errorf("Proxy-Container starten: %w", err)
+			return nil, fmt.Errorf("start proxy container: %w", err)
 		}
 	}
 	return p, nil
@@ -224,18 +224,18 @@ func randomToken() string {
 	return hex.EncodeToString(b)
 }
 
-// proxyLink ist die Verbindung des Daemons zur Steuer-API eines Proxys.
+// proxyLink is the daemon's connection to a proxy's control API.
 type proxyLink struct {
 	client *proxy.Client
-	hash   string // zuletzt gesendete Policy
-	// reloadErr ist der letzte Fehler beim Hot-Reload (nur einmal melden).
+	hash   string // most recently sent policy
+	// reloadErr is the last error during hot reload (report it only once).
 	reloadErr string
 	cancel    context.CancelFunc
 	done      chan struct{}
 }
 
-// policyFor baut die Policy eines Workspaces aus seiner Konfiguration, den Ausnahmen aus
-// Freigaben und den Secrets.
+// policyFor builds a workspace's policy from its configuration, the exceptions from
+// approvals and the secrets.
 func (m *Manager) policyFor(s Spec) proxy.Policy {
 	e := s.Config.Egress
 	if e == nil {
@@ -271,19 +271,19 @@ func policyHash(p proxy.Policy) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// connectProxy verbindet sich mit der Steuer-API des Proxys, schickt die Policy und startet
-// das Abholen der Events.
+// connectProxy connects to the proxy's control API, sends the policy and starts fetching
+// the events.
 func (m *Manager) connectProxy(ctx context.Context, workspace string, pol proxy.Policy) error {
 	p, err := m.getProxy(ctx, workspace)
 	if err != nil || p == nil {
-		return fmt.Errorf("Proxy-Container: %w", err)
+		return fmt.Errorf("proxy container: %w", err)
 	}
 	port, err := m.hostPort(ctx, ProxyName(workspace), proxy.ControlPort)
 	if err != nil {
 		return err
 	}
 	link := &proxyLink{client: &proxy.Client{Base: "http://127.0.0.1:" + strconv.Itoa(port), Token: p.token, HTTP: m.http}}
-	// Der Proxy braucht nach dem Start einen Moment.
+	// The proxy needs a moment after the start.
 	deadline := time.Now().Add(15 * time.Second)
 	for {
 		hctx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -295,10 +295,10 @@ func (m *Manager) connectProxy(ctx context.Context, workspace string, pol proxy.
 		time.Sleep(100 * time.Millisecond)
 	}
 	if err != nil {
-		return fmt.Errorf("Egress-Proxy antwortet nicht: %w", err)
+		return fmt.Errorf("egress proxy does not answer: %w", err)
 	}
 	if err := link.client.SetPolicy(ctx, pol); err != nil {
-		return fmt.Errorf("Policy an den Egress-Proxy senden: %w", err)
+		return fmt.Errorf("send policy to the egress proxy: %w", err)
 	}
 	link.hash = policyHash(pol)
 	cctx, cancel := context.WithCancel(m.bg)
@@ -315,13 +315,13 @@ func (m *Manager) connectProxy(ctx context.Context, workspace string, pol proxy.
 		var wg sync.WaitGroup
 		wg.Go(func() { m.answerQuestions(cctx, workspace, link) })
 		m.collect(cctx, workspace, link)
-		cancel() // Proxy weg: auch das Abholen der Fragen beenden
+		cancel() // proxy gone: also stop fetching the questions
 		wg.Wait()
 	}()
 	return nil
 }
 
-// unlink beendet das Abholen der Events eines Workspaces.
+// unlink stops fetching a workspace's events.
 func (m *Manager) unlink(workspace string) {
 	m.mu.Lock()
 	link := m.links[workspace]
@@ -333,7 +333,7 @@ func (m *Manager) unlink(workspace string) {
 	}
 }
 
-// collect holt Events per Long-Polling ab, bis ctx endet oder der Proxy dauerhaft weg ist.
+// collect fetches events by long polling until ctx ends or the proxy is gone for good.
 func (m *Manager) collect(ctx context.Context, workspace string, link *proxyLink) {
 	defer func() {
 		m.mu.Lock()
@@ -354,7 +354,7 @@ func (m *Manager) collect(ctx context.Context, workspace string, link *proxyLink
 			}
 			failures++
 			if failures >= 5 {
-				m.log.Debug("Egress-Proxy nicht mehr erreichbar", "workspace", workspace, "err", err)
+				m.log.Debug("egress proxy no longer reachable", "workspace", workspace, "err", err)
 				return
 			}
 			select {
@@ -378,19 +378,19 @@ func (m *Manager) collect(ctx context.Context, workspace string, link *proxyLink
 	}
 }
 
-// QuestionHandler beantwortet eine Frage eines Proxys (siehe Options.OnQuestion).
+// QuestionHandler answers a question of a proxy (see Options.OnQuestion).
 type QuestionHandler func(ctx context.Context, workspace string, q proxy.Question) proxy.Answer
 
-// SetQuestionHandler setzt den Handler für Fragen der Proxys.
+// SetQuestionHandler sets the handler for questions of the proxies.
 func (m *Manager) SetQuestionHandler(h QuestionHandler) {
 	m.mu.Lock()
 	m.opts.OnQuestion = h
 	m.mu.Unlock()
 }
 
-// answerQuestions holt offene Fragen per Long-Polling ab und beantwortet jede in einer eigenen
-// Goroutine. Verschwindet eine Frage beim Proxy (der Fragende hat aufgegeben), endet der
-// Kontext ihres Handlers.
+// answerQuestions fetches open questions by long polling and answers each in its own
+// goroutine. If a question disappears at the proxy (the asker gave up), its handler's
+// context ends.
 func (m *Manager) answerQuestions(ctx context.Context, workspace string, link *proxyLink) {
 	type running struct{ cancel context.CancelFunc }
 	active := map[string]running{}
@@ -433,7 +433,7 @@ func (m *Manager) answerQuestions(ctx context.Context, workspace string, link *p
 				m.mu.Lock()
 				h := m.opts.OnQuestion
 				m.mu.Unlock()
-				a := proxy.Answer{Decision: proxy.AnswerDeny, Reason: "ADE: Freigaben sind nicht eingerichtet"}
+				a := proxy.Answer{Decision: proxy.AnswerDeny, Reason: "ADE: approvals are not set up"}
 				if h != nil {
 					a = h(qctx, workspace, q)
 				}
@@ -443,7 +443,7 @@ func (m *Manager) answerQuestions(ctx context.Context, workspace string, link *p
 				actx, acancel := context.WithTimeout(ctx, 5*time.Second)
 				defer acancel()
 				if err := link.client.Answer(actx, q.ID, a); err != nil {
-					m.log.Debug("Antwort an den Egress-Proxy", "workspace", workspace, "err", err)
+					m.log.Debug("answer to the egress proxy", "workspace", workspace, "err", err)
 				}
 			})
 		}
@@ -456,7 +456,7 @@ func (m *Manager) answerQuestions(ctx context.Context, workspace string, link *p
 	}
 }
 
-// reloadLoop schickt geänderte Policies (sandbox.yaml, Secrets) an laufende Proxys.
+// reloadLoop sends changed policies (sandbox.yaml, secrets) to running proxies.
 func (m *Manager) reloadLoop() {
 	t := time.NewTicker(m.opts.ReloadInterval)
 	defer t.Stop()
@@ -470,8 +470,8 @@ func (m *Manager) reloadLoop() {
 	}
 }
 
-// ReloadPolicies vergleicht die Policy jedes verbundenen Proxys mit der aktuellen
-// Konfiguration und schickt Änderungen (Hot-Reload, ohne Neustart der Container).
+// ReloadPolicies compares the policy of every connected proxy with the current
+// configuration and sends changes (hot reload, without restarting the containers).
 func (m *Manager) ReloadPolicies(ctx context.Context) {
 	m.mu.Lock()
 	src := m.source
@@ -486,13 +486,13 @@ func (m *Manager) ReloadPolicies(ctx context.Context) {
 	for ws, link := range links {
 		spec, err := src(ctx, ws)
 		if err != nil {
-			// z. B. ungültige sandbox.yaml: die zuletzt gesendete Policy bleibt.
+			// e.g. invalid sandbox.yaml: the most recently sent policy stays.
 			m.mu.Lock()
 			warn := link.reloadErr != err.Error()
 			link.reloadErr = err.Error()
 			m.mu.Unlock()
 			if warn {
-				m.log.Warn("Netzwerk-Policy nicht aktualisiert, die bisherige bleibt", "workspace", ws, "err", err)
+				m.log.Warn("network policy not updated, the previous one stays", "workspace", ws, "err", err)
 			}
 			continue
 		}
@@ -508,27 +508,27 @@ func (m *Manager) ReloadPolicies(ctx context.Context) {
 		err = link.client.SetPolicy(cctx, pol)
 		cancel()
 		if err != nil {
-			m.log.Warn("Policy-Änderung nicht an den Egress-Proxy gesendet", "workspace", ws, "err", err)
+			m.log.Warn("policy change not sent to the egress proxy", "workspace", ws, "err", err)
 			continue
 		}
 		m.mu.Lock()
 		link.hash, link.reloadErr = h, ""
 		m.mu.Unlock()
-		m.log.Info("Netzwerk-Policy aktualisiert", "workspace", ws, "allow", len(pol.Allow), "deny", len(pol.Deny))
+		m.log.Info("network policy updated", "workspace", ws, "allow", len(pol.Allow), "deny", len(pol.Deny))
 	}
 }
 
-// SpecSource liefert die aktuelle Beschreibung eines Workspaces (für den Hot-Reload).
+// SpecSource returns the current description of a workspace (for the hot reload).
 type SpecSource func(ctx context.Context, workspace string) (Spec, error)
 
-// SetSpecSource setzt die Quelle für den Hot-Reload der Policies.
+// SetSpecSource sets the source for the hot reload of the policies.
 func (m *Manager) SetSpecSource(src SpecSource) {
 	m.mu.Lock()
 	m.source = src
 	m.mu.Unlock()
 }
 
-// SecretProviders nennt die Anbieter, für die der Proxy einen Key einfügt (nur Namen).
+// SecretProviders names the providers for which the proxy inserts a key (names only).
 func (m *Manager) SecretProviders() []string {
 	out := []string{}
 	if m.opts.Secrets != nil {
@@ -540,18 +540,18 @@ func (m *Manager) SecretProviders() []string {
 	return out
 }
 
-// SetEgressSink setzt den Empfänger der Egress-Events.
+// SetEgressSink sets the receiver of the egress events.
 func (m *Manager) SetEgressSink(fn func(workspace string, events []proxy.Event)) {
 	m.mu.Lock()
 	m.opts.OnEgress = fn
 	m.mu.Unlock()
 }
 
-// HookAvailable meldet, ob Agent-Container das ade-Binary für den Freigabe-Hook bekommen.
+// HookAvailable reports whether agent containers get the ade binary for the approval hook.
 func (m *Manager) HookAvailable() bool { return m.opts.ProxyBinary != "" }
 
-// IDEHostPort liefert den Port auf 127.0.0.1, unter dem die IDE eines Workspaces erreichbar
-// ist (über die Weiterleitung des Proxys).
+// IDEHostPort returns the port on 127.0.0.1 at which a workspace's IDE is reachable
+// (through the proxy's forwarding).
 func (m *Manager) IDEHostPort(ctx context.Context, workspace string) (int, error) {
 	return m.hostPort(ctx, ProxyName(workspace), proxy.IDEPort)
 }
@@ -562,8 +562,8 @@ type networkInfo struct {
 	DataDir   string
 }
 
-// listNetworks liest die Netze von ADE per inspect (JSON), weil sich die Formate von
-// network ls zwischen Docker und Podman unterscheiden.
+// listNetworks reads ADE's networks via inspect (JSON), because the formats of network ls
+// differ between Docker and Podman.
 func (m *Manager) listNetworks(ctx context.Context) ([]networkInfo, error) {
 	out, err := m.run(ctx, nil, "network", "ls", "--quiet", "--filter", "label="+LabelManaged+"=true")
 	if err != nil {
@@ -577,16 +577,16 @@ func (m *Manager) listNetworks(ctx context.Context) ([]networkInfo, error) {
 	if err != nil && !isNoSuch(err) {
 		return nil, err
 	}
-	// Docker: Name, Labels; Podman: name, labels (encoding/json ignoriert die Schreibweise).
+	// Docker: Name, Labels; Podman: name, labels (encoding/json ignores the case).
 	var raw []struct {
 		Name   string
 		Labels map[string]string
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
 		if len(bytes.TrimSpace(out)) == 0 {
-			return nil, nil // alle zwischen ls und inspect verschwunden
+			return nil, nil // all disappeared between ls and inspect
 		}
-		return nil, fmt.Errorf("network inspect lesen: %w", err)
+		return nil, fmt.Errorf("read network inspect: %w", err)
 	}
 	nets := make([]networkInfo, 0, len(raw))
 	for _, r := range raw {
@@ -597,8 +597,8 @@ func (m *Manager) listNetworks(ctx context.Context) ([]networkInfo, error) {
 	return nets, nil
 }
 
-// orphanNetworks liefert interne Netze ohne Workspace (wie Orphans für Container). Das
-// gemeinsame Egress-Netz trägt keine Instanz und bleibt stehen.
+// orphanNetworks returns internal networks without a workspace (like Orphans for containers).
+// The shared egress network carries no instance and stays.
 func (m *Manager) orphanNetworks(ctx context.Context, known func(string) bool) ([]string, error) {
 	nets, err := m.listNetworks(ctx)
 	if err != nil {

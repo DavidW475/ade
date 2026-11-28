@@ -1,9 +1,9 @@
 package sandbox_test
 
-// Integrationstests gegen einen echten Docker-Daemon. Sie laufen nur mit ADE_TEST_DOCKER=1
-// (CI setzt das). ADE_TEST_IMAGE wählt ein Image mit git, curl, getent und busybox; ohne
-// Angabe baut der Test ein kleines Debian-Image damit. Für den Egress-Proxy baut der Test
-// das ade-Binary (statisch). Die Netzwerk-Tests brauchen Internet.
+// Integration tests against a real Docker daemon. They only run with ADE_TEST_DOCKER=1
+// (CI sets it). ADE_TEST_IMAGE selects an image with git, curl, getent and busybox; without
+// it the test builds a small Debian image with them. For the egress proxy the test builds
+// the ade binary (statically). The network tests need internet.
 
 import (
 	"context"
@@ -86,7 +86,7 @@ func setup(t *testing.T, cfg ...sandbox.Config) *env {
 	return e
 }
 
-const testSecret = "sk-ant-test-darf-nie-im-container-stehen"
+const testSecret = "sk-ant-test-must-never-be-in-the-container"
 
 func (e *env) exec(t *testing.T, script string) string {
 	t.Helper()
@@ -105,8 +105,8 @@ func TestContainerIsolation(t *testing.T) {
 	if err != nil || c == nil || !c.Running {
 		t.Fatalf("Container: %+v, %v", c, err)
 	}
-	// Nur das Workspace-Verzeichnis (beschreibbar) und das ade-Binary für den Freigabe-Hook
-	// (nur lesend).
+	// Only the workspace directory (writable) and the ade binary for the approval hook
+	// (read-only).
 	var workspace, hook bool
 	for _, mt := range c.Mounts {
 		switch {
@@ -121,17 +121,17 @@ func TestContainerIsolation(t *testing.T) {
 	if !workspace || !hook || len(c.Mounts) != 2 {
 		t.Fatalf("Mounts = %+v", c.Mounts)
 	}
-	if got := e.exec(t, "test -w "+sandbox.ProxyBinary+" && echo schreibbar || echo nur-lesend"); got != "nur-lesend" {
+	if got := e.exec(t, "test -w "+sandbox.ProxyBinary+" && echo writable || echo read-only"); got != "read-only" {
 		t.Errorf("Hook-Binary: %s", got)
 	}
-	// UID im Container: die des Nutzers, nur unter rootless Docker root (= Nutzer auf dem Host).
+	// UID in the container: the user's, only under rootless Docker root (= the user on the host).
 	rt, _ := e.m.Runtime()
 	wantUID := strconv.Itoa(os.Getuid())
 	if rt.RootInContainer() {
 		wantUID = "0"
 	}
 	if got := e.exec(t, "id -u"); got != wantUID || (got == "0" && !rt.RootInContainer()) {
-		t.Errorf("UID im Container (%s) = %s, erwartet %s", rt.Name(), got, wantUID)
+		t.Errorf("UID in the container (%s) = %s, want %s", rt.Name(), got, wantUID)
 	}
 	if got := e.exec(t, "grep CapEff /proc/self/status | tr -d ' \\t'"); got != "CapEff:0000000000000000" {
 		t.Errorf("Capabilities: %s", got)
@@ -139,32 +139,32 @@ func TestContainerIsolation(t *testing.T) {
 	if got := e.exec(t, "grep NoNewPrivs /proc/self/status | tr -d ' \\t'"); got != "NoNewPrivs:1" {
 		t.Errorf("no-new-privileges: %s", got)
 	}
-	// Weder $HOME des Nutzers noch das Verzeichnis über dem Workspace sind sichtbar.
+	// Neither the user's $HOME nor the directory above the workspace are visible.
 	home, _ := os.UserHomeDir()
 	for _, p := range []string{home, filepath.Dir(e.path), "/var/run/docker.sock"} {
-		if out := e.exec(t, "test -e '"+p+"' && echo da || echo fehlt"); out != "fehlt" {
-			t.Errorf("%s ist im Container sichtbar", p)
+		if out := e.exec(t, "test -e '"+p+"' && echo present || echo missing"); out != "missing" {
+			t.Errorf("%s is visible in the container", p)
 		}
 	}
-	// Schreiben im Container landet im Workspace.
-	e.exec(t, "echo hallo > /workspace/aus-dem-container")
-	if data, err := os.ReadFile(filepath.Join(e.path, "aus-dem-container")); err != nil || string(data) != "hallo\n" {
-		t.Errorf("Datei im Workspace: %q, %v", data, err)
+	// Writing in the container ends up in the workspace.
+	e.exec(t, "echo hello > /workspace/from-the-container")
+	if data, err := os.ReadFile(filepath.Join(e.path, "from-the-container")); err != nil || string(data) != "hello\n" {
+		t.Errorf("file in the workspace: %q, %v", data, err)
 	}
-	// #94: Dateien und Verzeichnisse aus dem Container gehören auf dem Host dem Nutzer.
-	e.exec(t, "mkdir -p /workspace/neu/tief && echo x > /workspace/neu/tief/datei")
-	for _, p := range []string{"aus-dem-container", "neu", "neu/tief/datei"} {
+	// #94: files and directories from the container belong to the user on the host.
+	e.exec(t, "mkdir -p /workspace/new/deep && echo x > /workspace/new/deep/file")
+	for _, p := range []string{"from-the-container", "new", "new/deep/file"} {
 		fi, err := os.Stat(filepath.Join(e.path, p))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != os.Getuid() {
-			t.Errorf("%s gehört auf dem Host UID %d, erwartet %d (%s)", p, st.Uid, os.Getuid(), rt.Name())
+			t.Errorf("%s belongs to UID %d on the host, want %d (%s)", p, st.Uid, os.Getuid(), rt.Name())
 		}
 	}
 }
 
-// Lese-Rollen einer Fabrik (M9): /workspace nur lesend, gleiches Netz und gleicher Proxy.
+// Read-only roles of a factory (M9): /workspace read-only, same network and same proxy.
 func TestReaderContainer(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -180,7 +180,7 @@ func TestReaderContainer(t *testing.T) {
 	}
 	for _, mt := range c.Mounts {
 		if mt.Destination == sandbox.Workdir && mt.RW {
-			t.Fatalf("/workspace ist beschreibbar gemountet: %+v", mt)
+			t.Fatalf("/workspace is mounted writable: %+v", mt)
 		}
 	}
 	run := func(script string) (string, error) {
@@ -190,39 +190,39 @@ func TestReaderContainer(t *testing.T) {
 	if out, err := run("cat /workspace/plan.txt"); err != nil || out != "lesbar" {
 		t.Fatalf("Lesen: %q, %v", out, err)
 	}
-	for _, script := range []string{"echo x > /workspace/neu", "rm /workspace/plan.txt", "mkdir /workspace/d", "touch /workspace/plan.txt"} {
+	for _, script := range []string{"echo x > /workspace/new", "rm /workspace/plan.txt", "mkdir /workspace/d", "touch /workspace/plan.txt"} {
 		if out, err := run(script); err == nil {
-			t.Errorf("%s gelang im Lese-Container: %s", script, out)
+			t.Errorf("%s succeeded in the reader container: %s", script, out)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(e.path, "neu")); err == nil {
-		t.Fatal("Datei aus dem Lese-Container im Workspace")
+		t.Fatal("file from the reader container in the workspace")
 	}
-	// Außerhalb von /workspace bleibt das Dateisystem des Containers beschreibbar (HOME der
-	// CLI im echten Image), der Proxy ist erreichbar.
+	// Outside /workspace the container's file system stays writable (HOME of the CLI in the
+	// real image), the proxy is reachable.
 	if out, err := run("echo ok > /tmp/x && cat /tmp/x"); err != nil || out != "ok" {
 		t.Errorf("/tmp: %q, %v", out, err)
 	}
 	if out, err := run("getent hosts proxy >/dev/null && echo da"); err != nil || out != "da" {
-		t.Errorf("Proxy im Netz: %q, %v", out, err)
+		t.Errorf("proxy in the network: %q, %v", out, err)
 	}
-	// Der Agent-Container schreibt weiter.
-	e.exec(t, "echo y > /workspace/vom-agenten")
-	if out, err := run("cat /workspace/vom-agenten"); err != nil || out != "y" {
-		t.Errorf("Änderung des Agenten im Lese-Container: %q, %v", out, err)
+	// The agent container keeps writing.
+	e.exec(t, "echo y > /workspace/from-the-agent")
+	if out, err := run("cat /workspace/from-the-agent"); err != nil || out != "y" {
+		t.Errorf("the agent's change in the reader container: %q, %v", out, err)
 	}
-	// Ein zweites EnsureReader nimmt den bestehenden Container; Remove entfernt ihn.
+	// A second EnsureReader takes the existing container; Remove removes it.
 	if err := e.m.EnsureReader(ctx, e.spec); err != nil {
 		t.Fatal(err)
 	}
 	if c2, _ := e.m.GetReader(ctx, e.ws); c2 == nil || c2.ID != c.ID {
-		t.Fatalf("Lese-Container neu angelegt: %+v", c2)
+		t.Fatalf("reader container recreated: %+v", c2)
 	}
 	if err := e.m.Remove(ctx, e.ws); err != nil {
 		t.Fatal(err)
 	}
 	if c3, err := e.m.GetReader(ctx, e.ws); err != nil || c3 != nil {
-		t.Fatalf("Lese-Container nach Remove: %+v, %v", c3, err)
+		t.Fatalf("reader container after Remove: %+v, %v", c3, err)
 	}
 }
 
@@ -241,7 +241,7 @@ func TestSignalByMarker(t *testing.T) {
 	}
 	select {
 	case err := <-done:
-		t.Fatalf("falscher Prozess beendet: %v", err)
+		t.Fatalf("wrong process ended: %v", err)
 	case <-time.After(300 * time.Millisecond):
 	}
 	if err := e.m.Signal(context.Background(), e.ws, "ADE_SESSION_ID=s1", syscall.SIGTERM); err != nil {
@@ -249,22 +249,22 @@ func TestSignalByMarker(t *testing.T) {
 	}
 	select {
 	case err := <-done:
-		t.Logf("Prozess beendet: %v", err)
+		t.Logf("process ended: %v", err)
 	case <-time.After(10 * time.Second):
 		_ = cmd.Process.Kill()
-		t.Fatal("Prozess im Container läuft nach SIGTERM weiter")
+		t.Fatal("process in the container keeps running after SIGTERM")
 	}
 	if out := e.exec(t, "n=0; for d in /proc/[0-9]*; do tr '\\0' ' ' < $d/cmdline 2>/dev/null | grep -q '^sleep 300' && n=$((n+1)); done; echo $n"); out != "0" {
-		t.Errorf("%s Prozesse der Session laufen noch", out)
+		t.Errorf("%s processes of the session are still running", out)
 	}
 }
 
-// Issue #41: Ein vom Agenten im Workspace konfigurierter Filter darf beim WIP-Commit des
-// Daemons nicht auf dem Host laufen.
+// Issue #41: a filter the agent configured in the workspace must not run on the host during
+// the daemon's WIP commit.
 func TestWorkspaceGitConfigDoesNotRunOnHost(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
-	marker := filepath.Join(t.TempDir(), "filter-lief-auf-dem-host")
+	marker := filepath.Join(t.TempDir(), "filter-ran-on-the-host")
 	run := func(args ...string) {
 		t.Helper()
 		if _, err := git.Run(ctx, git.Cmd{Dir: e.path, Args: args}); err != nil {
@@ -273,7 +273,7 @@ func TestWorkspaceGitConfigDoesNotRunOnHost(t *testing.T) {
 	}
 	run("init", "--quiet", "-b", "main")
 	run("-c", "user.name=T", "-c", "user.email=t@t", "commit", "--quiet", "--allow-empty", "-m", "init")
-	// Das tut ein Agent im Workspace: Filter, fsmonitor und Hook, die eine Datei auf dem Host anlegen.
+	// This is what an agent does in the workspace: filter, fsmonitor and hook that create a file on the host.
 	evil := "touch " + marker + "; cat"
 	run("config", "filter.evil.clean", evil)
 	run("config", "filter.evil.smudge", evil)
@@ -303,7 +303,7 @@ func TestWorkspaceGitConfigDoesNotRunOnHost(t *testing.T) {
 		t.Fatalf("CommitAll: %v %v", committed, err)
 	}
 	if _, err := os.Stat(marker); err == nil {
-		t.Fatal("ein Befehl aus der Workspace-Konfiguration lief auf dem Host")
+		t.Fatal("a command from the workspace configuration ran on the host")
 	}
 	if out, _ := git.Output(ctx, e.path, "log", "--format=%s", "-1"); out != "ade: wip test" {
 		t.Errorf("letzter Commit: %q", out)
@@ -320,32 +320,32 @@ func TestGCAndRecover(t *testing.T) {
 	}
 	for _, c := range orphans {
 		if c.Workspace == e.ws {
-			t.Fatal("Container eines bekannten Workspaces gilt als verwaist")
+			t.Fatal("container of a known workspace counts as orphaned")
 		}
 	}
 	if err := e.m.Recover(ctx, known); err != nil {
 		t.Fatal(err)
 	}
 	if c, _ := e.m.Get(ctx, e.ws); c == nil || c.Running {
-		t.Fatalf("nach Recover: %+v (erwartet: vorhanden, gestoppt)", c)
+		t.Fatalf("after Recover: %+v (want: present, stopped)", c)
 	}
 	removed, err := e.m.GC(ctx, func(string) bool { return false }, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Agent- und Proxy-Container.
+	// Agent and proxy container.
 	if len(removed) != 2 || removed[0].Workspace != e.ws || removed[1].Workspace != e.ws {
 		t.Fatalf("entfernt: %+v", removed)
 	}
 	if c, _ := e.m.Get(ctx, e.ws); c != nil {
-		t.Fatal("verwaister Container existiert noch")
+		t.Fatal("orphaned container still exists")
 	}
 	if exec.Command(sandboxtest.Docker(), "network", "inspect", sandbox.NetworkName(e.ws)).Run() == nil {
-		t.Fatal("Netz des verwaisten Workspaces existiert noch")
+		t.Fatal("network of the orphaned workspace still exists")
 	}
 }
 
-// curl im Container: liefert den HTTP-Status (000 bei Verbindungsfehler).
+// curl in the container: returns the HTTP status (000 on a connection error).
 func (e *env) curl(t *testing.T, args ...string) string {
 	t.Helper()
 	argv := append([]string{"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "15"}, args...)
@@ -353,7 +353,7 @@ func (e *env) curl(t *testing.T, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// M6: Nur freigegebene Ziele sind erreichbar, und nur über den Proxy.
+// M6: only allowed targets are reachable, and only through the proxy.
 func TestEgressPolicy(t *testing.T) {
 	cfg, err := sandbox.ParseConfig([]byte("resources:\n  memory: 512m\n  cpus: 1\n  pids: 128\negress:\n  presets: [npm]\n"))
 	if err != nil {
@@ -365,35 +365,35 @@ func TestEgressPolicy(t *testing.T) {
 	if got := e.curl(t, "https://registry.npmjs.org/"); got != "200" {
 		t.Errorf("registry.npmjs.org (Preset npm): %s", got)
 	}
-	// Geblockt: CONNECT wird mit 403 abgelehnt, curl meldet 403 bzw. 000.
+	// Blocked: CONNECT is rejected with 403, curl reports 403 or 000.
 	if got := e.curl(t, "https://example.com/"); got == "200" {
 		t.Errorf("example.com erreichbar: %s", got)
 	}
 	if got := e.curl(t, "http://example.com/"); got != "403" {
-		t.Errorf("http://example.com: %s, erwartet 403", got)
+		t.Errorf("http://example.com: %s, want 403", got)
 	}
-	// Ein Programm, das den Proxy ignoriert, kommt nirgendwo hin – auch nicht per IP.
+	// A program that ignores the proxy gets nowhere – not even by IP.
 	for _, target := range []string{"https://registry.npmjs.org/", "https://1.1.1.1/"} {
 		if got := e.curl(t, "--noproxy", "*", target); got != "000" {
-			t.Errorf("ohne Proxy %s: %s", target, got)
+			t.Errorf("without proxy %s: %s", target, got)
 		}
 	}
-	// DNS: externe Namen lösen nicht auf, der Proxy schon.
+	// DNS: external names do not resolve, the proxy does.
 	if out, err := e.m.Command(ctx, e.ws, sandbox.Exec{Argv: []string{"getent", "hosts", "example.com"}}).CombinedOutput(); err == nil {
-		t.Errorf("externer Name aufgelöst: %s", out)
+		t.Errorf("external name resolved: %s", out)
 	}
-	// Podman liefert je Adressfamilie bzw. Alias eine Zeile, Docker eine.
+	// Podman returns one line per address family or alias, Docker one.
 	if got := e.exec(t, "getent hosts proxy || true"); !strings.Contains(got, "proxy") {
-		t.Errorf("proxy nicht auflösbar: %q", got)
+		t.Errorf("proxy not resolvable: %q", got)
 	} else {
 		t.Logf("getent hosts proxy: %q", got)
 	}
-	// Die Steuer-API des Proxys ist ohne Token zu.
+	// The proxy's control API is closed without a token.
 	if got := e.curl(t, "--noproxy", "*", "http://proxy:8081/healthz"); got != "401" {
-		t.Errorf("Steuer-API ohne Token: %s", got)
+		t.Errorf("control API without token: %s", got)
 	}
 
-	// Events kommen beim Daemon an.
+	// Events reach the daemon.
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		var allowed, blocked bool
@@ -410,7 +410,7 @@ func TestEgressPolicy(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	// Hot-Reload: eine geänderte Policy wirkt ohne Neustart.
+	// Hot reload: a changed policy takes effect without a restart.
 	next, err := sandbox.ParseConfig([]byte("egress:\n  presets: [npm]\n  allow: [example.com]\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -422,11 +422,11 @@ func TestEgressPolicy(t *testing.T) {
 	})
 	e.m.ReloadPolicies(ctx)
 	if got := e.curl(t, "https://example.com/"); got != "200" {
-		t.Errorf("example.com nach Hot-Reload: %s", got)
+		t.Errorf("example.com after hot reload: %s", got)
 	}
 }
 
-// M6: Der API-Key steht weder in der Konfiguration noch in der Umgebung der Container.
+// M6: the API key is neither in the configuration nor in the environment of the containers.
 func TestSecretsStayOutOfContainers(t *testing.T) {
 	e := setup(t)
 	for _, name := range []string{sandbox.ContainerName(e.ws), sandbox.ProxyName(e.ws)} {
@@ -439,11 +439,11 @@ func TestSecretsStayOutOfContainers(t *testing.T) {
 		}
 	}
 	if out := e.exec(t, "env; cat /proc/1/environ 2>/dev/null; grep -rs '"+testSecret+"' /home /workspace /tmp || true"); strings.Contains(out, testSecret) {
-		t.Error("Key im Agent-Container lesbar")
+		t.Error("key readable in the agent container")
 	}
 }
 
-// M6: Die IDE ist über die Weiterleitung des Proxys erreichbar.
+// M6: the IDE is reachable through the proxy's forwarding.
 func TestIDEForward(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
@@ -477,7 +477,7 @@ func TestIDEForward(t *testing.T) {
 	}
 }
 
-// Container aus M5 (normales Netz, ohne Proxy) werden beim nächsten Start neu angelegt.
+// Containers from M5 (normal network, without proxy) are recreated on the next start.
 func TestRecreatesM5Container(t *testing.T) {
 	img := testImage(t)
 	e := setup(t)
@@ -485,10 +485,10 @@ func TestRecreatesM5Container(t *testing.T) {
 	if err := e.m.Remove(ctx, e.ws); err != nil {
 		t.Fatal(err)
 	}
-	// So sah ein Container aus M5 aus.
+	// This is what a container from M5 looked like.
 	c, _ := e.m.Get(ctx, e.ws)
 	if c != nil {
-		t.Fatal("Container nach Remove noch da")
+		t.Fatal("container still there after Remove")
 	}
 	dataDir := ""
 	for _, kv := range e.m.ProxyCreateArgs(e.ws) {
@@ -509,9 +509,9 @@ func TestRecreatesM5Container(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c, err := e.m.Get(ctx, e.ws); err != nil || c == nil || c.Net != sandbox.NetVersion || !c.Running {
-		t.Fatalf("nach Ensure: %+v %v", c, err)
+		t.Fatalf("after Ensure: %+v %v", c, err)
 	}
 	if got := e.curl(t, "--noproxy", "*", "https://1.1.1.1/"); got != "000" {
-		t.Errorf("neu angelegter Container hat Netz: %s", got)
+		t.Errorf("recreated container has a network: %s", got)
 	}
 }

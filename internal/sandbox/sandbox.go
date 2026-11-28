@@ -1,11 +1,11 @@
-// Package sandbox verwaltet den Docker-Container eines Workspaces (doc/sandbox.md): anlegen,
-// starten, Befehle per docker exec ausführen, stoppen, entfernen und verwaiste Container
-// aufräumen. ADE ruft dafür die Docker-CLI auf (ADR-014), so wie git über internal/git.
+// Package sandbox manages a workspace's Docker container (doc/sandbox.md): create, start,
+// run commands via docker exec, stop, remove and clean up orphaned containers. For that ADE
+// calls the Docker CLI (ADR-014), just like git through internal/git.
 //
-// Ein Container sieht nur das Workspace-Verzeichnis (/workspace), läuft mit der UID des
-// Nutzers, ohne Capabilities und mit Ressourcen-Grenzen. Er hängt in einem internen Netz
-// ohne Route nach draußen; der einzige Weg ins Internet ist der Egress-Proxy des Workspaces
-// in einem eigenen Container (network.go).
+// A container only sees the workspace directory (/workspace), runs with the user's UID,
+// without capabilities and with resource limits. It is attached to an internal network
+// without a route to the outside; the only way to the internet is the workspace's egress
+// proxy in its own container (network.go).
 package sandbox
 
 import (
@@ -28,79 +28,79 @@ import (
 	"github.com/DavidW475/ade/internal/proxy"
 )
 
-// Pfade und Ports im Container.
+// Paths and ports in the container.
 const (
 	Workdir = "/workspace"
 	Home    = "/home/ade"
-	// IDEPort ist der Port von openvscode-server im Container; Docker veröffentlicht ihn
-	// auf einem freien Port von 127.0.0.1.
+	// IDEPort is the port of openvscode-server in the container; Docker publishes it on a
+	// free port of 127.0.0.1.
 	IDEPort = 3000
 )
 
-// Labels an allen Docker-Objekten von ADE.
+// Labels on all of ADE's Docker objects.
 const (
 	LabelManaged   = "ade.managed"
 	LabelWorkspace = "ade.workspace"
-	// LabelDataDir trennt mehrere ADE-Instanzen (z. B. Entwicklungs-Daemon) auf einem Docker.
+	// LabelDataDir separates several ADE instances (e.g. a development daemon) on one Docker.
 	LabelDataDir = "ade.data_dir"
-	// LabelRole unterscheidet Agent- und Proxy-Container.
+	// LabelRole distinguishes agent and proxy containers.
 	LabelRole = "ade.role"
-	// LabelNet ist die Version des Netz-Aufbaus (NetVersion).
+	// LabelNet is the version of the network layout (NetVersion).
 	LabelNet = "ade.net"
-	// LabelBinary ist das gemountete ade-Binary eines Proxy-Containers.
+	// LabelBinary is the mounted ade binary of a proxy container.
 	LabelBinary = "ade.binary"
 )
 
-// Rollen der Container eines Workspaces.
+// Roles of a workspace's containers.
 const (
 	RoleAgent = "agent"
 	RoleProxy = "proxy"
-	// RoleReader ist der Container für Lese-Rollen einer Fabrik: /workspace nur lesend (M9).
+	// RoleReader is the container for read-only roles of a factory: /workspace read-only (M9).
 	RoleReader = "reader"
 )
 
-// ReaderAlias ist der Name des Lese-Containers im Workspace-Netz.
+// ReaderAlias is the name of the reader container in the workspace network.
 const ReaderAlias = "reader"
 
-// DetachKeys ersetzt Docker's Ctrl-P Ctrl-Q, damit die Tasten im Terminal ankommen.
+// DetachKeys replaces Docker's Ctrl-P Ctrl-Q, so the keys reach the terminal.
 const DetachKeys = "ctrl-@,ctrl-^,ctrl-@,ctrl-^"
 
-// StopTimeout ist die Zeit, die docker stop den Prozessen im Container lässt.
+// StopTimeout is the time docker stop gives the processes in the container.
 const StopTimeout = 3 * time.Second
 
-// Options konfiguriert den Manager.
+// Options configures the manager.
 type Options struct {
-	// Docker ist das docker-Binary (Standard: docker im PATH). Auch podman oder ein
-	// docker-Shim von Podman; die Laufzeit erkennt Available.
+	// Docker is the docker binary (default: docker in PATH). Also podman or a docker shim of
+	// Podman; Available detects the runtime.
 	Docker string
-	// Runtime legt die Laufzeit fest, statt sie zu erkennen (für Tests).
+	// Runtime sets the runtime instead of detecting it (for tests).
 	Runtime *Runtime
-	// DataDir kennzeichnet die Container dieser ADE-Instanz (Label ade.data_dir).
+	// DataDir marks the containers of this ADE instance (label ade.data_dir).
 	DataDir string
-	// Image ist das Standard-Image, wenn sandbox.yaml keins nennt.
+	// Image is the default image if sandbox.yaml names none.
 	Image string
-	// UID und GID für Prozesse im Container (Standard: die des Daemons).
+	// UID and GID for processes in the container (default: those of the daemon).
 	UID, GID int
-	// ProxyBinary ist das ade-Binary auf dem Host, das im Proxy-Container läuft (statisch
-	// gebaut, wird nur lesend gemountet).
+	// ProxyBinary is the ade binary on the host that runs in the proxy container (statically
+	// built, only mounted read-only).
 	ProxyBinary string
-	// ProxyImage ist das Image des Proxy-Containers (Standard: Image).
+	// ProxyImage is the image of the proxy container (default: Image).
 	ProxyImage string
-	// Secrets liefert die API-Keys je Anbieter für die Secret-Injection des Proxys.
+	// Secrets returns the API keys per provider for the proxy's secret injection.
 	Secrets func() map[string]string
-	// OnEgress erhält die Egress-Events der Proxys.
+	// OnEgress receives the proxies' egress events.
 	OnEgress func(workspace string, events []proxy.Event)
-	// OnQuestion beantwortet Fragen der Proxys (Freigaben, M7). Es blockiert, bis
-	// entschieden ist; ctx endet, wenn der Fragende aufgibt. Ohne Handler gilt deny.
+	// OnQuestion answers questions of the proxies (approvals, M7). It blocks until decided;
+	// ctx ends when the asker gives up. Without a handler, deny applies.
 	OnQuestion QuestionHandler
-	// AskWait ist die Wartezeit einer Anfrage bei egress.on_blocked: ask (Standard 2m).
+	// AskWait is the waiting time of a request with egress.on_blocked: ask (default 2m).
 	AskWait time.Duration
-	// ReloadInterval ist der Abstand, in dem geänderte Policies an die Proxys gehen.
+	// ReloadInterval is the interval at which changed policies go to the proxies.
 	ReloadInterval time.Duration
 	Logger         *slog.Logger
 }
 
-// Manager verwaltet die Container aller Workspaces.
+// Manager manages the containers of all workspaces.
 type Manager struct {
 	opts Options
 	log  *slog.Logger
@@ -108,8 +108,8 @@ type Manager struct {
 	mu     sync.Mutex
 	locks  map[string]*sync.Mutex
 	avail  *availability
-	rt     *Runtime             // erkannte Laufzeit (nil: noch nicht erkannt)
-	ensure map[string]time.Time // zuletzt als laufend gesehen
+	rt     *Runtime             // detected runtime (nil: not detected yet)
+	ensure map[string]time.Time // last seen running
 	links  map[string]*proxyLink
 	source SpecSource
 
@@ -125,7 +125,7 @@ type availability struct {
 	err     error
 }
 
-// New erzeugt einen Manager.
+// New creates a manager.
 func New(opts Options) *Manager {
 	if opts.Docker == "" {
 		opts.Docker = "docker"
@@ -151,7 +151,7 @@ func New(opts Options) *Manager {
 	m := &Manager{
 		opts: opts, log: opts.Logger, locks: map[string]*sync.Mutex{}, ensure: map[string]time.Time{},
 		links: map[string]*proxyLink{},
-		// Nur 127.0.0.1, nie über einen Proxy aus der Umgebung des Daemons.
+		// Only 127.0.0.1, never through a proxy from the daemon's environment.
 		http: &http.Client{Transport: &http.Transport{Proxy: nil, MaxIdleConnsPerHost: 4}},
 	}
 	if opts.Runtime != nil {
@@ -162,7 +162,7 @@ func New(opts Options) *Manager {
 	return m
 }
 
-// Close beendet Hintergrundarbeit (Event-Abholung, Hot-Reload). Container bleiben, wie sie sind.
+// Close ends background work (event fetching, hot reload). Containers stay as they are.
 func (m *Manager) Close() {
 	m.bgCancel()
 	m.mu.Lock()
@@ -179,16 +179,16 @@ func (m *Manager) startReload() {
 	m.bgOnce.Do(func() { go m.reloadLoop() })
 }
 
-// Image liefert das Standard-Image.
+// Image returns the default image.
 func (m *Manager) Image() string { return m.opts.Image }
 
-// ContainerName ist der Name des Containers eines Workspaces.
+// ContainerName is the name of a workspace's container.
 func ContainerName(workspace string) string { return "ade-ws-" + workspace }
 
-// ReaderName ist der Name des Lese-Containers eines Workspaces.
+// ReaderName is the name of a workspace's reader container.
 func ReaderName(workspace string) string { return ContainerName(workspace) + "-ro" }
 
-// Error ist ein fehlgeschlagener docker-Aufruf mit dessen Fehlerausgabe.
+// Error is a failed docker call with its error output.
 type Error struct {
 	Args   []string
 	Stderr string
@@ -209,8 +209,8 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.Err }
 
-// dockerEnv ist die Umgebung der Docker-CLI: nur, was sie (oder Podman) zum Finden des
-// Daemons bzw. der rootless-Umgebung braucht.
+// dockerEnv is the Docker CLI's environment: only what it (or Podman) needs to find the
+// daemon or the rootless environment.
 func dockerEnv() []string {
 	var out []string
 	for _, kv := range os.Environ() {
@@ -222,9 +222,9 @@ func dockerEnv() []string {
 	return out
 }
 
-// reservedEnv meldet Variablen, die die Docker-CLI selbst nutzt. Sie werden an docker exec
-// mit Wert übergeben, alle anderen ohne Wert (aus der Umgebung der CLI, damit Werte wie
-// API-Keys nicht in der Prozessliste stehen).
+// reservedEnv reports variables the Docker CLI uses itself. They are passed to docker exec
+// with their value, all others without a value (from the CLI's environment, so values like
+// API keys do not show up in the process list).
 func reservedEnv(k string) bool {
 	switch k {
 	case "PATH", "HOME", "USER", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "DBUS_SESSION_BUS_ADDRESS",
@@ -235,7 +235,7 @@ func reservedEnv(k string) bool {
 }
 
 func (m *Manager) command(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, m.opts.Docker, args...) //nolint:gosec // G204: Argumente baut der Manager
+	cmd := exec.CommandContext(ctx, m.opts.Docker, args...) //nolint:gosec // G204: the manager builds the arguments
 	cmd.Env = dockerEnv()
 	return cmd
 }
@@ -249,15 +249,15 @@ func (m *Manager) run(ctx context.Context, stdin []byte, args ...string) ([]byte
 	}
 	if err := cmd.Run(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			return nil, fmt.Errorf("Docker ist nicht installiert (%s nicht gefunden)", m.opts.Docker)
+			return nil, fmt.Errorf("Docker is not installed (%s not found)", m.opts.Docker)
 		}
 		return stdout.Bytes(), &Error{Args: args, Stderr: stderr.String(), Err: err}
 	}
 	return stdout.Bytes(), nil
 }
 
-// Available prüft (höchstens alle 30 s), ob die Docker-CLI eine Laufzeit erreicht, erkennt
-// deren Art (Runtime) und liefert die Version.
+// Available checks (at most every 30 s) whether the Docker CLI reaches a runtime, detects its
+// kind (Runtime) and returns the version.
 func (m *Manager) Available(ctx context.Context) (string, error) {
 	m.mu.Lock()
 	if a := m.avail; a != nil && time.Since(a.at) < 30*time.Second {
@@ -273,13 +273,13 @@ func (m *Manager) Available(ctx context.Context) (string, error) {
 		rt, err = ParseInfo(out)
 	}
 	if err != nil {
-		err = fmt.Errorf("Docker nicht erreichbar: %w", err)
+		err = fmt.Errorf("Docker not reachable: %w", err)
 	}
 	m.mu.Lock()
 	m.avail = &availability{at: time.Now(), version: rt.Version, err: err}
 	if err == nil && m.opts.Runtime == nil {
 		if m.rt == nil || *m.rt != rt {
-			m.log.Info("Container-Laufzeit erkannt", "laufzeit", rt.Name(), "version", rt.Version)
+			m.log.Info("container runtime detected", "runtime", rt.Name(), "version", rt.Version)
 		}
 		m.rt = &rt
 	}
@@ -287,8 +287,8 @@ func (m *Manager) Available(ctx context.Context) (string, error) {
 	return rt.Version, err
 }
 
-// Runtime liefert die erkannte Container-Laufzeit; ok ist false, solange Available sie noch
-// nicht erkannt hat.
+// Runtime returns the detected container runtime; ok is false as long as Available has not
+// detected it yet.
 func (m *Manager) Runtime() (rt Runtime, ok bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -298,19 +298,19 @@ func (m *Manager) Runtime() (rt Runtime, ok bool) {
 	return *m.rt, true
 }
 
-// Spec beschreibt den Container eines Workspaces.
+// Spec describes a workspace's container.
 type Spec struct {
 	Workspace string
-	// Path ist das Workspace-Verzeichnis auf dem Host (wird nach /workspace gemountet).
+	// Path is the workspace directory on the host (mounted to /workspace).
 	Path   string
 	Config Config
-	// Env sind feste Variablen des Containers (z. B. Git-Identität), keine Secrets.
+	// Env are fixed variables of the container (e.g. Git identity), no secrets.
 	Env []string
-	// Grants sind Egress-Ausnahmen aus Freigaben im Dashboard (ergänzen egress.allow).
+	// Grants are egress exceptions from approvals in the dashboard (they extend egress.allow).
 	Grants []string
 }
 
-// ImageFor liefert das Image für eine Konfiguration.
+// ImageFor returns the image for a configuration.
 func (m *Manager) ImageFor(c Config) string {
 	if c.Image != "" {
 		return c.Image
@@ -318,7 +318,7 @@ func (m *Manager) ImageFor(c Config) string {
 	return m.opts.Image
 }
 
-// Container beschreibt einen Container von ADE.
+// Container describes a container of ADE.
 type Container struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
@@ -329,15 +329,15 @@ type Container struct {
 	Running   bool      `json:"running"`
 	Created   time.Time `json:"created"`
 	Role      string    `json:"role,omitempty"`
-	// Net ist die Version des Netz-Aufbaus (leer: Container aus M5 mit normalem Netz).
+	// Net is the version of the network layout (empty: container from M5 with a normal network).
 	Net    string `json:"net,omitempty"`
 	Binary string `json:"-"`
 	token  string
-	// Mounts sind die Ziele aller Mounts (für Tests und Diagnose).
+	// Mounts are the targets of all mounts (for tests and diagnosis).
 	Mounts []Mount `json:"mounts,omitempty"`
 }
 
-// Mount ist ein Mount eines Containers.
+// Mount is a mount of a container.
 type Mount struct {
 	Type        string `json:"type"`
 	Source      string `json:"source"`
@@ -379,8 +379,8 @@ func (m *Manager) inspect(ctx context.Context, refs ...string) ([]Container, err
 		if len(refs) == 1 {
 			return nil, nil
 		}
-		// Ein Container ist zwischen Auflisten und Inspizieren verschwunden (Verwerfen,
-		// paralleles ade gc): einzeln nachfragen und die fehlenden überspringen (#66).
+		// A container disappeared between listing and inspecting (discard, parallel ade gc):
+		// ask for each one and skip the missing ones (#66).
 		var cs []Container
 		for _, ref := range refs {
 			c, err := m.inspect(ctx, ref)
@@ -393,7 +393,7 @@ func (m *Manager) inspect(ctx context.Context, refs ...string) ([]Container, err
 	}
 	var raw []inspectJSON
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("docker inspect lesen: %w", err)
+		return nil, fmt.Errorf("read docker inspect: %w", err)
 	}
 	cs := make([]Container, 0, len(raw))
 	for _, r := range raw {
@@ -404,7 +404,7 @@ func (m *Manager) inspect(ctx context.Context, refs ...string) ([]Container, err
 			Role: r.Config.Labels[LabelRole], Net: r.Config.Labels[LabelNet], Binary: r.Config.Labels[LabelBinary],
 		}
 		if c.Role == "" {
-			c.Role = RoleAgent // Container aus M5
+			c.Role = RoleAgent // container from M5
 		}
 		for _, kv := range r.Config.Env {
 			if v, ok := strings.CutPrefix(kv, proxy.EnvToken+"="); ok {
@@ -419,12 +419,12 @@ func (m *Manager) inspect(ctx context.Context, refs ...string) ([]Container, err
 	return cs, nil
 }
 
-// Get liefert den Container eines Workspaces oder nil, wenn es keinen gibt.
+// Get returns a workspace's container or nil if there is none.
 func (m *Manager) Get(ctx context.Context, workspace string) (*Container, error) {
 	return m.getRole(ctx, workspace, ContainerName(workspace), RoleAgent)
 }
 
-// GetReader liefert den Lese-Container eines Workspaces oder nil, wenn es keinen gibt.
+// GetReader returns a workspace's reader container or nil if there is none.
 func (m *Manager) GetReader(ctx context.Context, workspace string) (*Container, error) {
 	return m.getRole(ctx, workspace, ReaderName(workspace), RoleReader)
 }
@@ -436,12 +436,12 @@ func (m *Manager) getRole(ctx context.Context, workspace, name, role string) (*C
 	}
 	c := cs[0]
 	if c.DataDir != m.opts.DataDir || c.Workspace != workspace || c.Role != role {
-		return nil, fmt.Errorf("Container %s gehört nicht zu dieser ADE-Instanz", c.Name)
+		return nil, fmt.Errorf("container %s does not belong to this ADE instance", c.Name)
 	}
 	return &c, nil
 }
 
-// List liefert alle Container mit dem Label ade.managed – auch die anderer ADE-Instanzen.
+// List returns all containers with the label ade.managed – also those of other ADE instances.
 func (m *Manager) List(ctx context.Context) ([]Container, error) {
 	out, err := m.run(ctx, nil, "container", "ls", "--all", "--quiet", "--no-trunc", "--filter", "label="+LabelManaged+"=true")
 	if err != nil {
@@ -462,9 +462,9 @@ func (m *Manager) lock(workspace string) func() {
 	return l.Unlock
 }
 
-// Ensure sorgt dafür, dass Netz, Proxy und Container des Workspaces existieren und laufen,
-// und schickt die Policy an den Proxy. Fehlt ein Image lokal, lädt Docker es herunter (das
-// kann dauern). Container aus M5 (normales Netz) werden dabei neu angelegt.
+// Ensure makes sure that network, proxy and container of the workspace exist and run, and
+// sends the policy to the proxy. If an image is missing locally, Docker downloads it (that
+// can take a while). Containers from M5 (normal network) are recreated in the process.
 func (m *Manager) Ensure(ctx context.Context, s Spec) error {
 	unlock := m.lock(s.Workspace)
 	defer unlock()
@@ -476,7 +476,7 @@ func (m *Manager) Ensure(ctx context.Context, s Spec) error {
 		return nil
 	}
 
-	// Die Laufzeit bestimmt UID und Optionen, auch für docker exec (Ergebnis 30 s gecacht).
+	// The runtime determines UID and options, also for docker exec (result cached for 30 s).
 	if _, err := m.Available(ctx); err != nil {
 		return err
 	}
@@ -492,16 +492,16 @@ func (m *Manager) Ensure(ctx context.Context, s Spec) error {
 		return err
 	}
 	if netCreated || (c != nil && c.Net != NetVersion) {
-		// Ein Lese-Container hängt am alten Netz: beim nächsten Gebrauch neu anlegen.
+		// A reader container is attached to the old network: recreate it on next use.
 		if _, err := m.run(ctx, nil, "container", "rm", "--force", "--", ReaderName(s.Workspace)); err != nil && !isNoSuch(err) {
-			return fmt.Errorf("alten Lese-Container entfernen: %w", err)
+			return fmt.Errorf("remove old reader container: %w", err)
 		}
 	}
 	if c != nil && (c.Net != NetVersion || netCreated) {
-		m.log.Info("Sandbox-Container wird mit dem aktuellen Aufbau neu angelegt", "workspace", s.Workspace, "bisher", c.Net)
+		m.log.Info("sandbox container is recreated with the current layout", "workspace", s.Workspace, "before", c.Net)
 		m.unlinkLocked(s.Workspace)
 		if _, err := m.run(ctx, nil, "container", "rm", "--force", "--", c.ID); err != nil {
-			return fmt.Errorf("alten Container entfernen: %w", err)
+			return fmt.Errorf("remove old container: %w", err)
 		}
 		c = nil
 	}
@@ -520,9 +520,9 @@ func (m *Manager) Ensure(ctx context.Context, s Spec) error {
 	}
 	if c == nil || !c.Running {
 		if _, err := m.run(ctx, nil, "container", "start", ContainerName(s.Workspace)); err != nil {
-			return fmt.Errorf("Container starten: %w", err)
+			return fmt.Errorf("start container: %w", err)
 		}
-		m.log.Info("Sandbox-Container gestartet", "workspace", s.Workspace)
+		m.log.Info("sandbox container started", "workspace", s.Workspace)
 	}
 	if created {
 		m.prepareUser(ctx, ContainerName(s.Workspace))
@@ -533,10 +533,10 @@ func (m *Manager) Ensure(ctx context.Context, s Spec) error {
 	return nil
 }
 
-// EnsureReader sorgt wie Ensure für Netz und Proxy und zusätzlich für den Lese-Container
-// des Workspaces: gleiches Image, gleiches internes Netz, gleicher Proxy, aber /workspace
-// nur lesend gemountet. Lese-Rollen einer Fabrik (Planer, Reviewer) laufen darin und können
-// den Workspace nicht ändern.
+// EnsureReader, like Ensure, takes care of network and proxy and additionally of the
+// workspace's reader container: same image, same internal network, same proxy, but
+// /workspace mounted read-only. Read-only roles of a factory (planner, reviewer) run in it and
+// cannot change the workspace.
 func (m *Manager) EnsureReader(ctx context.Context, s Spec) error {
 	if err := m.Ensure(ctx, s); err != nil {
 		return err
@@ -549,7 +549,7 @@ func (m *Manager) EnsureReader(ctx context.Context, s Spec) error {
 	}
 	if c != nil && c.Net != NetVersion {
 		if _, err := m.run(ctx, nil, "container", "rm", "--force", "--", c.ID); err != nil {
-			return fmt.Errorf("alten Lese-Container entfernen: %w", err)
+			return fmt.Errorf("remove old reader container: %w", err)
 		}
 		c = nil
 	}
@@ -558,15 +558,15 @@ func (m *Manager) EnsureReader(ctx context.Context, s Spec) error {
 		if err := checkMountPath(s.Path); err != nil {
 			return err
 		}
-		m.log.Info("Lese-Container wird angelegt", "workspace", s.Workspace, "image", m.ImageFor(s.Config))
+		m.log.Info("creating reader container", "workspace", s.Workspace, "image", m.ImageFor(s.Config))
 		if _, err := m.run(ctx, nil, m.createArgs(s, true)...); err != nil {
-			return fmt.Errorf("Lese-Container anlegen: %w", err)
+			return fmt.Errorf("create reader container: %w", err)
 		}
 		created = true
 	}
 	if c == nil || !c.Running {
 		if _, err := m.run(ctx, nil, "container", "start", ReaderName(s.Workspace)); err != nil {
-			return fmt.Errorf("Lese-Container starten: %w", err)
+			return fmt.Errorf("start reader container: %w", err)
 		}
 	}
 	if created {
@@ -575,10 +575,10 @@ func (m *Manager) EnsureReader(ctx context.Context, s Spec) error {
 	return nil
 }
 
-// CreateArgs liefert die Argumente für docker create (exportiert für Tests).
+// CreateArgs returns the arguments for docker create (exported for tests).
 func (m *Manager) CreateArgs(s Spec) []string { return m.createArgs(s, false) }
 
-// ReaderCreateArgs liefert die Argumente für docker create des Lese-Containers.
+// ReaderCreateArgs returns the arguments for docker create of the reader container.
 func (m *Manager) ReaderCreateArgs(s Spec) []string { return m.createArgs(s, true) }
 
 func (m *Manager) createArgs(s Spec, reader bool) []string {
@@ -613,7 +613,7 @@ func (m *Manager) createArgs(s Spec, reader bool) []string {
 		args = append(args, "--env", kv)
 	}
 	if m.opts.ProxyBinary != "" {
-		// Für ade hook pretooluse (Freigaben); nur lesend, das Binary enthält keine Secrets.
+		// For ade hook pretooluse (approvals); read-only, the binary contains no secrets.
 		args = append(args, "--mount", "type=bind,source="+m.opts.ProxyBinary+",target="+ProxyBinary+",readonly")
 	}
 	if r.Memory != "" {
@@ -633,7 +633,7 @@ func (m *Manager) createArgs(s Spec, reader bool) []string {
 
 func checkMountPath(p string) error {
 	if strings.ContainsAny(p, ",\n") || !strings.HasPrefix(p, "/") {
-		return fmt.Errorf("Workspace-Pfad %q ist für einen Mount ungeeignet", p)
+		return fmt.Errorf("workspace path %q is not suitable for a mount", p)
 	}
 	return nil
 }
@@ -642,15 +642,15 @@ func (m *Manager) create(ctx context.Context, s Spec) error {
 	if err := checkMountPath(s.Path); err != nil {
 		return err
 	}
-	m.log.Info("Sandbox-Container wird angelegt", "workspace", s.Workspace, "image", m.ImageFor(s.Config))
+	m.log.Info("creating sandbox container", "workspace", s.Workspace, "image", m.ImageFor(s.Config))
 	if _, err := m.run(ctx, nil, m.CreateArgs(s)...); err != nil {
-		return fmt.Errorf("Container anlegen: %w", err)
+		return fmt.Errorf("create container: %w", err)
 	}
 	return nil
 }
 
-// prepareUser legt einen passwd-Eintrag an, falls die UID im Image fehlt (sonst zeigen
-// Shells „I have no name!“ und manche Werkzeuge scheitern). Fehler sind nicht fatal.
+// prepareUser adds a passwd entry if the UID is missing in the image (otherwise shells show
+// “I have no name!” and some tools fail). Errors are not fatal.
 func (m *Manager) prepareUser(ctx context.Context, container string) {
 	if m.runtime().RootInContainer() {
 		return
@@ -659,26 +659,26 @@ func (m *Manager) prepareUser(ctx context.Context, container string) {
 	script := `getent group "$2" >/dev/null || echo "ade$2:x:$2:" >> /etc/group
 getent passwd "$1" >/dev/null || echo "ade$1:x:$1:$2:ADE:` + Home + `:/bin/bash" >> /etc/passwd`
 	if _, err := m.run(ctx, nil, "exec", "--user", "0", container, "sh", "-c", script, "sh", uid, gid); err != nil {
-		m.log.Debug("passwd-Eintrag im Container", "container", container, "err", err)
+		m.log.Debug("passwd entry in the container", "container", container, "err", err)
 	}
 }
 
-// Exec beschreibt einen Prozess im Container.
+// Exec describes a process in the container.
 type Exec struct {
 	Argv []string
-	// Env (KEY=VALUE) kommt zur Umgebung des Images hinzu.
+	// Env (KEY=VALUE) is added to the image's environment.
 	Env []string
-	// TTY: mit Pseudo-Terminal (der Aufrufer startet die CLI selbst in einem PTY).
+	// TTY: with a pseudo terminal (the caller starts the CLI itself in a PTY).
 	TTY bool
-	// Stdin: Eingaben weiterreichen.
+	// Stdin: pass on input.
 	Stdin bool
-	// Root: als root statt als Nutzer (nur für Vorbereitungen von ADE).
+	// Root: as root instead of as the user (only for ADE's preparations).
 	Root bool
-	// Reader: im Lese-Container statt im Agent-Container (EnsureReader).
+	// Reader: in the reader container instead of the agent container (EnsureReader).
 	Reader bool
 }
 
-// ExecArgs liefert die Argumente für docker exec und die Umgebung der CLI.
+// ExecArgs returns the arguments for docker exec and the CLI's environment.
 func (m *Manager) ExecArgs(workspace string, e Exec) ([]string, []string) {
 	args := []string{"exec"}
 	if e.Stdin || e.TTY {
@@ -713,8 +713,8 @@ func (m *Manager) ExecArgs(workspace string, e Exec) ([]string, []string) {
 	return append(args, e.Argv...), env
 }
 
-// Command baut einen docker-exec-Aufruf. Endet ctx, wird nur die CLI beendet; Prozesse im
-// Container beendet Signal.
+// Command builds a docker exec call. If ctx ends, only the CLI is ended; Signal ends the
+// processes in the container.
 func (m *Manager) Command(ctx context.Context, workspace string, e Exec) *exec.Cmd {
 	args, env := m.ExecArgs(workspace, e)
 	cmd := m.command(ctx, args...)
@@ -722,8 +722,8 @@ func (m *Manager) Command(ctx context.Context, workspace string, e Exec) *exec.C
 	return cmd
 }
 
-// signalScript sendet ein Signal an alle Prozesse im Container, deren Umgebung die Zeile
-// $1 (KEY=VALUE) enthält – wie ein Signal an eine Prozessgruppe, nur ohne setsid.
+// signalScript sends a signal to all processes in the container whose environment contains
+// the line $1 (KEY=VALUE) – like a signal to a process group, just without setsid.
 const signalScript = `for d in /proc/[0-9]*; do
   p=${d#/proc/}
   [ "$p" = "$$" ] && continue
@@ -731,13 +731,13 @@ const signalScript = `for d in /proc/[0-9]*; do
 done
 exit 0`
 
-// Signal sendet sig an alle Prozesse im Container mit der Umgebungsvariable marker
-// (KEY=VALUE), z. B. ADE_SESSION_ID=<id>.
+// Signal sends sig to all processes in the container with the environment variable marker
+// (KEY=VALUE), e.g. ADE_SESSION_ID=<id>.
 func (m *Manager) Signal(ctx context.Context, workspace, marker string, sig syscall.Signal) error {
 	return m.signalIn(ctx, ContainerName(workspace), marker, sig)
 }
 
-// SignalReader ist Signal für den Lese-Container.
+// SignalReader is Signal for the reader container.
 func (m *Manager) SignalReader(ctx context.Context, workspace, marker string, sig syscall.Signal) error {
 	return m.signalIn(ctx, ReaderName(workspace), marker, sig)
 }
@@ -745,10 +745,10 @@ func (m *Manager) SignalReader(ctx context.Context, workspace, marker string, si
 func (m *Manager) signalIn(ctx context.Context, container, marker string, sig syscall.Signal) error {
 	name := map[syscall.Signal]string{syscall.SIGTERM: "TERM", syscall.SIGKILL: "KILL", syscall.SIGINT: "INT", syscall.SIGHUP: "HUP"}[sig]
 	if name == "" {
-		return fmt.Errorf("Signal %v wird nicht unterstützt", sig)
+		return fmt.Errorf("signal %v is not supported", sig)
 	}
 	if !strings.Contains(marker, "=") || strings.ContainsAny(marker, "\n\x00") {
-		return fmt.Errorf("ungültige Markierung %q", marker)
+		return fmt.Errorf("invalid marker %q", marker)
 	}
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -757,15 +757,15 @@ func (m *Manager) signalIn(ctx context.Context, container, marker string, sig sy
 	return err
 }
 
-// WriteFile schreibt eine Datei im Container (z. B. den Connection-Token der IDE), ohne
-// dass ihr Inhalt in einer Prozessliste erscheint.
+// WriteFile writes a file in the container (e.g. the IDE's connection token) without its
+// contents appearing in a process list.
 func (m *Manager) WriteFile(ctx context.Context, workspace, path string, data []byte) error {
 	_, err := m.run(ctx, data, "exec", "--interactive", "--user", m.user(),
 		ContainerName(workspace), "sh", "-c", `umask 077 && mkdir -p "$(dirname "$1")" && cat > "$1"`, "sh", path)
 	return err
 }
 
-// hostPort liefert den Port auf 127.0.0.1, auf den Docker port des Containers name abbildet.
+// hostPort returns the port on 127.0.0.1 to which Docker maps port of the container name.
 func (m *Manager) hostPort(ctx context.Context, name string, port int) (int, error) {
 	out, err := m.run(ctx, nil, "container", "port", name, strconv.Itoa(port)+"/tcp")
 	if err != nil {
@@ -781,11 +781,11 @@ func (m *Manager) hostPort(ctx context.Context, name string, port int) (int, err
 			return p, nil
 		}
 	}
-	return 0, fmt.Errorf("Port %d des Containers ist nicht auf 127.0.0.1 veröffentlicht", port)
+	return 0, fmt.Errorf("port %d of the container is not published on 127.0.0.1", port)
 }
 
-// Stop stoppt Container, Lese-Container und Proxy eines Workspaces (die Dateien bleiben im
-// Workspace).
+// Stop stops container, reader container and proxy of a workspace (the files stay in the
+// workspace).
 func (m *Manager) Stop(ctx context.Context, workspace string) error {
 	unlock := m.lock(workspace)
 	defer unlock()
@@ -796,7 +796,7 @@ func (m *Manager) Stop(ctx context.Context, workspace string) error {
 	return m.stop(ctx, ContainerName(workspace), ProxyName(workspace))
 }
 
-// unlinkLocked vergisst den Zustand eines Workspaces (Aufrufer hält dessen Lock).
+// unlinkLocked forgets the state of a workspace (the caller holds its lock).
 func (m *Manager) unlinkLocked(workspace string) {
 	m.forget(workspace)
 	m.unlink(workspace)
@@ -808,7 +808,7 @@ func (m *Manager) stop(ctx context.Context, refs ...string) error {
 	}
 	_, err := m.run(ctx, nil, append([]string{"container", "stop", "--time", strconv.Itoa(int(StopTimeout.Seconds())), "--"}, refs...)...)
 	if err != nil && isNoSuch(err) {
-		return nil // z. B. Workspace aus M5 ohne Proxy
+		return nil // e.g. workspace from M5 without a proxy
 	}
 	return err
 }
@@ -819,8 +819,8 @@ func (m *Manager) forget(workspace string) {
 	m.mu.Unlock()
 }
 
-// Remove entfernt Container, Lese-Container, Proxy und Netz eines Workspaces (soweit
-// vorhanden).
+// Remove removes container, reader container, proxy and network of a workspace (as far as
+// they exist).
 func (m *Manager) Remove(ctx context.Context, workspace string) error {
 	unlock := m.lock(workspace)
 	defer unlock()
@@ -845,22 +845,22 @@ func (m *Manager) Remove(ctx context.Context, workspace string) error {
 	}
 	if len(ids) > 0 {
 		if _, err := m.run(ctx, nil, append([]string{"container", "rm", "--force", "--volumes", "--"}, ids...)...); err != nil {
-			return fmt.Errorf("Container entfernen: %w", err)
+			return fmt.Errorf("remove container: %w", err)
 		}
-		m.log.Info("Sandbox-Container entfernt", "workspace", workspace)
+		m.log.Info("sandbox container removed", "workspace", workspace)
 	}
 	nets, err := m.orphanNetworks(ctx, func(ws string) bool { return ws != workspace })
 	if err != nil {
 		return err
 	}
 	if err := m.removeNetworks(ctx, nets...); err != nil {
-		return fmt.Errorf("Netz entfernen: %w", err)
+		return fmt.Errorf("remove network: %w", err)
 	}
 	return nil
 }
 
-// Orphans liefert verwaiste Container: solche dieser Instanz ohne Workspace (known liefert
-// false) und solche anderer Instanzen, deren Datenverzeichnis nicht mehr existiert.
+// Orphans returns orphaned containers: those of this instance without a workspace (known
+// returns false) and those of other instances whose data directory no longer exists.
 func (m *Manager) Orphans(ctx context.Context, known func(workspace string) bool) ([]Container, error) {
 	cs, err := m.List(ctx)
 	if err != nil {
@@ -874,7 +874,7 @@ func (m *Manager) Orphans(ctx context.Context, known func(workspace string) bool
 				out = append(out, c)
 			}
 		case "":
-			// Ohne Instanz-Label nicht anfassen.
+			// Without an instance label, do not touch it.
 		default:
 			if _, err := os.Stat(c.DataDir); errors.Is(err, os.ErrNotExist) {
 				out = append(out, c)
@@ -884,8 +884,8 @@ func (m *Manager) Orphans(ctx context.Context, known func(workspace string) bool
 	return out, nil
 }
 
-// GC entfernt verwaiste Container (Agent und Proxy, siehe Orphans) und danach verwaiste
-// Workspace-Netze. Mit dryRun wird nur aufgelistet.
+// GC removes orphaned containers (agent and proxy, see Orphans) and then orphaned workspace
+// networks. With dryRun it only lists them.
 func (m *Manager) GC(ctx context.Context, known func(workspace string) bool, dryRun bool) ([]Container, error) {
 	orphans, err := m.Orphans(ctx, known)
 	if err != nil || dryRun {
@@ -898,23 +898,23 @@ func (m *Manager) GC(ctx context.Context, known func(workspace string) bool, dry
 			m.unlink(c.Workspace)
 		}
 		if _, err := m.run(ctx, nil, append([]string{"container", "rm", "--force", "--volumes", "--"}, ids...)...); err != nil {
-			return nil, fmt.Errorf("Container entfernen: %w", err)
+			return nil, fmt.Errorf("remove container: %w", err)
 		}
-		m.log.Info("verwaiste Sandbox-Container entfernt", "anzahl", len(orphans))
+		m.log.Info("orphaned sandbox containers removed", "count", len(orphans))
 	}
 	nets, err := m.orphanNetworks(ctx, known)
 	if err != nil {
 		return orphans, err
 	}
 	if err := m.removeNetworks(ctx, nets...); err != nil {
-		return orphans, fmt.Errorf("Netze entfernen: %w", err)
+		return orphans, fmt.Errorf("remove networks: %w", err)
 	}
 	return orphans, nil
 }
 
-// Recover gleicht nach einem Daemon-Start ab: verwaiste Container entfernen, laufende
-// Container eigener Workspaces stoppen (beendet Agent- und IDE-Prozesse des letzten Laufs).
-// Sie starten wieder, sobald sie gebraucht werden.
+// Recover reconciles after a daemon start: remove orphaned containers, stop running
+// containers of own workspaces (ends agent and IDE processes of the last run). They start
+// again as soon as they are needed.
 func (m *Manager) Recover(ctx context.Context, known func(workspace string) bool) error {
 	if _, err := m.Available(ctx); err != nil {
 		return err
@@ -925,7 +925,7 @@ func (m *Manager) Recover(ctx context.Context, known func(workspace string) bool
 	return m.StopAll(ctx)
 }
 
-// StopAll stoppt alle laufenden Container dieser Instanz.
+// StopAll stops all running containers of this instance.
 func (m *Manager) StopAll(ctx context.Context) error {
 	cs, err := m.List(ctx)
 	if err != nil {
@@ -940,12 +940,12 @@ func (m *Manager) StopAll(ctx context.Context) error {
 		}
 	}
 	if len(running) > 0 {
-		m.log.Info("Sandbox-Container werden gestoppt", "anzahl", len(running))
+		m.log.Info("stopping sandbox containers", "count", len(running))
 	}
 	return m.stop(ctx, running...)
 }
 
-// HasMount meldet, ob c ein Mount mit Ziel dst hat (Hilfe für Tests).
+// HasMount reports whether c has a mount with target dst (helper for tests).
 func (c *Container) HasMount(dst string) bool {
 	return slices.ContainsFunc(c.Mounts, func(mt Mount) bool { return mt.Destination == dst })
 }

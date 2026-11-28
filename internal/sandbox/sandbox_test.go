@@ -17,10 +17,10 @@ func TestParseConfig(t *testing.T) {
 	}
 	c, err = ParseConfig(nil)
 	if err != nil || c.Resources != (Resources{Memory: DefaultMemory, CPUs: DefaultCPUs, PIDs: DefaultPIDs}) {
-		t.Fatalf("leer: %+v, %v", c, err)
+		t.Fatalf("empty: %+v, %v", c, err)
 	}
 	if e := c.Egress; e == nil || !e.Default || !slices.Equal(e.Presets, DefaultPresets) || e.OnBlocked != OnBlockedDeny {
-		t.Fatalf("Egress ohne Abschnitt: %+v", c.Egress)
+		t.Fatalf("egress without a section: %+v", c.Egress)
 	}
 	c, err = ParseConfig([]byte("egress:\n  presets: [npm]\n  allow: [api.example.com, \"*.githubusercontent.com\", \"x.example.com:8443\"]\n  deny: [\"*.pastebin.com\"]\n"))
 	if err != nil {
@@ -31,16 +31,16 @@ func TestParseConfig(t *testing.T) {
 		!slices.Equal(deny, []string{"*.pastebin.com"}) {
 		t.Fatalf("Egress: %+v → %v %v", c.Egress, allow, deny)
 	}
-	// Leerer Abschnitt: nichts erlaubt.
+	// Empty section: nothing allowed.
 	c, err = ParseConfig([]byte("egress: {}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if allow, _ := c.Egress.Rules(); len(allow) != 0 {
-		t.Fatalf("egress: {} erlaubt %v", allow)
+		t.Fatalf("egress: {} allows %v", allow)
 	}
 	for _, bad := range []string{
-		"egress:\n  presets: [unbekannt]\n",
+		"egress:\n  presets: [unknown]\n",
 		"egress:\n  allow: [\"*\"]\n",
 		"egress:\n  deny: [\"http://x\"]\n",
 		"egress:\n  on_blocked: vielleicht\n",
@@ -49,10 +49,10 @@ func TestParseConfig(t *testing.T) {
 		"resources:\n  memory: viel\n",
 		"resources:\n  cpus: -1\n",
 		"resources:\n  pids: 3\n",
-		"unbekannt: 1\n",
+		"unknown: 1\n",
 	} {
 		if _, err := ParseConfig([]byte(bad)); err == nil {
-			t.Errorf("%q: kein Fehler", bad)
+			t.Errorf("%q: no error", bad)
 		}
 	}
 }
@@ -83,7 +83,7 @@ func TestCreateArgs(t *testing.T) {
 		"--env GIT_AUTHOR_NAME=X", "--entrypoint sleep img:1 infinity",
 	} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("fehlt %q in %s", want, joined)
+			t.Errorf("missing %q in %s", want, joined)
 		}
 	}
 	for _, bad := range []string{"--privileged", "docker.sock", "--network host", "--volume", "--publish", "ANTHROPIC"} {
@@ -92,10 +92,10 @@ func TestCreateArgs(t *testing.T) {
 		}
 	}
 	if n := strings.Count(joined, "--mount"); n != 1 {
-		t.Errorf("%d Mounts, erwartet genau einen", n)
+		t.Errorf("%d mounts, want exactly one", n)
 	}
 
-	// Mit Proxy-Binary: zusätzlich nur lesend für den Freigabe-Hook.
+	// With proxy binary: additionally read-only for the approval hook.
 	m = New(Options{DataDir: "/data", Image: "img:1", ProxyBinary: "/data/sandbox/ade-proxy"})
 	joined = strings.Join(m.CreateArgs(Spec{Workspace: "abc", Path: "/ws/abc", Config: *withDefaults(&Config{})}), " ")
 	if !strings.Contains(joined, "--mount type=bind,source=/data/sandbox/ade-proxy,target=/opt/ade/ade,readonly") || strings.Count(joined, "--mount") != 2 {
@@ -112,7 +112,7 @@ func TestReaderCreateArgs(t *testing.T) {
 		"--cap-drop ALL", "--user 1234:5678",
 	} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("fehlt %q in %s", want, joined)
+			t.Errorf("missing %q in %s", want, joined)
 		}
 	}
 	if strings.Contains(joined, "--network-alias agent") || strings.Count(joined, "--mount") != 1 {
@@ -120,7 +120,7 @@ func TestReaderCreateArgs(t *testing.T) {
 	}
 	args, _ := m.ExecArgs("abc", Exec{Argv: []string{"true"}, Reader: true})
 	if !slices.Contains(args, "ade-ws-abc-ro") || slices.Contains(args, "ade-ws-abc") {
-		t.Errorf("exec im Lese-Container: %v", args)
+		t.Errorf("exec in the reader container: %v", args)
 	}
 }
 
@@ -129,14 +129,14 @@ func TestExecArgsKeepsValuesOutOfArgv(t *testing.T) {
 	args, env := m.ExecArgs("abc", Exec{Argv: []string{"claude", "-p"}, Env: []string{"ANTHROPIC_API_KEY=geheim", "PATH=/x"}, TTY: true})
 	joined := strings.Join(args, " ")
 	if strings.Contains(joined, "geheim") {
-		t.Fatalf("Secret in der Prozessliste: %s", joined)
+		t.Fatalf("secret in the process list: %s", joined)
 	}
 	if !slices.Contains(env, "ANTHROPIC_API_KEY=geheim") {
-		t.Errorf("Variable fehlt in der Umgebung der CLI")
+		t.Errorf("variable missing in the CLI's environment")
 	}
 	for _, want := range []string{"exec --interactive --tty --detach-keys", "--user 1000:1000", "--workdir /workspace", "--env ANTHROPIC_API_KEY ", "--env PATH=/x", "ade-ws-abc claude -p"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("fehlt %q in %s", want, joined)
+			t.Errorf("missing %q in %s", want, joined)
 		}
 	}
 }
@@ -149,11 +149,11 @@ func TestProxyCreateArgs(t *testing.T) {
 		"--network ade-egress", "--user 1234:5678", "--cap-drop ALL", "--security-opt no-new-privileges", "--read-only",
 		"--mount type=bind,source=/data/sandbox/ade-proxy,target=/opt/ade/ade,readonly",
 		"--publish 127.0.0.1::8081", "--publish 127.0.0.1::3000",
-		"--env ADE_PROXY_TOKEN --publish", // ohne Wert: kommt aus der Umgebung der CLI
+		"--env ADE_PROXY_TOKEN --publish", // without a value: comes from the CLI's environment
 		"--entrypoint /opt/ade/ade img:1 proxy --listen :8080 --control :8081 --ide :3000 --ide-target agent:3000",
 	} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("fehlt %q in %s", want, joined)
+			t.Errorf("missing %q in %s", want, joined)
 		}
 	}
 	for _, bad := range []string{"--privileged", "docker.sock", "--network host", "0.0.0.0", "/workspace"} {
@@ -178,15 +178,15 @@ func TestPolicyFor(t *testing.T) {
 		t.Fatalf("Policy: %+v", p2)
 	}
 	if policyHash(p) == policyHash(p2) {
-		t.Fatal("verschiedene Policies mit gleichem Hash")
+		t.Fatal("different policies with the same hash")
 	}
 	p3 := p2
 	p3.Secrets = map[string]string{"anthropic": "anderer"}
 	if policyHash(p2) == policyHash(p3) {
-		t.Fatal("geänderter Key ändert den Hash nicht")
+		t.Fatal("changed key does not change the hash")
 	}
 
-	// Ausnahmen aus Freigaben ergänzen die Allowlist; on_blocked: ask schaltet Rückfragen ein.
+	// Exceptions from approvals extend the allowlist; on_blocked: ask enables questions.
 	c, err = ParseConfig([]byte("egress:\n  allow: [a.example]\n  on_blocked: ask\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -196,10 +196,10 @@ func TestPolicyFor(t *testing.T) {
 		t.Fatalf("Policy: %+v", p4)
 	}
 	if policyHash(p4) == policyHash(m.policyFor(Spec{Config: *c})) {
-		t.Fatal("Ausnahme ändert den Hash nicht")
+		t.Fatal("exception does not change the hash")
 	}
 	if _, err := ParseConfig([]byte("egress:\n  on_blocked: vielleicht\n")); err == nil {
-		t.Fatal("ungültiges on_blocked angenommen")
+		t.Fatal("invalid on_blocked accepted")
 	}
 }
 
@@ -209,7 +209,7 @@ func TestInstallProxyBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	// Das Test-Binary ist je nach Umgebung dynamisch gelinkt; dann muss die Prüfung greifen.
+	// Depending on the environment the test binary is dynamically linked; then the check must apply.
 	dst, err := InstallProxyBinary(exe, dir)
 	if err != nil {
 		if !strings.Contains(err.Error(), "CGO_ENABLED=0") {
@@ -222,6 +222,6 @@ func TestInstallProxyBinary(t *testing.T) {
 		t.Fatalf("%s: %v %v", dst, st, err)
 	}
 	if again, err := InstallProxyBinary(exe, dir); err != nil || again != dst {
-		t.Fatalf("zweiter Aufruf: %s %v", again, err)
+		t.Fatalf("second call: %s %v", again, err)
 	}
 }
