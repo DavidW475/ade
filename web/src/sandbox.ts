@@ -13,4 +13,4 @@ export function sandboxDefault(info?: SandboxInfo): boolean {
 
 /** Notice about the network isolation of the sandbox (M6). */
 export const networkHint =
-  "It only reaches the internet through the egress proxy and only the targets from .ade/sandbox.yaml (egress); the proxy inserts API keys, the container does not see them.";
+  "It only reaches the internet through the egress proxy and only the targets from .ade/sandbox.yaml (egress); the proxy inserts API keys and tokens, the container does not see them.";

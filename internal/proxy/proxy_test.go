@@ -548,3 +548,62 @@ func TestRunAndIDEForward(t *testing.T) {
 		t.Fatal("Run does not end")
 	}
 }
+
+func TestProviderInjectsOAuthToken(t *testing.T) {
+	type seen struct{ key, auth, beta string }
+	got := make(chan seen, 4)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- seen{r.Header.Get("X-Api-Key"), r.Header.Get("Authorization"), strings.Join(r.Header.Values("Anthropic-Beta"), ",")}
+		w.WriteHeader(200)
+	}))
+	defer upstream.Close()
+	up, _ := url.Parse(upstream.URL)
+	prov := Providers["anthropic"]
+	prov.Upstream = up
+	s, ts := testProxy(t, up.Host, Options{Providers: map[string]Provider{"anthropic": prov}})
+	if err := s.SetPolicy(Policy{Secrets: map[string]string{"anthropic": "sk-ant-oat01-real"}}); err != nil {
+		t.Fatal(err)
+	}
+	send := func(beta string) seen {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/p/anthropic/v1/messages?beta=true", strings.NewReader(`{}`))
+		req.Header.Set("Authorization", "Bearer ade-proxy-injects-the-key")
+		req.Header.Set("X-Api-Key", "placeholder")
+		if beta != "" {
+			req.Header.Set("Anthropic-Beta", beta)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return <-got
+	}
+
+	// Claude Code with CLAUDE_CODE_OAUTH_TOKEN already sends the oauth beta flag.
+	g := send("claude-code-20250219,oauth-2025-04-20")
+	if g.auth != "Bearer sk-ant-oat01-real" || g.key != "" || g.beta != "claude-code-20250219,oauth-2025-04-20" {
+		t.Fatalf("upstream saw %+v", g)
+	}
+	// Without the flag the proxy adds it.
+	if g := send("claude-code-20250219"); g.beta != "claude-code-20250219,oauth-2025-04-20" || g.auth != "Bearer sk-ant-oat01-real" {
+		t.Fatalf("upstream saw %+v", g)
+	}
+	if g := send(""); g.beta != "oauth-2025-04-20" {
+		t.Fatalf("upstream saw %+v", g)
+	}
+
+	// An API key still goes as X-Api-Key, without touching anthropic-beta.
+	if err := s.SetPolicy(Policy{Secrets: map[string]string{"anthropic": "sk-ant-api03-real"}}); err != nil {
+		t.Fatal(err)
+	}
+	if g := send("claude-code-20250219"); g.key != "sk-ant-api03-real" || g.auth != "" || g.beta != "claude-code-20250219" {
+		t.Fatalf("upstream saw %+v", g)
+	}
+}
+
+func TestIsOAuthToken(t *testing.T) {
+	if !IsOAuthToken("anthropic", "sk-ant-oat01-x") || IsOAuthToken("anthropic", "sk-ant-api03-x") || IsOAuthToken("openai", "sk-ant-oat01-x") {
+		t.Fatal("IsOAuthToken")
+	}
+}

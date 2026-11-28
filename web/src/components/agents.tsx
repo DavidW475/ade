@@ -251,7 +251,8 @@ export function StartAgentForm({
               (<code>.ade/project.yaml</code>) allow runs right away, denied calls are rejected, everything else waits for an{" "}
               <Link to="/approvals">approval</Link> in the dashboard. Default: everything allowed in the sandbox, locally only reading and
               editing files in the workspace. The permission mode only applies if the hook is not available. In the sandbox Claude Code needs an
-              API key in the configuration (<code>providers.anthropic</code>); the egress proxy inserts it, the container does not see it.
+              API key or a subscription token in the configuration (<code>providers.anthropic</code>); the egress proxy inserts it, the
+              container does not see it.
             </p>
           )}
         </>

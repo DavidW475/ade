@@ -262,12 +262,12 @@ func defaultAdapter(cfg *config.Config) string {
 	return "claude"
 }
 
-// adapterEnv passes API keys from the configuration to the matching adapters. Without an
-// entry the CLI uses its own login (ADR-010). Only applies to agents without a sandbox.
+// adapterEnv passes API keys or OAuth tokens from the configuration to the matching adapters.
+// Without an entry the CLI uses its own login (ADR-010). Only applies to agents without a sandbox.
 func adapterEnv(cfg *config.Config, log *slog.Logger) func(string) []string {
-	keys := map[string]struct{ provider, env string }{
-		"claude": {"anthropic", "ANTHROPIC_API_KEY"},
-		"codex":  {"openai", "CODEX_API_KEY"},
+	keys := map[string]struct{ provider, env, oauthEnv string }{
+		"claude": {"anthropic", "ANTHROPIC_API_KEY", OAuthTokenEnv},
+		"codex":  {"openai", "CODEX_API_KEY", ""},
 	}
 	return func(name string) []string {
 		k, ok := keys[name]
@@ -275,17 +275,27 @@ func adapterEnv(cfg *config.Config, log *slog.Logger) func(string) []string {
 			return nil
 		}
 		p, ok := cfg.Providers[k.provider]
-		if !ok || p.APIKey == "" {
+		if !ok || !p.Configured() {
 			return nil
 		}
-		v, err := p.ResolveAPIKey()
+		v, oauth, err := p.ResolveSecret()
 		if err != nil {
-			log.Warn("API key cannot be resolved, the CLI uses its own login", "provider", k.provider, "err", err)
+			log.Warn("credential cannot be resolved, the CLI uses its own login", "provider", k.provider, "err", err)
 			return nil
+		}
+		if oauth {
+			if k.oauthEnv == "" {
+				return nil
+			}
+			return []string{k.oauthEnv + "=" + v}
 		}
 		return []string{k.env + "=" + v}
 	}
 }
+
+// OAuthTokenEnv is the variable from which Claude Code reads a subscription token
+// (`claude setup-token`).
+const OAuthTokenEnv = "CLAUDE_CODE_OAUTH_TOKEN" //nolint:gosec // G101: name, not a secret
 
 // injectedProviders are the providers with secret injection through the egress proxy: variable
 // for the base URL and for the placeholder key the CLI sees instead of the real key.
@@ -306,7 +316,7 @@ func providerAccess(cfg *config.Config) func(string, bool) (*adapter.ProviderAcc
 		if !sandboxed || prov == "" {
 			return nil, false
 		}
-		if p, ok := cfg.Providers[prov]; !ok || p.APIKey == "" {
+		if p, ok := cfg.Providers[prov]; !ok || !p.Configured() {
 			return nil, false
 		}
 		if _, ok := injectedProviders[prov]; !ok {
@@ -338,19 +348,23 @@ func proxyUsage(evs []proxy.Event) []agent.ProxyUsage {
 // KeyPlaceholder is in the container instead of an API key; the proxy replaces it.
 const KeyPlaceholder = "ade-proxy-injects-the-key"
 
-// sandboxSecrets returns the resolved API keys for the proxies (secret injection).
+// sandboxSecrets returns the resolved API keys or OAuth tokens for the proxies (secret
+// injection). The proxy recognizes OAuth tokens by their prefix.
 func sandboxSecrets(cfg *config.Config, log *slog.Logger) func() map[string]string {
 	return func() map[string]string {
 		out := map[string]string{}
 		for name := range injectedProviders {
 			p, ok := cfg.Providers[name]
-			if !ok || p.APIKey == "" {
+			if !ok || !p.Configured() {
 				continue
 			}
-			v, err := p.ResolveAPIKey()
+			v, oauth, err := p.ResolveSecret()
 			if err != nil {
-				log.Warn("API key cannot be resolved", "provider", name, "err", err)
+				log.Warn("credential cannot be resolved", "provider", name, "err", err)
 				continue
+			}
+			if oauth && !proxy.IsOAuthToken(name, v) {
+				log.Warn("oauth_token does not look like a token from `claude setup-token` (sk-ant-oat…), the proxy sends it as an API key", "provider", name)
 			}
 			out[name] = v
 		}
@@ -359,14 +373,19 @@ func sandboxSecrets(cfg *config.Config, log *slog.Logger) func() map[string]stri
 }
 
 // sandboxAdapterEnv returns the environment for agents in the sandbox: for every provider with
-// a configured key the base URL points to the proxy, the key is only a placeholder.
-// Without a key the CLI uses its own login through the allowlist (preset anthropic).
+// a configured key or OAuth token the base URL points to the proxy, the credential is only a
+// placeholder. Without one the CLI uses its own login through the allowlist (preset anthropic).
 func sandboxAdapterEnv(cfg *config.Config) func(string) []string {
 	return func(string) []string {
 		var env []string
 		for name, v := range injectedProviders {
-			if p, ok := cfg.Providers[name]; ok && p.APIKey != "" {
-				env = append(env, v.baseURL+"="+sandbox.ProviderBaseURL(name), v.key+"="+KeyPlaceholder)
+			if p, ok := cfg.Providers[name]; ok && p.Configured() {
+				keyEnv := v.key
+				if p.OAuthToken != "" && name == "anthropic" {
+					// Claude Code then authenticates like with a subscription (Bearer, oauth beta).
+					keyEnv = OAuthTokenEnv
+				}
+				env = append(env, v.baseURL+"="+sandbox.ProviderBaseURL(name), keyEnv+"="+KeyPlaceholder)
 				if name == "anthropic" {
 					// Telemetry and the like would otherwise go to Anthropic directly with the placeholder.
 					env = append(env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")

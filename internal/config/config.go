@@ -99,15 +99,40 @@ type IDE struct {
 type Provider struct {
 	// APIKey is a reference like "env:ANTHROPIC_API_KEY", never the plain-text key itself.
 	APIKey string `yaml:"api_key"`
+	// OAuthToken is a reference to a subscription token from `claude setup-token`
+	// (anthropic only, not together with APIKey).
+	OAuthToken string `yaml:"oauth_token"`
 }
+
+// Configured reports whether an API key or an OAuth token is configured.
+func (p Provider) Configured() bool { return p.APIKey != "" || p.OAuthToken != "" }
 
 // ResolveAPIKey resolves the API key reference (see Resolve).
 func (p Provider) ResolveAPIKey() (string, error) { return Resolve(p.APIKey) }
 
+// ResolveSecret resolves the configured credential: the OAuth token if set (oauth is true),
+// otherwise the API key.
+func (p Provider) ResolveSecret() (secret string, oauth bool, err error) {
+	if p.OAuthToken != "" {
+		v, err := Resolve(p.OAuthToken)
+		return v, true, err
+	}
+	v, err := Resolve(p.APIKey)
+	return v, false, err
+}
+
+// secretFileMaxSize limits files referenced with "file:".
+const secretFileMaxSize = 64 << 10
+
 // Resolve resolves a configuration value. Values of the form "env:VAR" are replaced by the
-// contents of the environment variable VAR; an empty or missing variable is an error.
-// Other values are returned unchanged.
+// contents of the environment variable VAR, values of the form "file:PATH" by the contents of
+// the file (without leading and trailing whitespace; "~/" is the home directory). The file must
+// only be accessible to its owner (e.g. mode 0600). An empty or missing variable or file is an
+// error. Other values are returned unchanged.
 func Resolve(v string) (string, error) {
+	if path, ok := strings.CutPrefix(v, "file:"); ok {
+		return resolveFile(path)
+	}
 	name, ok := strings.CutPrefix(v, "env:")
 	if !ok {
 		return v, nil
@@ -118,6 +143,46 @@ func Resolve(v string) (string, error) {
 	val := os.Getenv(name)
 	if val == "" {
 		return "", fmt.Errorf("environment variable %s is not set", name)
+	}
+	return val, nil
+}
+
+func resolveFile(path string) (string, error) {
+	if path == "" {
+		return "", errors.New(`reference "file:" without a path`)
+	}
+	path, err := expandHome(path)
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("file:%s: absolute path or ~/ required", path)
+	}
+	f, err := os.Open(path) //nolint:gosec // G304: path from the user's own configuration
+	if err != nil {
+		return "", fmt.Errorf("read secret: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	st, err := f.Stat()
+	if err != nil {
+		return "", fmt.Errorf("read secret: %w", err)
+	}
+	if !st.Mode().IsRegular() {
+		return "", fmt.Errorf("secret %s is not a regular file", path)
+	}
+	if st.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("secret %s is accessible to others (mode %o); run: chmod 600 %s", path, st.Mode().Perm(), path)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, secretFileMaxSize+1))
+	if err != nil {
+		return "", fmt.Errorf("read secret: %w", err)
+	}
+	if len(data) > secretFileMaxSize {
+		return "", fmt.Errorf("secret %s is larger than %d KiB", path, secretFileMaxSize>>10)
+	}
+	val := strings.TrimSpace(string(data))
+	if val == "" {
+		return "", fmt.Errorf("secret %s is empty", path)
 	}
 	return val, nil
 }
@@ -271,6 +336,17 @@ func (c *Config) validate() error {
 		}
 		if !validName(m.ID) {
 			return fmt.Errorf("models.%s.id %q: invalid model ID", name, m.ID)
+		}
+	}
+	for name, p := range c.Providers {
+		if p.OAuthToken == "" {
+			continue
+		}
+		if name != "anthropic" {
+			return fmt.Errorf("providers.%s.oauth_token: only supported for anthropic", name)
+		}
+		if p.APIKey != "" {
+			return fmt.Errorf("providers.%s: set either api_key or oauth_token, not both", name)
 		}
 	}
 	for id, p := range c.Pricing {

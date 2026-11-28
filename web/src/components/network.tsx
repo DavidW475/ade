@@ -152,7 +152,7 @@ export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
                 <span className="muted">none – blocked targets can be allowed below with one click</span>
               )}
             </dd>
-            <dt>API keys from the proxy</dt>
+            <dt>Credentials from the proxy</dt>
             <dd>
               {pol.providers.length ? (
                 <List items={pol.providers} />
