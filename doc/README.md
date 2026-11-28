@@ -24,6 +24,9 @@ ade start  →  http://localhost:7000
 
 | Dokument | Inhalt |
 |---|---|
+| [guide.md](guide.md) | User guide: installation, first agent, review, sandbox, approvals, costs, factories, troubleshooting |
+| [configuration.md](configuration.md) | Configuration reference: every option of `config.yaml`, `project.yaml`, `sandbox.yaml` and factories |
+| [adapters.md](adapters.md) | Contributor guide: writing an adapter for another agent CLI |
 | [architecture.md](architecture.md) | Gesamtarchitektur, Komponenten, Datenmodell, API, Sicherheit, Tech-Stack, Repo-Struktur |
 | [sandbox.md](sandbox.md) | Docker-Sandbox, Netzwerk-Isolation, Egress-Proxy, Secret-Handling |
 | [threat-model.md](threat-model.md) | Bedrohungsmodell: Werte, Angreifer, Vertrauensgrenzen, Angriffswege, Restrisiken |

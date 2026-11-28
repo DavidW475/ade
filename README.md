@@ -4,11 +4,11 @@ Eine Leitstelle für KI-Agenten, gebaut für **WSL2**: Agenten starten und beoba
 **Docker-Sandboxen** hinter einem **Egress-Proxy** arbeiten lassen, ihre Workspaces in einer
 **VS-Code-kompatiblen Browser-IDE** ansehen und Ergebnisse prüfen und freigeben, alles im Browser.
 
-> **Status:** v0.1 plus Docker-Sandbox (M5) und Egress-Proxy (M6) – Agenten arbeiten auf Wunsch
-> isoliert im Container, ins Internet nur zu freigegebenen Zielen und ohne Zugriff auf API-Keys;
-> das Ergebnis wird im Browser geprüft und übernommen (Mergen, Pull Request, Feedback, Verwerfen).
-> Der Plan steht in [`doc/`](doc/README.md),
-> der Fortschritt in den [Meilensteinen](https://github.com/DavidW475/ade/milestones).
+> **Status:** 1.0 – Agenten lokal oder in Docker-Sandboxen hinter einem Egress-Proxy, Review und
+> Übernahme im Browser, Freigaben, Kosten und Budgets, Software-Fabriken mit Auslösern
+> (GitHub-Issues, Zeitplan), Installationsskript und systemd-Dienst. Einstieg:
+> [Nutzerhandbuch](doc/guide.md) (englisch). Der Plan steht in [`doc/`](doc/README.md), der
+> Fortschritt in den [Meilensteinen](https://github.com/DavidW475/ade/milestones).
 
 ## Idee
 
@@ -119,7 +119,7 @@ Rolle. Eigene Fabriken (andere Rollen, Modelle, Prompts) liegen in `.ade/factori
 `ade gc` entfernt verwaiste Sandbox-Container und -Netze (`--dry-run` zeigt sie nur an).
 
 Konfiguration: `~/.config/ade/config.yaml` und pro Repo `.ade/project.yaml` und
-`.ade/sandbox.yaml` (alle optional,
+`.ade/sandbox.yaml` (alle optional, alle Optionen in der [Referenz](doc/configuration.md),
 Beispiele in [`examples/`](examples/)). Daten liegen in `~/.local/share/ade/`, Workspaces in
 `~/.ade/workspaces/`.
 
@@ -136,6 +136,9 @@ bin/ade start
 
 ## Dokumentation
 
+- [User guide](doc/guide.md) – Installation bis zum ersten gemergten Ergebnis, Fehlerbehebung
+- [Configuration reference](doc/configuration.md) – jede Option aller Konfigurationsdateien
+- [Writing an adapter](doc/adapters.md) – eine weitere Agent-CLI anbinden
 - [Überblick und Begriffe](doc/README.md)
 - [Architektur](doc/architecture.md)
 - [Sandbox und Egress-Proxy](doc/sandbox.md)

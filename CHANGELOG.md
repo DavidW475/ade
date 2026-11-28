@@ -8,6 +8,10 @@ Abschnitt der jeweiligen Version als Release-Notizen.
 
 ### Neu
 
+- **Doku für 1.0** (M11, englisch): [Nutzerhandbuch](doc/guide.md) von der Installation bis zum
+  ersten gemergten Ergebnis samt Fehlerbehebung, [Konfigurationsreferenz](doc/configuration.md)
+  mit jeder Option von `config.yaml`, `.ade/project.yaml`, `.ade/sandbox.yaml` und Fabriken (ein
+  Test prüft sie gegen die Go-Structs) und [Contributor-Guide für Adapter](doc/adapters.md).
 - **Installationsskript** (M11): `curl -fsSL https://raw.githubusercontent.com/DavidW475/ade/main/install.sh | sh`
   lädt das passende Release-Binary, prüft die Prüfsumme, installiert nach `~/.local/bin` und warnt
   bei fehlenden Voraussetzungen (git ≥ 2.38, docker/podman, gh, claude/codex). `--service` richtet

@@ -107,6 +107,8 @@ startet `release.yml` weiterhin direkt; der CHANGELOG-Abschnitt muss trotzdem ex
 
 - **Sprache:** Doku, Kommentare, Fehlermeldungen und UI-Texte auf Deutsch; Bezeichner auf Englisch.
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:` …).
+- **Konfiguration:** Neue oder geänderte YAML-Felder in [`doc/configuration.md`](doc/configuration.md)
+  eintragen; `internal/config/reference_test.go` prüft die Tabellen gegen die Go-Structs.
 - **Architekturentscheidungen** als ADR in [`doc/decisions.md`](doc/decisions.md) anhängen.
 - **Sicherheit:** Der Daemon kann Code ausführen. Änderungen an Auth, Host-/Origin-Prüfung,
   Sandbox oder Proxy brauchen Tests.

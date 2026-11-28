@@ -70,6 +70,8 @@ Neue Module folgen der Struktur in [architecture.md](doc/architecture.md#10-repo
 - **CHANGELOG:** Änderungen unter `[Unveröffentlicht]` eintragen. Eine Versionsüberschrift
   `## [X.Y.Z] – …` nur auf ausdrücklichen Wunsch des Maintainers: Ihr Merge nach `main`
   veröffentlicht automatisch ein Release (ADR-024).
+- **Konfiguration:** Jedes neue YAML-Feld gehört in [`doc/configuration.md`](doc/configuration.md)
+  (Test `internal/config/reference_test.go`).
 - **Architekturentscheidungen** als neues ADR in `doc/decisions.md` anhängen.
 
 ## Arbeitsablauf: Meilensteine, Issues und PRs
