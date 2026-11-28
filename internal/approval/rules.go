@@ -10,39 +10,39 @@ import (
 	"strings"
 )
 
-// Config ist der Abschnitt approvals in .ade/project.yaml: welche Werkzeuge ohne Rückfrage
-// laufen, getrennt für Agenten in der Sandbox und lokal. Fehlt ein Teil, gilt dessen
-// Voreinstellung (DefaultSandbox bzw. DefaultLocal).
+// Config is the approvals section in .ade/project.yaml: which tools run without asking,
+// separately for agents in the sandbox and locally. If a part is missing, its default
+// applies (DefaultSandbox or DefaultLocal).
 type Config struct {
 	Sandbox *RuleSet `yaml:"sandbox" json:"sandbox,omitempty"`
 	Local   *RuleSet `yaml:"local" json:"local,omitempty"`
 }
 
-// RuleSet sind Regeln für eine Umgebung. Einträge: "Tool" oder "Tool(muster)", z. B.
-// "*" (jedes Werkzeug), "Bash(go test *)" (Befehl, der so beginnt; ein abschließendes " *"
-// passt auch ohne Argumente), "Edit(**)" (Datei im Workspace; * innerhalb eines
-// Verzeichnisses, ** darüber hinaus), "Read(/etc/**)" (absoluter Pfad, auch ~/…),
-// "WebFetch(*.example.com)" (Host der URL), "mcp__*" (Werkzeugnamen mit Platzhalter).
+// RuleSet are rules for one environment. Entries: "Tool" or "Tool(pattern)", e.g.
+// "*" (any tool), "Bash(go test *)" (command that starts like this; a trailing " *" also
+// matches without arguments), "Edit(**)" (file in the workspace; * within a directory, **
+// across directories), "Read(/etc/**)" (absolute path, also ~/…),
+// "WebFetch(*.example.com)" (host of the URL), "mcp__*" (tool names with a wildcard).
 //
-// Reihenfolge: deny vor ask vor allow; was nirgends passt, braucht eine Freigabe.
+// Order: deny before ask before allow; anything that matches nowhere needs an approval.
 type RuleSet struct {
 	Allow []string `yaml:"allow" json:"allow"`
 	Ask   []string `yaml:"ask" json:"ask"`
 	Deny  []string `yaml:"deny" json:"deny"`
 }
 
-// DefaultSandbox gilt ohne approvals.sandbox: In der Sandbox begrenzt der Container den Schaden – alles erlaubt.
+// DefaultSandbox applies without approvals.sandbox: in the sandbox the container limits the damage – everything allowed.
 var DefaultSandbox = RuleSet{Allow: []string{"*"}}
 
-// DefaultLocal gilt ohne approvals.local: Ohne Sandbox nur Lesen und Ändern von Dateien im Workspace sowie interne
-// Werkzeuge der CLI; Befehle, Web-Zugriffe und MCP-Werkzeuge brauchen eine Freigabe.
+// DefaultLocal applies without approvals.local: without a sandbox only reading and editing files in the workspace and
+// the CLI's internal tools; commands, web access and MCP tools need an approval.
 var DefaultLocal = RuleSet{Allow: []string{
 	"Read(**)", "Glob(**)", "Grep(**)", "LS(**)", "NotebookRead(**)",
 	"Edit(**)", "MultiEdit(**)", "Write(**)", "NotebookEdit(**)",
 	"TodoWrite", "Task", "Agent", "ExitPlanMode", "BashOutput",
 }}
 
-// Effective liefert die wirksamen Regeln einer Umgebung.
+// Effective returns the effective rules of an environment.
 func (c *Config) Effective(sandbox bool) RuleSet {
 	switch {
 	case c != nil && sandbox && c.Sandbox != nil:
@@ -55,7 +55,7 @@ func (c *Config) Effective(sandbox bool) RuleSet {
 	return DefaultLocal
 }
 
-// Validate prüft alle Einträge.
+// Validate checks all entries.
 func (c *Config) Validate() error {
 	if c == nil {
 		return nil
@@ -71,14 +71,14 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Verdikte einer Regelprüfung.
+// Verdicts of a rule check.
 const (
 	VerdictAllow = "allow"
 	VerdictAsk   = "ask"
 	VerdictDeny  = "deny"
 )
 
-// Rules sind geprüfte Regeln.
+// Rules are checked rules.
 type Rules struct {
 	allow, ask, deny []rule
 }
@@ -86,7 +86,7 @@ type Rules struct {
 type rule struct {
 	raw  string
 	tool *regexp.Regexp
-	// arg ist nil ohne Klammern (dann passt jede Eingabe).
+	// arg is nil without parentheses (then any input matches).
 	arg     string
 	argRE   *regexp.Regexp
 	absPath bool
@@ -94,7 +94,7 @@ type rule struct {
 
 var ruleRE = regexp.MustCompile(`^([A-Za-z0-9_*.:-]+)(?:\((.*)\))?$`)
 
-// Compile prüft ein RuleSet.
+// Compile checks a RuleSet.
 func Compile(rs RuleSet) (*Rules, error) {
 	out := &Rules{}
 	for _, l := range []struct {
@@ -118,13 +118,13 @@ func parseRule(s string) (rule, error) {
 	s = strings.TrimSpace(s)
 	m := ruleRE.FindStringSubmatch(s)
 	if m == nil {
-		return rule{}, fmt.Errorf("%q ist keine gültige Regel (Tool oder Tool(muster))", raw)
+		return rule{}, fmt.Errorf("%q is not a valid rule (Tool or Tool(pattern))", raw)
 	}
 	r := rule{raw: s, tool: globRE(m[1], false)}
 	if strings.Contains(s, "(") {
 		r.arg = strings.TrimSpace(m[2])
 		if r.arg == "" {
-			return rule{}, fmt.Errorf("%q: leeres Muster", raw)
+			return rule{}, fmt.Errorf("%q: empty pattern", raw)
 		}
 		switch kindOf(m[1]) {
 		case argPath:
@@ -150,7 +150,7 @@ func parseRule(s string) (rule, error) {
 	return r, nil
 }
 
-// globRE übersetzt ein Muster: * (bei Pfaden ohne /), ** (über Verzeichnisse), ?.
+// globRE translates a pattern: * (for paths without /), ** (across directories), ?.
 func globRE(p string, path bool) *regexp.Regexp {
 	return regexp.MustCompile("^" + globBody(p, path) + "$")
 }
@@ -195,7 +195,7 @@ const (
 	argURL
 )
 
-// pathFields sind die Eingabefelder mit Pfaden je Werkzeug von Claude Code.
+// pathFields are the input fields with paths per Claude Code tool.
 var pathFields = map[string]string{
 	"Read": "file_path", "Edit": "file_path", "MultiEdit": "file_path", "Write": "file_path",
 	"NotebookEdit": "notebook_path", "NotebookRead": "notebook_path",
@@ -214,20 +214,20 @@ func kindOf(tool string) argKind {
 	return argOther
 }
 
-// Call ist ein Werkzeug-Aufruf, wie die Regeln ihn sehen.
+// Call is a tool call as the rules see it.
 type Call struct {
 	Tool  string
 	Input json.RawMessage
-	// Workdir ist das Workspace-Verzeichnis aus Sicht des Agenten (lokal der Pfad auf dem
-	// Host, in der Sandbox /workspace).
+	// Workdir is the workspace directory from the agent's point of view (locally the path on
+	// the host, in the sandbox /workspace).
 	Workdir string
-	// ResolveLinks: Symlinks auf dem Host auflösen (nur lokal; in der Sandbox sieht der
-	// Daemon das Dateisystem des Containers nicht).
+	// ResolveLinks: resolve symlinks on the host (only locally; in the sandbox the daemon
+	// does not see the container's file system).
 	ResolveLinks bool
 }
 
-// Evaluate prüft einen Aufruf: deny vor ask vor allow, sonst ask. Liefert das Verdikt und
-// die passende Regel (leer: keine).
+// Evaluate checks a call: deny before ask before allow, otherwise ask. Returns the verdict
+// and the matching rule (empty: none).
 func (rs *Rules) Evaluate(c Call) (string, string) {
 	arg := c.arg()
 	if r := matchAny(rs.deny, c.Tool, arg, true); r != "" {
@@ -242,10 +242,10 @@ func (rs *Rules) Evaluate(c Call) (string, string) {
 	return VerdictAsk, ""
 }
 
-// callArg ist das Argument eines Aufrufs für die Muster.
+// callArg is the argument of a call for the patterns.
 type callArg struct {
 	kind argKind
-	// rel ist der Pfad relativ zum Workspace ("" außerhalb), abs der absolute.
+	// rel is the path relative to the workspace ("" outside), abs the absolute one.
 	rel, abs string
 	cmd      string
 	host     string
@@ -284,7 +284,7 @@ func (c Call) arg() callArg {
 	return a
 }
 
-// resolve löst Symlinks im längsten vorhandenen Teil des Pfads auf.
+// resolve resolves symlinks in the longest existing part of the path.
 func resolve(p string) string {
 	rest := ""
 	for cur := p; ; {
@@ -300,11 +300,11 @@ func resolve(p string) string {
 	}
 }
 
-// compound erkennt zusammengesetzte Shell-Befehle (Verkettung, Pipes, Umleitungen,
-// Ersetzungen). Allow-Regeln passen nie auf sie.
+// compound detects compound shell commands (chaining, pipes, redirections,
+// substitutions). Allow rules never match them.
 var compound = regexp.MustCompile("[;&|<>`\\n\\r]|\\$\\(")
 
-// segments zerlegt einen Befehl grob an Trennzeichen (für deny/ask).
+// segments roughly splits a command at separators (for deny/ask).
 var segmentSplit = regexp.MustCompile("[;&|\\n\\r]+|\\$\\(|`|\\)")
 
 func matchAny(rules []rule, tool string, a callArg, strict bool) string {
@@ -316,7 +316,7 @@ func matchAny(rules []rule, tool string, a callArg, strict bool) string {
 	return ""
 }
 
-// match prüft eine Regel. strict (deny/ask): bei Befehlen passt auch ein Teilbefehl.
+// match checks a rule. strict (deny/ask): for commands a sub-command matches as well.
 func (r rule) match(tool string, a callArg, strict bool) bool {
 	if !r.tool.MatchString(tool) {
 		return false
@@ -330,7 +330,7 @@ func (r rule) match(tool string, a callArg, strict bool) bool {
 			return r.argRE.MatchString(a.abs)
 		}
 		if a.rel == "" {
-			return false // außerhalb des Workspaces passt kein relatives Muster
+			return false // outside the workspace no relative pattern matches
 		}
 		return r.argRE.MatchString(a.rel)
 	case argCommand:

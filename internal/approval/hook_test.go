@@ -44,17 +44,17 @@ func TestRunHook(t *testing.T) {
 	}
 	answer = proxy.Answer{Decision: "irgendwas"}
 	if d, _ := runHook(t, `{}`, env); d != "deny" {
-		t.Fatalf("unbekannte Antwort: %s", d)
+		t.Fatalf("unknown answer: %s", d)
 	}
 
-	// Fehler führen immer zu deny.
+	// Errors always lead to deny.
 	for name, c := range map[string]struct {
 		in  string
 		env map[string]string
 	}{
-		"kein JSON":      {"nope", env},
-		"ohne URL":       {`{}`, map[string]string{}},
-		"nicht erreichb": {`{}`, map[string]string{EnvHookURL: "http://127.0.0.1:1/x"}},
+		"not JSON":      {"nope", env},
+		"without URL":   {`{}`, map[string]string{}},
+		"not reachable": {`{}`, map[string]string{EnvHookURL: "http://127.0.0.1:1/x"}},
 	} {
 		if d, r := runHook(t, c.in, c.env); d != "deny" || !strings.HasPrefix(r, "ADE:") {
 			t.Errorf("%s: %s %q", name, d, r)

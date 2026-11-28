@@ -42,8 +42,8 @@ func writeFile(t *testing.T, p, data string, mode os.FileMode) {
 	}
 }
 
-// fakeGH ist ein gh-Skript: issue list liefert den Inhalt von issues.json, issue comment
-// hängt den Kommentar an comments.log an, pr create liefert eine PR-URL und speichert den Text.
+// fakeGH is a gh script: issue list returns the contents of issues.json, issue comment
+// appends the comment to comments.log, pr create returns a PR URL and stores the text.
 type fakeGH struct {
 	dir, path string
 }
@@ -58,7 +58,7 @@ case "$1 $2" in
   "issue list") cat "$d/issues.json" ;;
   "issue comment") printf '#%s: ' "$3" >> "$d/comments.log"; cat >> "$d/comments.log"; echo >> "$d/comments.log" ;;
   "pr create") cat > "$d/pr.md"; echo https://github.com/o/r/pull/42 ;;
-  *) echo "unbekannt: $*" >&2; exit 1 ;;
+  *) echo "unknown: $*" >&2; exit 1 ;;
 esac
 `, 0o700)
 	g.issues(t)
@@ -80,13 +80,13 @@ func (g *fakeGH) read(name string) string {
 }
 
 func issueJSON(n int, title, author string) map[string]any {
-	return map[string]any{"number": n, "title": title, "body": "Bitte " + title, "url": "https://github.com/o/r/issues/" + itoa(n),
+	return map[string]any{"number": n, "title": title, "body": "Please " + title, "url": "https://github.com/o/r/issues/" + itoa(n),
 		"author": map[string]string{"login": author}}
 }
 
 func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
 
-// fakeRuns merkt sich gestartete Runs; Status lässt sich setzen.
+// fakeRuns remembers started runs; the status can be set.
 type fakeRuns struct {
 	mu     sync.Mutex
 	reqs   []factory.StartRequest
@@ -114,7 +114,7 @@ func (f *fakeRuns) Get(_ context.Context, id string) (*factory.View, error) {
 		v.PRURL = "https://github.com/o/r/pull/1"
 	}
 	if v.Status == store.RunFailed {
-		v.Error = "Schritt x: kaputt"
+		v.Error = "step x: broken"
 	}
 	return v, nil
 }
@@ -173,53 +173,53 @@ const issuesYAML = `triggers:
 
 func TestGitHubIssues(t *testing.T) {
 	e := setup(t, issuesYAML)
-	e.gh.issues(t, issueJSON(7, "Login-Seite", "alice"), issueJSON(3, "Export", "bob"), issueJSON(9, "Fremd", "mallory"))
+	e.gh.issues(t, issueJSON(7, "Login page", "alice"), issueJSON(3, "Export", "bob"), issueJSON(9, "Foreign", "mallory"))
 	e.svc.Check(e.ctx)
 
 	if len(e.runs.reqs) != 2 {
 		t.Fatalf("Runs %+v", e.runs.reqs)
 	}
-	r := e.runs.reqs[0] // kleinste Nummer zuerst
+	r := e.runs.reqs[0] // smallest number first
 	if r.Closes != 3 || r.Factory != "feature" || r.Trigger != "features" || !r.RequireBudget || r.Sandbox == nil || !*r.Sandbox {
 		t.Fatalf("Start %+v", r)
 	}
-	if !strings.Contains(r.Task, "GitHub-Issue #3: Export") || !strings.Contains(r.Task, "Bitte Export") || r.Inputs["area"] != "backend" {
-		t.Fatalf("Aufgabe %q, Eingaben %v", r.Task, r.Inputs)
+	if !strings.Contains(r.Task, "GitHub issue #3: Export") || !strings.Contains(r.Task, "Please Export") || r.Inputs["area"] != "backend" {
+		t.Fatalf("task %q, inputs %v", r.Task, r.Inputs)
 	}
 	if r.TriggerRef != "https://github.com/o/r/issues/3" {
 		t.Fatalf("Verweis %q", r.TriggerRef)
 	}
-	if c := e.gh.read("comments.log"); !strings.Contains(c, "#3: ADE: Run `run1`") || !strings.Contains(c, "#7: ADE: Run `run2`") || strings.Contains(c, "#9") {
+	if c := e.gh.read("comments.log"); !strings.Contains(c, "#3: ADE: run `run1`") || !strings.Contains(c, "#7: ADE: run `run2`") || strings.Contains(c, "#9") {
 		t.Fatalf("Kommentare %q", c)
 	}
 	if !strings.Contains(e.gh.read("calls.log"), "issue list --state open --label ade:feature") {
-		t.Fatalf("Aufrufe %q", e.gh.read("calls.log"))
+		t.Fatalf("calls %q", e.gh.read("calls.log"))
 	}
 
-	// Vor Ablauf des Intervalls keine neue Abfrage; danach keine doppelten Runs.
+	// No new poll before the interval expires; afterwards no duplicate runs.
 	calls := strings.Count(e.gh.read("calls.log"), "issue list")
 	e.now = e.now.Add(time.Minute)
 	e.svc.Check(e.ctx)
 	if strings.Count(e.gh.read("calls.log"), "issue list") != calls {
-		t.Fatal("Abfrage vor Ablauf des Intervalls")
+		t.Fatal("poll before the interval expired")
 	}
 	e.now = e.now.Add(5 * time.Minute)
 	e.svc.Check(e.ctx)
 	if len(e.runs.reqs) != 2 || strings.Count(e.gh.read("calls.log"), "issue list") != calls+1 {
-		t.Fatalf("doppelt gestartet: %d Runs", len(e.runs.reqs))
+		t.Fatalf("started twice: %d runs", len(e.runs.reqs))
 	}
 
-	// Ende melden: fertig mit PR, fehlgeschlagen; jeweils nur einmal.
+	// Report the end: done with PR, failed; each only once.
 	e.runs.set("run1", store.RunDone)
 	e.runs.set("run2", store.RunFailed)
 	e.svc.Check(e.ctx)
 	e.svc.Check(e.ctx)
 	c := e.gh.read("comments.log")
-	if strings.Count(c, "pull/1") != 1 || strings.Count(c, "fehlgeschlagen: Schritt x: kaputt") != 1 {
-		t.Fatalf("Rückmeldungen %q", c)
+	if strings.Count(c, "pull/1") != 1 || strings.Count(c, "failed: step x: broken") != 1 {
+		t.Fatalf("reports %q", c)
 	}
 
-	// Ansicht und Pause.
+	// View and pause.
 	list, err := e.svc.List(e.ctx, e.p.ID)
 	if err != nil || len(list) != 1 || len(list[0].Runs) != 2 || list[0].Next == nil || list[0].State.LastCheck == nil {
 		t.Fatalf("Liste %+v %v", list, err)
@@ -231,36 +231,36 @@ func TestGitHubIssues(t *testing.T) {
 	e.now = e.now.Add(time.Hour)
 	e.svc.Check(e.ctx)
 	if len(e.runs.reqs) != 2 {
-		t.Fatal("pausierter Auslöser hat einen Run gestartet")
+		t.Fatal("paused trigger started a run")
 	}
 	if _, err := e.svc.SetPaused(e.ctx, e.p.ID, "nope", true); err == nil {
-		t.Fatal("unbekannter Auslöser ohne Fehler")
+		t.Fatal("unknown trigger without an error")
 	}
 }
 
 func TestGitHubIssuesErrors(t *testing.T) {
 	e := setup(t, issuesYAML)
 	e.gh.issues(t, issueJSON(1, "A", "alice"))
-	e.runs.err = errString("die Fabrik feature hat kein budget.max_cost_usd")
+	e.runs.err = errString("factory feature has no budget.max_cost_usd")
 	e.svc.Check(e.ctx)
 	st, _ := e.st.GetTriggerState(e.ctx, e.p.ID, "features")
-	if !strings.Contains(st.LastError, "Issue #1: die Fabrik feature hat kein budget") {
+	if !strings.Contains(st.LastError, "issue #1: factory feature has no budget") {
 		t.Fatalf("Fehler %q", st.LastError)
 	}
-	// Ein gescheiterter Start wird beim nächsten Mal erneut versucht.
+	// A failed start is retried next time.
 	e.runs.err = nil
 	e.now = e.now.Add(10 * time.Minute)
 	e.svc.Check(e.ctx)
 	st, _ = e.st.GetTriggerState(e.ctx, e.p.ID, "features")
 	if len(e.runs.reqs) != 1 || st.LastError != "" {
-		t.Fatalf("zweiter Versuch: %d Runs, Fehler %q", len(e.runs.reqs), st.LastError)
+		t.Fatalf("second attempt: %d runs, error %q", len(e.runs.reqs), st.LastError)
 	}
-	// gh scheitert.
-	writeFile(t, filepath.Join(e.gh.dir, "issues.json"), "kein json", 0o600)
+	// gh fails.
+	writeFile(t, filepath.Join(e.gh.dir, "issues.json"), "no json", 0o600)
 	e.now = e.now.Add(10 * time.Minute)
 	e.svc.Check(e.ctx)
 	st, _ = e.st.GetTriggerState(e.ctx, e.p.ID, "features")
-	if !strings.Contains(st.LastError, "nicht lesbar") {
+	if !strings.Contains(st.LastError, "not readable") {
 		t.Fatalf("Fehler %q", st.LastError)
 	}
 }
@@ -275,19 +275,19 @@ func TestSchedule(t *testing.T) {
     factory: deps
     sandbox: false
     allow_unbudgeted: true
-    inputs: { task: "Abhängigkeiten aktualisieren" }
+    inputs: { task: "Update dependencies" }
     schedule: { cron: "0 3 * * *" }
 `)
-	// Erstmals gesehen: nichts nachholen.
+	// Seen for the first time: catch up on nothing.
 	e.svc.Check(e.ctx)
 	if len(e.runs.reqs) != 0 {
-		t.Fatal("Run beim ersten Sehen")
+		t.Fatal("run when first seen")
 	}
 	list, _ := e.svc.List(e.ctx, e.p.ID)
 	if list[0].Next == nil || list[0].Next.Format("2006-01-02 15:04") != "2026-11-28 03:00" {
-		t.Fatalf("nächster Termin %v", list[0].Next)
+		t.Fatalf("next date %v", list[0].Next)
 	}
-	// Zum Termin: ein Run.
+	// At the date: one run.
 	e.now = time.Date(2026, 11, 28, 3, 0, 20, 0, time.UTC)
 	e.svc.Check(e.ctx)
 	e.svc.Check(e.ctx)
@@ -295,28 +295,28 @@ func TestSchedule(t *testing.T) {
 		t.Fatalf("%d Runs", len(e.runs.reqs))
 	}
 	r := e.runs.reqs[0]
-	if r.Inputs["task"] != "Abhängigkeiten aktualisieren" || r.RequireBudget || *r.Sandbox || r.Closes != 0 || !strings.Contains(r.TriggerRef, "2026-11-28 03:00") {
+	if r.Inputs["task"] != "Update dependencies" || r.RequireBudget || *r.Sandbox || r.Closes != 0 || !strings.Contains(r.TriggerRef, "2026-11-28 03:00") {
 		t.Fatalf("Start %+v", r)
 	}
-	// Nächster Termin, während der vorige Run noch läuft: übersprungen.
+	// Next date while the previous run is still running: skipped.
 	e.now = time.Date(2026, 11, 29, 3, 0, 5, 0, time.UTC)
 	e.svc.Check(e.ctx)
 	st, _ := e.st.GetTriggerState(e.ctx, e.p.ID, "nightly")
-	if len(e.runs.reqs) != 1 || !strings.Contains(st.LastError, "läuft noch") {
-		t.Fatalf("%d Runs, Fehler %q", len(e.runs.reqs), st.LastError)
+	if len(e.runs.reqs) != 1 || !strings.Contains(st.LastError, "still running") {
+		t.Fatalf("%d runs, error %q", len(e.runs.reqs), st.LastError)
 	}
-	// Daemon lag drei Tage still: nur der letzte verpasste Termin wird nachgeholt.
+	// The daemon was idle for three days: only the last missed date is caught up.
 	e.runs.set("run1", store.RunDone)
 	e.now = time.Date(2026, 12, 2, 12, 0, 0, 0, time.UTC)
 	e.svc.Check(e.ctx)
 	if len(e.runs.reqs) != 2 || !strings.Contains(e.runs.reqs[1].TriggerRef, "2026-12-02 03:00") {
 		t.Fatalf("Nachholen: %+v", e.runs.reqs)
 	}
-	// Zeitplan-Runs bekommen keinen Kommentar.
+	// Schedule runs get no comment.
 	e.runs.set("run2", store.RunDone)
 	e.svc.Check(e.ctx)
 	if e.gh.read("comments.log") != "" {
-		t.Fatal("Kommentar für Zeitplan-Run")
+		t.Fatal("comment for a schedule run")
 	}
 }
 
@@ -332,17 +332,17 @@ func TestScheduleNoCatchUp(t *testing.T) {
 	e.svc.Check(e.ctx)
 	st, _ := e.st.GetTriggerState(e.ctx, e.p.ID, "hourly")
 	if len(e.runs.reqs) != 0 || !strings.Contains(st.LastError, "verpasst") {
-		t.Fatalf("%d Runs, Fehler %q", len(e.runs.reqs), st.LastError)
+		t.Fatalf("%d runs, error %q", len(e.runs.reqs), st.LastError)
 	}
 	e.now = time.Date(2026, 11, 27, 18, 0, 30, 0, time.UTC)
 	e.svc.Check(e.ctx)
 	if len(e.runs.reqs) != 1 {
-		t.Fatalf("pünktlicher Termin: %d Runs", len(e.runs.reqs))
+		t.Fatalf("punctual date: %d runs", len(e.runs.reqs))
 	}
 }
 
-// TestIssueToPullRequest: Ein gelabeltes Issue startet mit dem echten Runner einen Run, der
-// als PR endet (Akzeptanzkriterium M10); der PR schließt das Issue, am Issue steht der Link.
+// TestIssueToPullRequest: a labeled issue starts a run with the real runner that ends as a
+// PR (acceptance criterion M10); the PR closes the issue, the issue has the link.
 func TestIssueToPullRequest(t *testing.T) {
 	e := setup(t, `triggers:
   - name: issues
@@ -373,7 +373,7 @@ budget: { max_cost_usd: 1 }
 	t.Cleanup(wm.Close)
 	wm.SetGitHubCLI(e.gh.path)
 	fa := &fake.Adapter{AdapterName: "claude", Argv: []string{"sh", "-c", `while read -r l; do
-  echo geaendert > "datei-$ADE_SESSION_ID"
+  echo changed > "file-$ADE_SESSION_ID"
   printf '%s\n' "$l"
   echo '{"type":"turn_done"}'
 done`}}
@@ -389,11 +389,11 @@ done`}}
 	t.Cleanup(func() { runner.Close(); approvals.Close(); agents.Close() })
 	svc := New(Options{Store: e.st, Projects: e.ps, Runs: runner, GH: e.gh.path, Logger: log})
 
-	e.gh.issues(t, issueJSON(5, "Datei anlegen", "alice"))
+	e.gh.issues(t, issueJSON(5, "Create file", "alice"))
 	svc.Check(e.ctx)
 	trs, _ := e.st.ListTriggerRuns(e.ctx, store.TriggerRunFilter{ProjectID: e.p.ID})
 	if len(trs) != 1 {
-		t.Fatalf("ausgelöste Runs %+v (Fehler: %v)", trs, func() string { s, _ := e.st.GetTriggerState(e.ctx, e.p.ID, "issues"); return s.LastError }())
+		t.Fatalf("triggered runs %+v (error: %v)", trs, func() string { s, _ := e.st.GetTriggerState(e.ctx, e.p.ID, "issues"); return s.LastError }())
 	}
 	deadline := time.Now().Add(20 * time.Second)
 	for {
@@ -408,18 +408,18 @@ done`}}
 			break
 		}
 		if !store.RunActive(v.Status) {
-			t.Fatalf("Run endete mit %s: %s", v.Status, v.Error)
+			t.Fatalf("run ended with %s: %s", v.Status, v.Error)
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("Zeitüberschreitung")
+			t.Fatal("timeout")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if pr := e.gh.read("pr.md"); !strings.HasPrefix(pr, "Closes #5\n") || !strings.Contains(pr, "Auslöser `issues`") {
+	if pr := e.gh.read("pr.md"); !strings.HasPrefix(pr, "Closes #5\n") || !strings.Contains(pr, "trigger `issues`") {
 		t.Fatalf("PR-Text:\n%s", pr)
 	}
 	svc.Check(e.ctx)
-	if c := e.gh.read("comments.log"); !strings.Contains(c, "#5: ADE: Run") || !strings.Contains(c, "pull/42") {
+	if c := e.gh.read("comments.log"); !strings.Contains(c, "#5: ADE: run") || !strings.Contains(c, "pull/42") {
 		t.Fatalf("Kommentare %q", c)
 	}
 }

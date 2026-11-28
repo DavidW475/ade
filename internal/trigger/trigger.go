@@ -1,6 +1,6 @@
-// Package trigger startet Fabrik-Runs automatisch (doc/factory.md#5-auslöser): je offenem
-// GitHub-Issue mit Label einen Run (Polling über gh) und Runs nach Zeitplan. Die Auslöser
-// stehen in .ade/project.yaml (triggers), ihr Zustand in SQLite.
+// Package trigger starts factory runs automatically (doc/factory.md#5-triggers): one run per
+// open GitHub issue with a label (polling via gh) and runs on a schedule. The triggers are
+// configured in .ade/project.yaml (triggers), their state is in SQLite.
 package trigger
 
 import (
@@ -21,47 +21,47 @@ import (
 	"github.com/DavidW475/ade/internal/store"
 )
 
-// DefaultTick ist der Abstand, in dem der Dienst alle Auslöser prüft.
+// DefaultTick is the interval at which the service checks all triggers.
 const DefaultTick = time.Minute
 
-// maxStartsPerPoll begrenzt die Runs, die eine Abfrage startet (der Rest folgt bei der
-// nächsten).
+// maxStartsPerPoll limits the runs one poll starts (the rest follows at the next
+// one).
 const maxStartsPerPoll = 5
 
-// lookback begrenzt, wie weit ein Zeitplan nach einer Pause zurückschaut.
+// lookback limits how far a schedule looks back after a pause.
 const lookback = 7 * 24 * time.Hour
 
-// Runs startet und liest Runs (factory.Runner).
+// Runs starts and reads runs (factory.Runner).
 type Runs interface {
 	Start(ctx context.Context, req factory.StartRequest) (*factory.View, error)
 	Get(ctx context.Context, id string) (*factory.View, error)
 }
 
-// Options konfiguriert den Dienst.
+// Options configures the service.
 type Options struct {
 	Store    *store.Store
 	Projects *project.Service
 	Runs     Runs
-	// GH ist das gh-Binary (Standard: gh im PATH).
+	// GH is the gh binary (default: gh in PATH).
 	GH     string
 	Logger *slog.Logger
-	// Now und Tick überschreiben Uhr und Takt (Tests).
+	// Now and Tick override clock and tick (tests).
 	Now  func() time.Time
 	Tick time.Duration
 }
 
-// Service prüft die Auslöser aller Projekte im Takt.
+// Service checks the triggers of all projects at the tick.
 type Service struct {
 	opts Options
 	log  *slog.Logger
 
-	mu     sync.Mutex // eine Prüfung zur Zeit
+	mu     sync.Mutex // one check at a time
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
-// New erzeugt den Dienst.
+// New creates the service.
 func New(opts Options) *Service {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
@@ -79,7 +79,7 @@ func New(opts Options) *Service {
 	return &Service{opts: opts, log: opts.Logger, ctx: ctx, cancel: cancel}
 }
 
-// Start prüft die Auslöser sofort und danach im Takt.
+// Start checks the triggers right away and then at the tick.
 func (s *Service) Start() {
 	s.wg.Add(1)
 	go func() {
@@ -97,20 +97,20 @@ func (s *Service) Start() {
 	}()
 }
 
-// Close hält den Dienst an.
+// Close stops the service.
 func (s *Service) Close() {
 	s.cancel()
 	s.wg.Wait()
 }
 
-// Check prüft einmal alle Auslöser: fällige Abfragen und Termine, Rückmeldungen an Issues.
+// Check checks all triggers once: due polls and dates, reports to issues.
 func (s *Service) Check(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ps, err := s.opts.Projects.List(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
-			s.log.Error("Projekte lesen", "err", err)
+			s.log.Error("read projects", "err", err)
 		}
 		return
 	}
@@ -156,11 +156,11 @@ func errText(err error) string {
 
 func (s *Service) update(ctx context.Context, projectID, name string, u store.TriggerUpdate) {
 	if err := s.opts.Store.UpdateTriggerState(ctx, projectID, name, u); err != nil && ctx.Err() == nil {
-		s.log.Error("Zustand des Auslösers speichern", "projekt", projectID, "auslöser", name, "err", err)
+		s.log.Error("store trigger state", "project", projectID, "trigger", name, "err", err)
 	}
 }
 
-// startRun startet einen Run für den Auslöser und vermerkt ihn unter key.
+// startRun starts a run for the trigger and records it under key.
 func (s *Service) startRun(ctx context.Context, p *project.View, t *project.Trigger, key string, req factory.StartRequest) (*factory.View, error) {
 	sandboxed := t.SandboxOn()
 	req.ProjectID, req.Factory, req.Sandbox = p.ID, t.Factory, &sandboxed
@@ -178,19 +178,19 @@ func (s *Service) startRun(ctx context.Context, p *project.View, t *project.Trig
 	if err := s.opts.Store.AddTriggerRun(ctx, &store.TriggerRun{ProjectID: p.ID, Trigger: t.Name, Key: key, RunID: v.ID}); err != nil {
 		return v, err
 	}
-	s.log.Info("Run ausgelöst", "projekt", p.ID, "auslöser", t.Name, "schlüssel", key, "run", v.ID)
+	s.log.Info("run triggered", "project", p.ID, "trigger", t.Name, "key", key, "run", v.ID)
 	return v, nil
 }
 
-// --- Zeitplan --------------------------------------------------------------------------
+// --- Schedule ---------------------------------------------------------------------------
 
 func (s *Service) schedule(ctx context.Context, p *project.View, t *project.Trigger, st *store.TriggerState, now time.Time) {
 	sched, err := cron.Parse(t.Schedule.Cron)
 	if err != nil {
-		return // geprüft beim Laden der project.yaml
+		return // checked when loading the project.yaml
 	}
 	if st.LastFire == nil {
-		// Erstmals gesehen: ab jetzt zählen, nichts nachholen.
+		// Seen for the first time: count from now, catch up on nothing.
 		s.update(ctx, p.ID, t.Name, store.TriggerUpdate{LastCheck: &now, LastFire: &now})
 		return
 	}
@@ -210,10 +210,10 @@ func (s *Service) schedule(ctx context.Context, p *project.View, t *project.Trig
 	msg := ""
 	switch {
 	case now.Sub(slot) > 2*s.opts.Tick+time.Minute && !t.Schedule.CatchUpOn():
-		msg = fmt.Sprintf("Termin %s verpasst (Daemon lief nicht), catch_up ist aus", slot.Format("2006-01-02 15:04"))
+		msg = fmt.Sprintf("date %s missed (daemon was not running), catch_up is off", slot.Format("2006-01-02 15:04"))
 	default:
 		if active := s.activeRun(ctx, p.ID, t.Name); active != "" {
-			msg = fmt.Sprintf("Termin %s übersprungen: Run %s läuft noch", slot.Format("2006-01-02 15:04"), active)
+			msg = fmt.Sprintf("date %s skipped: run %s is still running", slot.Format("2006-01-02 15:04"), active)
 			break
 		}
 		_, err := s.startRun(ctx, p, t, slot.UTC().Format(time.RFC3339), factory.StartRequest{
@@ -225,7 +225,7 @@ func (s *Service) schedule(ctx context.Context, p *project.View, t *project.Trig
 	s.update(ctx, p.ID, t.Name, u)
 }
 
-// activeRun liefert den noch laufenden Run eines Auslösers (leer: keiner).
+// activeRun returns the still running run of a trigger (empty: none).
 func (s *Service) activeRun(ctx context.Context, projectID, name string) string {
 	trs, err := s.opts.Store.ListTriggerRuns(ctx, store.TriggerRunFilter{ProjectID: projectID, Trigger: name, Limit: 5})
 	if err != nil {
@@ -239,9 +239,9 @@ func (s *Service) activeRun(ctx context.Context, projectID, name string) string 
 	return ""
 }
 
-// --- Rückmeldung -----------------------------------------------------------------------
+// --- Reports ----------------------------------------------------------------------------
 
-// report meldet beendete Runs von Issue-Auslösern am Issue.
+// report reports ended runs of issue triggers on the issue.
 func (s *Service) report(ctx context.Context, p *project.View) {
 	trs, err := s.opts.Store.ListTriggerRuns(ctx, store.TriggerRunFilter{ProjectID: p.ID, Unreported: true})
 	if err != nil {
@@ -261,13 +261,13 @@ func (s *Service) report(ctx context.Context, p *project.View) {
 		if t != nil && t.GitHubIssues != nil && t.GitHubIssues.Comments() && v != nil {
 			if n, err := strconv.Atoi(tr.Key); err == nil {
 				if err := s.comment(ctx, p.RepoPath, n, endComment(v)); err != nil {
-					s.log.Warn("Issue kommentieren", "projekt", p.ID, "issue", n, "err", err)
-					continue // beim nächsten Mal erneut
+					s.log.Warn("comment on issue", "project", p.ID, "issue", n, "err", err)
+					continue // again next time
 				}
 			}
 		}
 		if err := s.opts.Store.MarkTriggerRunReported(ctx, p.ID, tr.Trigger, tr.Key); err != nil {
-			s.log.Error("Rückmeldung vermerken", "run", tr.RunID, "err", err)
+			s.log.Error("record report", "run", tr.RunID, "err", err)
 		}
 	}
 }
@@ -275,29 +275,29 @@ func (s *Service) report(ctx context.Context, p *project.View) {
 func endComment(v *factory.View) string {
 	switch {
 	case v.Status == store.RunDone && v.PRURL != "":
-		return fmt.Sprintf("ADE: Run `%s` (Fabrik `%s`) ist fertig – Pull Request: %s", v.ID, v.Factory, v.PRURL)
+		return fmt.Sprintf("ADE: run `%s` (factory `%s`) is done – pull request: %s", v.ID, v.Factory, v.PRURL)
 	case v.Status == store.RunDone:
-		return fmt.Sprintf("ADE: Run `%s` (Fabrik `%s`) ist fertig.", v.ID, v.Factory)
+		return fmt.Sprintf("ADE: run `%s` (factory `%s`) is done.", v.ID, v.Factory)
 	case v.Status == store.RunCanceled:
-		return fmt.Sprintf("ADE: Run `%s` (Fabrik `%s`) wurde abgebrochen: %s", v.ID, v.Factory, v.Error)
+		return fmt.Sprintf("ADE: run `%s` (factory `%s`) was canceled: %s", v.ID, v.Factory, v.Error)
 	}
-	return fmt.Sprintf("ADE: Run `%s` (Fabrik `%s`) ist fehlgeschlagen: %s", v.ID, v.Factory, v.Error)
+	return fmt.Sprintf("ADE: run `%s` (factory `%s`) failed: %s", v.ID, v.Factory, v.Error)
 }
 
-// --- Ansicht und Steuerung ---------------------------------------------------------------
+// --- View and control -------------------------------------------------------------------
 
-// View ist ein Auslöser mit Zustand für Dashboard und API.
+// View is a trigger with state for dashboard and API.
 type View struct {
 	project.Trigger
 	Kind  string             `json:"kind"`
 	State store.TriggerState `json:"state"`
-	// Next ist die nächste Abfrage bzw. der nächste Termin.
+	// Next is the next poll or the next date.
 	Next *time.Time `json:"next,omitempty"`
-	// Runs sind die zuletzt ausgelösten Runs.
+	// Runs are the most recently triggered runs.
 	Runs []store.TriggerRun `json:"runs"`
 }
 
-// List liefert die Auslöser eines Projekts.
+// List returns the triggers of a project.
 func (s *Service) List(ctx context.Context, projectID string) ([]View, error) {
 	p, err := s.opts.Projects.Get(ctx, projectID)
 	if err != nil {
@@ -341,7 +341,7 @@ func (s *Service) List(ctx context.Context, projectID string) ([]View, error) {
 	return out, nil
 }
 
-// SetPaused pausiert einen Auslöser oder setzt ihn fort.
+// SetPaused pauses or resumes a trigger.
 func (s *Service) SetPaused(ctx context.Context, projectID, name string, paused bool) (*View, error) {
 	list, err := s.List(ctx, projectID)
 	if err != nil {
@@ -349,12 +349,12 @@ func (s *Service) SetPaused(ctx context.Context, projectID, name string, paused 
 	}
 	i := slices.IndexFunc(list, func(v View) bool { return v.Name == name })
 	if i < 0 {
-		return nil, apperr.NotFound("Auslöser %s gibt es im Projekt %s nicht", name, projectID)
+		return nil, apperr.NotFound("trigger %s does not exist in project %s", name, projectID)
 	}
 	if err := s.opts.Store.UpdateTriggerState(ctx, projectID, name, store.TriggerUpdate{Paused: &paused}); err != nil {
 		return nil, err
 	}
-	s.log.Info("Auslöser geändert", "projekt", projectID, "auslöser", name, "pausiert", paused)
+	s.log.Info("trigger changed", "project", projectID, "trigger", name, "paused", paused)
 	list, err = s.List(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -364,10 +364,10 @@ func (s *Service) SetPaused(ctx context.Context, projectID, name string, paused 
 			return &v, nil
 		}
 	}
-	return nil, errors.New("Auslöser verschwunden")
+	return nil, errors.New("trigger disappeared")
 }
 
-// trimTo kürzt s auf höchstens n Bytes (nicht mitten in einem UTF-8-Zeichen).
+// trimTo shortens s to at most n bytes (not in the middle of a UTF-8 character).
 func trimTo(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -375,5 +375,5 @@ func trimTo(s string, n int) string {
 	for n > 0 && s[n]&0xC0 == 0x80 {
 		n--
 	}
-	return strings.TrimSpace(s[:n]) + "\n\n[… gekürzt]"
+	return strings.TrimSpace(s[:n]) + "\n\n[… truncated]"
 }
