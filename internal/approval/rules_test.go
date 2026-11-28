@@ -62,7 +62,7 @@ func TestEvaluate(t *testing.T) {
 	} {
 		got, rule := rules.Evaluate(Call{Tool: c.tool, Input: c.input, Workdir: wd})
 		if got != c.want {
-			t.Errorf("%s %s: %s (%s), erwartet %s", c.tool, c.input, got, rule, c.want)
+			t.Errorf("%s %s: %s (%s), want %s", c.tool, c.input, got, rule, c.want)
 		}
 	}
 }
@@ -77,13 +77,13 @@ func TestDefaults(t *testing.T) {
 	for tool, want := range map[string]string{"Read": VerdictAllow, "Edit": VerdictAllow, "Bash": VerdictAsk, "WebFetch": VerdictAsk, "mcp__x__y": VerdictAsk} {
 		in := input("file_path", "/ws/a/x.go", "command", "ls", "url", "https://x.example")
 		if v, _ := local.Evaluate(Call{Tool: tool, Input: in, Workdir: "/ws/a"}); v != want {
-			t.Errorf("lokal %s: %s, erwartet %s", tool, v, want)
+			t.Errorf("local %s: %s, want %s", tool, v, want)
 		}
 	}
 	if v, _ := local.Evaluate(Call{Tool: "Write", Input: input("file_path", "/home/u/.bashrc"), Workdir: "/ws/a"}); v != VerdictAsk {
-		t.Errorf("lokal Write außerhalb: %s", v)
+		t.Errorf("local Write outside: %s", v)
 	}
-	// Ein eigener local-Abschnitt ersetzt die Voreinstellung, sandbox bleibt.
+	// An own local section replaces the default, sandbox stays.
 	cfg = &Config{Local: &RuleSet{Allow: []string{"Bash(make *)"}}}
 	if rs := cfg.Effective(false); len(rs.Allow) != 1 {
 		t.Errorf("local: %+v", rs)
@@ -101,11 +101,11 @@ func TestSymlinkOutOfWorkspace(t *testing.T) {
 	rules, _ := Compile(DefaultLocal)
 	c := Call{Tool: "Read", Input: input("file_path", filepath.Join(wd, "link", "secret")), Workdir: wd, ResolveLinks: true}
 	if v, _ := rules.Evaluate(c); v != VerdictAsk {
-		t.Fatalf("Symlink nach außen: %s", v)
+		t.Fatalf("symlink to the outside: %s", v)
 	}
-	c.Input = input("file_path", filepath.Join(wd, "neu", "datei.go"))
+	c.Input = input("file_path", filepath.Join(wd, "new", "file.go"))
 	if v, _ := rules.Evaluate(c); v != VerdictAllow {
-		t.Fatalf("neue Datei im Workspace: %s", v)
+		t.Fatalf("new file in the workspace: %s", v)
 	}
 }
 

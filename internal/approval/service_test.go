@@ -63,7 +63,7 @@ func hookCall(session, tool string, in map[string]string) proxy.HookCall {
 	return proxy.HookCall{Session: session, Input: b}
 }
 
-// pending wartet auf eine offene Freigabe.
+// pending waits for a pending approval.
 func (f *fixture) pending(t *testing.T) *store.Approval {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -77,7 +77,7 @@ func (f *fixture) pending(t *testing.T) *store.Approval {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("keine offene Freigabe")
+	t.Fatal("no pending approval")
 	return nil
 }
 
@@ -86,20 +86,20 @@ func TestPreToolUseLocal(t *testing.T) {
 	ctx := context.Background()
 	tok := f.svc.IssueToken("sl")
 
-	// Regel erlaubt sofort.
+	// A rule allows right away.
 	a := f.svc.PreToolUse(ctx, HookRequest{Call: hookCall("sl", "Read", map[string]string{"file_path": "/ws/wl/a.go"}), TokenSession: "sl"})
 	if a.Decision != proxy.AnswerAllow {
 		t.Fatalf("Read: %+v", a)
 	}
-	// Ohne gültiges Token-Session-Paar: abgelehnt.
+	// Without a valid token/session pair: denied.
 	if a := f.svc.PreToolUse(ctx, HookRequest{Call: hookCall("ss", "Read", nil), TokenSession: "sl"}); a.Decision != proxy.AnswerDeny {
-		t.Fatalf("fremde Session: %+v", a)
+		t.Fatalf("foreign session: %+v", a)
 	}
 	if id, ok := f.svc.TokenSession(tok); !ok || id != "sl" {
-		t.Fatal("Token unbekannt")
+		t.Fatal("token unknown")
 	}
 
-	// Bash braucht lokal eine Freigabe: wartet, bis im Dashboard entschieden ist.
+	// Bash needs an approval locally: waits until it is decided in the dashboard.
 	done := make(chan proxy.Answer, 1)
 	go func() {
 		done <- f.svc.PreToolUse(ctx, HookRequest{Call: hookCall("sl", "Bash", map[string]string{"command": "make test"}), TokenSession: "sl"})
@@ -110,11 +110,11 @@ func TestPreToolUseLocal(t *testing.T) {
 	}
 	select {
 	case a := <-done:
-		t.Fatalf("nicht gewartet: %+v", a)
+		t.Fatalf("did not wait: %+v", a)
 	case <-time.After(50 * time.Millisecond):
 	}
 	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionAllowProject, ""); !errors.Is(err, apperr.ErrInvalid) {
-		t.Fatalf("allow_project bei tool: %v", err)
+		t.Fatalf("allow_project for tool: %v", err)
 	}
 	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionAllow, "ok"); err != nil {
 		t.Fatal(err)
@@ -123,22 +123,22 @@ func TestPreToolUseLocal(t *testing.T) {
 		t.Fatalf("Antwort %+v", a)
 	}
 	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionDeny, ""); !errors.Is(err, apperr.ErrConflict) {
-		t.Fatalf("zweite Entscheidung: %v", err)
+		t.Fatalf("second decision: %v", err)
 	}
 
-	// Ablehnen mit Begründung.
+	// Deny with a reason.
 	go func() {
 		done <- f.svc.PreToolUse(ctx, HookRequest{Call: hookCall("sl", "Bash", map[string]string{"command": "rm -rf build"}), TokenSession: "sl"})
 	}()
 	p = f.pending(t)
-	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionDeny, "bitte make clean"); err != nil {
+	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionDeny, "please make clean"); err != nil {
 		t.Fatal(err)
 	}
-	if a := <-done; a.Decision != proxy.AnswerDeny || !strings.Contains(a.Reason, "bitte make clean") {
+	if a := <-done; a.Decision != proxy.AnswerDeny || !strings.Contains(a.Reason, "please make clean") {
 		t.Fatalf("Antwort %+v", a)
 	}
 
-	// Wartet der Agent nicht mehr, wird die Freigabe abgebrochen.
+	// If the agent no longer waits, the approval is canceled.
 	cctx, cancel := context.WithCancel(ctx)
 	go func() {
 		done <- f.svc.PreToolUse(cctx, HookRequest{Call: hookCall("sl", "WebFetch", map[string]string{"url": "https://x.example"}), TokenSession: "sl"})
@@ -152,16 +152,16 @@ func TestPreToolUseLocal(t *testing.T) {
 
 	f.svc.RevokeTokens("sl")
 	if _, ok := f.svc.TokenSession(tok); ok {
-		t.Fatal("Token nach dem Widerruf gültig")
+		t.Fatal("token valid after revocation")
 	}
 }
 
-// Lokale Lese-Rollen arbeiten im Schnappschuss: Regeln wie „Lesen im Workspace“ gelten dort.
+// Local read-only roles work in the snapshot: rules like “read in the workspace” apply there.
 func TestPreToolUseReadOnlySnapshot(t *testing.T) {
 	f := newFixture(t, time.Minute, nil)
 	ctx := context.Background()
 	if a := f.svc.PreToolUse(ctx, HookRequest{Call: hookCall("sr", "Read", map[string]string{"file_path": "/snap/sr/a.go"}), TokenSession: "sr"}); a.Decision != proxy.AnswerAllow {
-		t.Fatalf("Read im Schnappschuss: %+v", a)
+		t.Fatalf("Read in the snapshot: %+v", a)
 	}
 	done := make(chan proxy.Answer, 1)
 	go func() {
@@ -171,7 +171,7 @@ func TestPreToolUseReadOnlySnapshot(t *testing.T) {
 	var d toolDetail
 	_ = json.Unmarshal(p.Detail, &d)
 	if p.SessionID != "sl" || d.Workdir != "/ws/wl" {
-		t.Fatalf("fremder Schnappschuss ohne Rückfrage gelesen oder falsches Verzeichnis: %+v %+v", p, d)
+		t.Fatalf("foreign snapshot read without asking or wrong directory: %+v %+v", p, d)
 	}
 	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionDeny, ""); err != nil {
 		t.Fatal(err)
@@ -192,16 +192,16 @@ func TestPreToolUseSandboxAndRules(t *testing.T) {
 	if a := q("ws", "ss", "git push origin main"); a.Decision != proxy.AnswerDeny || !strings.Contains(a.Reason, "approvals.sandbox.deny") {
 		t.Fatalf("deny: %+v", a)
 	}
-	// Eine Session aus einem anderen Workspace über diesen Proxy: abgelehnt.
+	// A session from another workspace through this proxy: denied.
 	if a := q("ws", "sl", "ls"); a.Decision != proxy.AnswerDeny {
-		t.Fatalf("fremder Workspace: %+v", a)
+		t.Fatalf("foreign workspace: %+v", a)
 	}
-	// Beendete Session: abgelehnt.
+	// Ended session: denied.
 	if err := f.st.UpdateSession(ctx, "ss", store.SessionUpdate{Status: store.Ptr(store.SessionDone)}); err != nil {
 		t.Fatal(err)
 	}
 	if a := q("ws", "ss", "ls"); a.Decision != proxy.AnswerDeny {
-		t.Fatalf("beendete Session: %+v", a)
+		t.Fatalf("ended session: %+v", a)
 	}
 }
 
@@ -211,15 +211,15 @@ func TestTimeoutAndRecover(t *testing.T) {
 	f := newFixture(t, 100*time.Millisecond, nil)
 	ctx := context.Background()
 	a := f.svc.PreToolUse(ctx, HookRequest{Call: hookCall("sl", "Bash", map[string]string{"command": "ls"}), TokenSession: "sl"})
-	if a.Decision != proxy.AnswerDeny || !strings.Contains(a.Reason, "keine Entscheidung") {
-		t.Fatalf("nach Ablauf: %+v", a)
+	if a.Decision != proxy.AnswerDeny || !strings.Contains(a.Reason, "no decision") {
+		t.Fatalf("after expiry: %+v", a)
 	}
 	as, _ := f.svc.List(ctx, store.ApprovalFilter{})
 	if len(as) != 1 || as[0].Status != store.ApprovalExpired {
 		t.Fatalf("Freigaben %+v", as)
 	}
 
-	// Offene Freigaben eines früheren Laufs gelten nach dem Neustart als abgelaufen.
+	// Pending approvals of an earlier run count as expired after the restart.
 	if err := f.st.CreateApproval(ctx, &store.Approval{ID: "alt", Kind: store.ApprovalTool, ProjectID: "p1", WorkspaceID: "wl", Title: "x", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
@@ -241,13 +241,13 @@ func TestEgress(t *testing.T) {
 		}()
 		return ch
 	}
-	// Zwei Fragen nach demselben Ziel teilen sich eine Freigabe.
+	// Two questions for the same target share one approval.
 	a1 := ask(ctx, "pypi.org", 443)
 	p := f.pending(t)
 	a2 := ask(ctx, "pypi.org", 443)
 	time.Sleep(50 * time.Millisecond)
 	if as, _ := f.svc.List(ctx, store.ApprovalFilter{Status: store.ApprovalPending}); len(as) != 1 {
-		t.Fatalf("%d offene Freigaben", len(as))
+		t.Fatalf("%d pending approvals", len(as))
 	}
 	if p.Kind != store.ApprovalEgress || p.Title != "pypi.org:443" || !p.Sandbox {
 		t.Fatalf("Freigabe %+v", p)
@@ -262,10 +262,10 @@ func TestEgress(t *testing.T) {
 	}
 	gs, _ := f.st.ListEgressGrants(ctx, "p1", "")
 	if len(gs) != 1 || gs[0].Rule != "pypi.org" || gs[0].WorkspaceID != "" || f.grants.Load() != 1 {
-		t.Fatalf("Ausnahmen %+v, OnGrant %d", gs, f.grants.Load())
+		t.Fatalf("exceptions %+v, OnGrant %d", gs, f.grants.Load())
 	}
 
-	// Für diesen Workspace, mit Port.
+	// For this workspace, with port.
 	a3 := ask(ctx, "db.example", 5432)
 	p = f.pending(t)
 	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionAllowWorkspace, ""); err != nil {
@@ -277,10 +277,10 @@ func TestEgress(t *testing.T) {
 		t.Fatalf("Ausnahmen %+v", gs)
 	}
 	if other, _ := f.st.ListEgressGrants(ctx, "p1", "wl"); len(other) != 1 {
-		t.Fatalf("Workspace-Ausnahme gilt woanders: %+v", other)
+		t.Fatalf("workspace exception applies elsewhere: %+v", other)
 	}
 
-	// Gibt die Anfrage auf, bleibt die Freigabe offen.
+	// If the request gives up, the approval stays pending.
 	cctx, cancel := context.WithCancel(ctx)
 	a4 := ask(cctx, "slow.example", 443)
 	p = f.pending(t)
@@ -295,12 +295,12 @@ func TestEgress(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Ausnahmen per Hand: keine Platzhalter, ungültige Einträge abgelehnt.
+	// Exceptions by hand: no wildcards, invalid entries rejected.
 	if _, err := f.svc.AddGrant(ctx, "p1", "", "*.example.com", ""); !errors.Is(err, apperr.ErrInvalid) {
 		t.Fatalf("Platzhalter: %v", err)
 	}
 	if _, err := f.svc.AddGrant(ctx, "p1", "", "http://x", ""); !errors.Is(err, apperr.ErrInvalid) {
-		t.Fatalf("ungültig: %v", err)
+		t.Fatalf("invalid: %v", err)
 	}
 	g, err := f.svc.AddGrant(ctx, "p1", "", "Files.Example.com", "")
 	if err != nil || g.Rule != "files.example.com" {

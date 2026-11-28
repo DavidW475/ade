@@ -17,10 +17,10 @@ import (
 	"github.com/DavidW475/ade/internal/project"
 )
 
-// ghTimeout begrenzt einen Aufruf von gh.
+// ghTimeout limits one call of gh.
 const ghTimeout = time.Minute
 
-// maxIssueText begrenzt den Text eines Issues in der Aufgabe.
+// maxIssueText limits the text of an issue in the task.
 const maxIssueText = 64 << 10
 
 type issue struct {
@@ -33,7 +33,7 @@ type issue struct {
 	} `json:"author"`
 }
 
-// pollIssues startet für jedes offene Issue mit dem Label, das noch keinen Run hat, einen Run.
+// pollIssues starts a run for every open issue with the label that has no run yet.
 func (s *Service) pollIssues(ctx context.Context, p *project.View, t *project.Trigger) error {
 	g := t.GitHubIssues
 	out, err := s.gh(ctx, p.RepoPath, "", "issue", "list", "--state", "open", "--label", g.Label,
@@ -43,7 +43,7 @@ func (s *Service) pollIssues(ctx context.Context, p *project.View, t *project.Tr
 	}
 	var issues []issue
 	if err := json.Unmarshal([]byte(out), &issues); err != nil {
-		return fmt.Errorf("Antwort von gh issue list nicht lesbar: %w", err)
+		return fmt.Errorf("answer of gh issue list not readable: %w", err)
 	}
 	sort.Slice(issues, func(i, j int) bool { return issues[i].Number < issues[j].Number })
 	started := 0
@@ -63,16 +63,16 @@ func (s *Service) pollIssues(ctx context.Context, p *project.View, t *project.Tr
 			Task: issueTask(is), TriggerRef: is.URL, Closes: is.Number,
 		})
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("Issue #%d: %v", is.Number, err))
+			errs = append(errs, fmt.Sprintf("issue #%d: %v", is.Number, err))
 			if v == nil {
 				continue
 			}
 		}
 		started++
 		if g.Comments() {
-			msg := fmt.Sprintf("ADE: Run `%s` der Fabrik `%s` gestartet (Label `%s`). Der Pull Request folgt hier, wenn er fertig ist.", v.ID, v.Factory, g.Label)
+			msg := fmt.Sprintf("ADE: run `%s` of factory `%s` started (label `%s`). The pull request will follow here when it is done.", v.ID, v.Factory, g.Label)
 			if err := s.comment(ctx, p.RepoPath, is.Number, msg); err != nil {
-				s.log.Warn("Issue kommentieren", "projekt", p.ID, "issue", is.Number, "err", err)
+				s.log.Warn("comment on issue", "project", p.ID, "issue", is.Number, "err", err)
 			}
 		}
 	}
@@ -82,34 +82,34 @@ func (s *Service) pollIssues(ctx context.Context, p *project.View, t *project.Tr
 	return nil
 }
 
-// issueTask macht aus einem Issue die Aufgabe des Runs. Der Text stammt von GitHub und ist
-// fremde Eingabe: Er steht klar abgegrenzt als Beschreibung, nicht als Anweisung an ADE.
+// issueTask turns an issue into the run's task. The text comes from GitHub and is untrusted
+// input: it is clearly separated as a description, not as an instruction to ADE.
 func issueTask(is issue) string {
 	body := strings.TrimSpace(trimTo(is.Body, maxIssueText))
 	if body == "" {
-		body = "(ohne Beschreibung)"
+		body = "(no description)"
 	}
-	return fmt.Sprintf("GitHub-Issue #%d: %s\n%s\n\n%s", is.Number, strings.TrimSpace(is.Title), is.URL, body)
+	return fmt.Sprintf("GitHub issue #%d: %s\n%s\n\n%s", is.Number, strings.TrimSpace(is.Title), is.URL, body)
 }
 
-// comment schreibt einen Kommentar an ein Issue.
+// comment writes a comment on an issue.
 func (s *Service) comment(ctx context.Context, repo string, number int, body string) error {
 	_, err := s.gh(ctx, repo, body, "issue", "comment", strconv.Itoa(number), "--body-file", "-")
 	return err
 }
 
-// gh ruft das gh-Binary im Repo auf (für das Remote) und liefert die Ausgabe.
+// gh calls the gh binary in the repository (for the remote) and returns the output.
 func (s *Service) gh(ctx context.Context, dir, stdin string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, ghTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, s.opts.GH, args...) //nolint:gosec // G204: feste Argumente, Werte aus project.yaml
+	cmd := exec.CommandContext(ctx, s.opts.GH, args...) //nolint:gosec // G204: fixed arguments, values from project.yaml
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(stdin)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			return "", errors.New("GitHub CLI (gh) nicht gefunden – installieren und `gh auth login` ausführen")
+			return "", errors.New("GitHub CLI (gh) not found – install it and run `gh auth login`")
 		}
 		msg := strings.TrimSpace(errb.String())
 		if msg == "" {

@@ -1,10 +1,10 @@
-// Package approval ist der Freigabe-Service (doc/architecture.md#43-freigaben): Agent-Hooks
-// und Egress-Proxys fragen an, ein Mensch entscheidet im Dashboard, die Anfrage wartet so
-// lange (höchstens bis zum Timeout, dann gilt sie als abgelehnt).
+// Package approval is the approval service (doc/architecture.md#43-approvals): agent hooks
+// and egress proxies ask, a human decides in the dashboard, the request waits that long
+// (at most until the timeout, then it counts as denied).
 //
-// Werkzeug-Aufrufe prüft der Service zuerst gegen die Regeln des Projekts (approvals in
-// .ade/project.yaml, rules.go); nur was keine Regel erlaubt oder sperrt, landet in der
-// Warteschlange.
+// The service first checks tool calls against the project's rules (approvals in
+// .ade/project.yaml, rules.go); only what no rule allows or denies ends up in the
+// queue.
 package approval
 
 import (
@@ -27,34 +27,34 @@ import (
 	"github.com/DavidW475/ade/internal/store"
 )
 
-// DefaultTimeout ist die Wartezeit auf eine Entscheidung ohne approvals.timeout.
+// DefaultTimeout is the waiting time for a decision without approvals.timeout.
 const DefaultTimeout = 10 * time.Minute
 
-// Options konfiguriert den Service.
+// Options configures the service.
 type Options struct {
 	Store *store.Store
-	// Timeout ist die Wartezeit auf eine Entscheidung (Standard DefaultTimeout).
+	// Timeout is the waiting time for a decision (default DefaultTimeout).
 	Timeout time.Duration
 	Logger  *slog.Logger
-	// Rules liefert den Abschnitt approvals der project.yaml eines Projekts. Ein Fehler
-	// (ungültige Datei) heißt: keine Regel erlaubt etwas, alles braucht eine Freigabe.
+	// Rules returns the approvals section of a project's project.yaml. An error (invalid
+	// file) means: no rule allows anything, everything needs an approval.
 	Rules func(ctx context.Context, projectID string) (*Config, error)
-	// OnGrant läuft nach einer neuen Egress-Ausnahme (Policies an die Proxys schicken).
+	// OnGrant runs after a new egress exception (send the policies to the proxies).
 	OnGrant func(ctx context.Context)
-	// Workdir liefert das Arbeitsverzeichnis einer lokalen Session, wenn es nicht der
-	// Workspace ist (Lese-Rollen arbeiten in einem Schnappschuss; leer: Workspace).
+	// Workdir returns the working directory of a local session if it is not the workspace
+	// (read-only roles work in a snapshot; empty: workspace).
 	Workdir func(sess *store.Session) string
 }
 
-// Service verwaltet Freigaben.
+// Service manages approvals.
 type Service struct {
 	opts Options
 	log  *slog.Logger
 
 	mu      sync.Mutex
 	waiters map[string]*waiter
-	egress  map[string]string // workspace|host:port → offene Freigabe
-	tokens  map[string]string // Hook-Token → Session
+	egress  map[string]string // workspace|host:port → pending approval
+	tokens  map[string]string // hook token → session
 }
 
 type waiter struct {
@@ -63,7 +63,7 @@ type waiter struct {
 	timer  *time.Timer
 }
 
-// New erzeugt den Service.
+// New creates the service.
 func New(opts Options) *Service {
 	if opts.Timeout <= 0 {
 		opts.Timeout = DefaultTimeout
@@ -74,22 +74,22 @@ func New(opts Options) *Service {
 	return &Service{opts: opts, log: opts.Logger, waiters: map[string]*waiter{}, egress: map[string]string{}, tokens: map[string]string{}}
 }
 
-// Timeout liefert die Wartezeit auf eine Entscheidung.
+// Timeout returns the waiting time for a decision.
 func (s *Service) Timeout() time.Duration { return s.opts.Timeout }
 
-// Recover schließt Freigaben eines früheren Daemon-Laufs: Auf sie wartet niemand mehr.
+// Recover closes approvals of an earlier daemon run: nobody waits for them any more.
 func (s *Service) Recover(ctx context.Context) error {
-	n, err := s.opts.Store.ExpirePendingApprovals(ctx, "Daemon wurde neu gestartet")
+	n, err := s.opts.Store.ExpirePendingApprovals(ctx, "daemon was restarted")
 	if err != nil {
-		return fmt.Errorf("offene Freigaben schließen: %w", err)
+		return fmt.Errorf("close pending approvals: %w", err)
 	}
 	if n > 0 {
-		s.log.Info("Offene Freigaben eines früheren Laufs als abgelaufen markiert", "anzahl", n)
+		s.log.Info("pending approvals of an earlier run marked as expired", "count", n)
 	}
 	return nil
 }
 
-// Close beendet alle Wartenden (Daemon wird beendet).
+// Close ends all waiting requests (daemon is stopping).
 func (s *Service) Close() {
 	s.mu.Lock()
 	ids := make([]string, 0, len(s.waiters))
@@ -98,7 +98,7 @@ func (s *Service) Close() {
 	}
 	s.mu.Unlock()
 	for _, id := range ids {
-		_, _ = s.finish(context.Background(), id, store.ApprovalCanceled, "", "Daemon wird beendet")
+		_, _ = s.finish(context.Background(), id, store.ApprovalCanceled, "", "daemon is stopping")
 	}
 }
 
@@ -108,11 +108,11 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// BudgetTimeout ist die Wartezeit auf eine Budget-Freigabe. Der Agent ist währenddessen
-// beendet; es wartet also kein Prozess.
+// BudgetTimeout is the waiting time for a budget approval. The agent has ended in the
+// meantime, so no process waits.
 const BudgetTimeout = 24 * time.Hour
 
-// create legt eine offene Freigabe an und startet ihren Timeout.
+// create creates a pending approval and starts its timeout.
 func (s *Service) create(ctx context.Context, a *store.Approval) error {
 	return s.createFor(ctx, a, s.opts.Timeout)
 }
@@ -127,16 +127,16 @@ func (s *Service) createFor(ctx context.Context, a *store.Approval, timeout time
 	id := a.ID
 	w.timer = time.AfterFunc(timeout, func() {
 		_, _ = s.finish(context.Background(), id, store.ApprovalExpired, store.DecisionDeny,
-			"keine Entscheidung innerhalb von "+timeout.String())
+			"no decision within "+timeout.String())
 	})
 	s.mu.Lock()
 	s.waiters[id] = w
 	s.mu.Unlock()
-	s.log.Info("Freigabe angefragt", "id", id, "art", a.Kind, "workspace", a.WorkspaceID, "titel", a.Title)
+	s.log.Info("approval requested", "id", id, "kind", a.Kind, "workspace", a.WorkspaceID, "title", a.Title)
 	return nil
 }
 
-// finish schließt eine offene Freigabe und weckt die Wartenden.
+// finish closes a pending approval and wakes the waiting requests.
 func (s *Service) finish(ctx context.Context, id, status, decision, reason string) (*store.Approval, error) {
 	a, err := s.opts.Store.ResolveApproval(ctx, id, status, decision, reason)
 	if err != nil {
@@ -156,11 +156,11 @@ func (s *Service) finish(ctx context.Context, id, status, decision, reason strin
 		w.result = a
 		close(w.done)
 	}
-	s.log.Info("Freigabe entschieden", "id", id, "status", status, "entscheidung", decision)
+	s.log.Info("approval decided", "id", id, "status", status, "decision", decision)
 	return a, nil
 }
 
-// wait wartet auf die Entscheidung. Endet ctx vorher, liefert es ctx.Err().
+// wait waits for the decision. If ctx ends first, it returns ctx.Err().
 func (s *Service) wait(ctx context.Context, id string) (*store.Approval, error) {
 	s.mu.Lock()
 	w := s.waiters[id]
@@ -176,25 +176,25 @@ func (s *Service) wait(ctx context.Context, id string) (*store.Approval, error) 
 	}
 }
 
-// Get liefert eine Freigabe.
+// Get returns an approval.
 func (s *Service) Get(ctx context.Context, id string) (*store.Approval, error) {
 	return s.opts.Store.GetApproval(ctx, id)
 }
 
-// List liefert Freigaben.
+// List returns approvals.
 func (s *Service) List(ctx context.Context, f store.ApprovalFilter) ([]*store.Approval, error) {
 	return s.opts.Store.ListApprovals(ctx, f)
 }
 
-// Decide entscheidet eine offene Freigabe. Bei egress legen allow_workspace und
-// allow_project zuerst die Ausnahme an, damit die Policy gilt, bevor die Anfrage weiterläuft.
+// Decide decides a pending approval. For egress, allow_workspace and allow_project first
+// create the exception, so the policy applies before the request continues.
 func (s *Service) Decide(ctx context.Context, id, decision, reason string) (*store.Approval, error) {
 	a, err := s.opts.Store.GetApproval(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	if a.Status != store.ApprovalPending {
-		return a, apperr.Conflict("Freigabe %s ist bereits entschieden (%s)", id, a.Status)
+		return a, apperr.Conflict("approval %s has already been decided (%s)", id, a.Status)
 	}
 	valid := []string{store.DecisionAllow, store.DecisionDeny}
 	if a.Kind == store.ApprovalEgress {
@@ -205,25 +205,25 @@ func (s *Service) Decide(ctx context.Context, id, decision, reason string) (*sto
 		ok = ok || v == decision
 	}
 	if !ok {
-		return nil, apperr.Invalid("decision: %q ist ungültig (erlaubt: %s)", decision, strings.Join(valid, ", "))
+		return nil, apperr.Invalid("decision: %q is invalid (allowed: %s)", decision, strings.Join(valid, ", "))
 	}
 	reason = strings.TrimSpace(reason)
 	if len(reason) > 2000 {
-		return nil, apperr.Invalid("reason: höchstens 2000 Zeichen")
+		return nil, apperr.Invalid("reason: at most 2000 characters")
 	}
 	if a.Kind == store.ApprovalGate && decision == store.DecisionDeny && reason == "" {
-		// Springt das Gate beim Ablehnen zurück, ist die Begründung das Feedback an die Rolle.
+		// If the gate jumps back on denial, the reason is the feedback to the role.
 		var d struct {
 			OnDeny string `json:"on_deny"`
 		}
 		if json.Unmarshal(a.Detail, &d) == nil && d.OnDeny != "" {
-			return nil, apperr.Invalid("reason: Ablehnen springt zurück zu %s und braucht eine Begründung (sie geht als Feedback an die Rolle)", d.OnDeny)
+			return nil, apperr.Invalid("reason: denying jumps back to %s and needs a reason (it goes to the role as feedback)", d.OnDeny)
 		}
 	}
 	if decision == store.DecisionAllowWorkspace || decision == store.DecisionAllowProject {
 		var d egressDetail
 		if err := json.Unmarshal(a.Detail, &d); err != nil || d.Host == "" {
-			return nil, fmt.Errorf("Freigabe %s: Ziel nicht lesbar", id)
+			return nil, fmt.Errorf("approval %s: target not readable", id)
 		}
 		ws := a.WorkspaceID
 		if decision == store.DecisionAllowProject {
@@ -240,8 +240,8 @@ func (s *Service) Decide(ctx context.Context, id, decision, reason string) (*sto
 	return s.finish(ctx, id, status, decision, reason)
 }
 
-// GrantRule ist der Allowlist-Eintrag für ein Ziel: Ports 80 und 443 ohne Port (gilt für
-// beide), sonst host:port.
+// GrantRule is the allowlist entry for a target: without a port for ports 80 and 443
+// (applies to both), otherwise host:port.
 func GrantRule(host string, port int) string {
 	if port == 80 || port == 443 || port == 0 {
 		return host
@@ -249,28 +249,28 @@ func GrantRule(host string, port int) string {
 	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
-// AddGrant speichert eine Egress-Ausnahme (workspaceID leer: für das ganze Projekt) und
-// schickt die Policies neu an die Proxys.
+// AddGrant stores an egress exception (workspaceID empty: for the whole project) and sends
+// the policies to the proxies again.
 func (s *Service) AddGrant(ctx context.Context, projectID, workspaceID, rule, approvalID string) (*store.EgressGrant, error) {
 	r, err := proxy.ParseRule(rule)
 	if err != nil {
 		return nil, apperr.Invalid("%v", err)
 	}
 	if r.Wildcard {
-		return nil, apperr.Invalid("%q: Ausnahmen ohne Platzhalter (Platzhalter in .ade/sandbox.yaml eintragen)", rule)
+		return nil, apperr.Invalid("%q: exceptions without wildcards (put wildcards into .ade/sandbox.yaml)", rule)
 	}
 	g := &store.EgressGrant{ProjectID: projectID, WorkspaceID: workspaceID, Rule: r.String(), ApprovalID: approvalID}
 	if err := s.opts.Store.AddEgressGrant(ctx, g); err != nil {
 		return nil, err
 	}
-	s.log.Info("Egress-Ausnahme angelegt", "projekt", projectID, "workspace", workspaceID, "regel", g.Rule)
+	s.log.Info("egress exception created", "project", projectID, "workspace", workspaceID, "rule", g.Rule)
 	if s.opts.OnGrant != nil {
 		s.opts.OnGrant(context.WithoutCancel(ctx))
 	}
 	return g, nil
 }
 
-// DeleteGrant entfernt eine Egress-Ausnahme.
+// DeleteGrant removes an egress exception.
 func (s *Service) DeleteGrant(ctx context.Context, id int64) error {
 	if err := s.opts.Store.DeleteEgressGrant(ctx, id); err != nil {
 		return err
@@ -281,20 +281,20 @@ func (s *Service) DeleteGrant(ctx context.Context, id int64) error {
 	return nil
 }
 
-// CancelSession bricht die offenen Freigaben einer beendeten Session ab.
+// CancelSession cancels the pending approvals of an ended session.
 func (s *Service) CancelSession(ctx context.Context, sessionID string) {
 	as, err := s.opts.Store.ListApprovals(ctx, store.ApprovalFilter{Status: store.ApprovalPending, SessionID: sessionID})
 	if err != nil {
 		return
 	}
 	for _, a := range as {
-		_, _ = s.finish(ctx, a.ID, store.ApprovalCanceled, "", "Session beendet")
+		_, _ = s.finish(ctx, a.ID, store.ApprovalCanceled, "", "session ended")
 	}
 }
 
-// --- Hook-Tokens (lokale Agenten) ------------------------------------------------------
+// --- Hook tokens (local agents) ---------------------------------------------------------
 
-// IssueToken erzeugt ein Token, mit dem der Hook einer lokalen Session fragen darf.
+// IssueToken creates a token with which the hook of a local session may ask.
 func (s *Service) IssueToken(sessionID string) string {
 	t := randomHex(24)
 	s.mu.Lock()
@@ -303,7 +303,7 @@ func (s *Service) IssueToken(sessionID string) string {
 	return t
 }
 
-// RevokeTokens macht die Tokens einer Session ungültig.
+// RevokeTokens invalidates the tokens of a session.
 func (s *Service) RevokeTokens(sessionID string) {
 	s.mu.Lock()
 	for t, id := range s.tokens {
@@ -314,7 +314,7 @@ func (s *Service) RevokeTokens(sessionID string) {
 	s.mu.Unlock()
 }
 
-// TokenSession liefert die Session zu einem Token.
+// TokenSession returns the session of a token.
 func (s *Service) TokenSession(token string) (string, bool) {
 	if token == "" {
 		return "", false
@@ -329,26 +329,26 @@ func (s *Service) TokenSession(token string) (string, bool) {
 	return "", false
 }
 
-// --- Werkzeug-Aufrufe (PreToolUse) ------------------------------------------------------
+// --- Tool calls (PreToolUse) -----------------------------------------------------------
 
-// HookRequest ist eine Frage von ade hook pretooluse.
+// HookRequest is a question from ade hook pretooluse.
 type HookRequest struct {
 	Call proxy.HookCall
-	// Sandbox: über den Egress-Proxy des Workspaces WorkspaceID.
+	// Sandbox: through the egress proxy of the workspace WorkspaceID.
 	Sandbox     bool
 	WorkspaceID string
-	// TokenSession ist die Session des Hook-Tokens (lokal).
+	// TokenSession is the session of the hook token (local).
 	TokenSession string
 }
 
-// hookInput sind die genutzten Felder der Hook-Eingabe von Claude Code.
+// hookInput are the used fields of Claude Code's hook input.
 type hookInput struct {
 	ToolName  string          `json:"tool_name"`
 	ToolInput json.RawMessage `json:"tool_input"`
 	ToolUseID string          `json:"tool_use_id"`
 }
 
-// toolDetail ist der Inhalt einer Werkzeug-Freigabe.
+// toolDetail is the content of a tool approval.
 type toolDetail struct {
 	Tool      string          `json:"tool"`
 	Input     json.RawMessage `json:"input"`
@@ -360,34 +360,34 @@ func deny(format string, args ...any) proxy.Answer {
 	return proxy.Answer{Decision: proxy.AnswerDeny, Reason: "ADE: " + fmt.Sprintf(format, args...)}
 }
 
-// PreToolUse entscheidet über einen Werkzeug-Aufruf: per Regel sofort, sonst über eine
-// Freigabe im Dashboard (blockiert bis zur Entscheidung). Endet ctx vorher (der Agent wartet
-// nicht mehr), wird die Freigabe abgebrochen.
+// PreToolUse decides about a tool call: by rule right away, otherwise through an approval in
+// the dashboard (blocks until the decision). If ctx ends first (the agent no longer waits),
+// the approval is canceled.
 func (s *Service) PreToolUse(ctx context.Context, req HookRequest) proxy.Answer {
 	sessionID := req.Call.Session
 	if !req.Sandbox {
 		if req.TokenSession == "" || (sessionID != "" && sessionID != req.TokenSession) {
-			return deny("Hook-Token passt nicht zur Session")
+			return deny("hook token does not match the session")
 		}
 		sessionID = req.TokenSession
 	}
 	sess, err := s.opts.Store.GetSession(ctx, sessionID)
 	if err != nil {
-		return deny("Session %q unbekannt", sessionID)
+		return deny("session %q unknown", sessionID)
 	}
 	if !store.SessionActive(sess.Status) {
-		return deny("Session %s läuft nicht mehr", sess.ID)
+		return deny("session %s is no longer running", sess.ID)
 	}
 	ws, err := s.opts.Store.GetWorkspace(ctx, sess.WorkspaceID)
 	if err != nil {
-		return deny("Workspace der Session nicht gefunden")
+		return deny("workspace of the session not found")
 	}
 	if ws.Sandbox != req.Sandbox || (req.Sandbox && ws.ID != req.WorkspaceID) {
-		return deny("Anfrage kommt nicht aus dem Workspace der Session")
+		return deny("request does not come from the session's workspace")
 	}
 	var in hookInput
 	if err := json.Unmarshal(req.Call.Input, &in); err != nil || in.ToolName == "" {
-		return deny("Hook-Eingabe ohne tool_name")
+		return deny("hook input without tool_name")
 	}
 	workdir := ws.Path
 	if ws.Sandbox {
@@ -401,7 +401,7 @@ func (s *Service) PreToolUse(ctx context.Context, req HookRequest) proxy.Answer 
 	if ws.Sandbox {
 		env = "sandbox"
 	}
-	rules := &Rules{} // ungültige Konfiguration: alles fragen
+	rules := &Rules{} // invalid configuration: ask for everything
 	if s.opts.Rules != nil {
 		cfg, err := s.opts.Rules(ctx, ws.ProjectID)
 		if err == nil {
@@ -413,9 +413,9 @@ func (s *Service) PreToolUse(ctx context.Context, req HookRequest) proxy.Answer 
 	verdict, rule := rules.Evaluate(Call{Tool: in.ToolName, Input: in.ToolInput, Workdir: workdir, ResolveLinks: !ws.Sandbox})
 	switch verdict {
 	case VerdictAllow:
-		return proxy.Answer{Decision: proxy.AnswerAllow, Reason: "ADE: erlaubt durch " + rule}
+		return proxy.Answer{Decision: proxy.AnswerAllow, Reason: "ADE: allowed by " + rule}
 	case VerdictDeny:
-		return deny("gesperrt durch %s (approvals.%s.deny in .ade/project.yaml)", rule, env)
+		return deny("denied by %s (approvals.%s.deny in .ade/project.yaml)", rule, env)
 	}
 
 	detail, _ := json.Marshal(toolDetail{Tool: in.ToolName, Input: in.ToolInput, ToolUseID: in.ToolUseID, Workdir: workdir})
@@ -424,12 +424,12 @@ func (s *Service) PreToolUse(ctx context.Context, req HookRequest) proxy.Answer 
 		Title: toolTitle(in.ToolName, in.ToolInput), Detail: detail, Sandbox: ws.Sandbox,
 	}
 	if err := s.create(ctx, a); err != nil {
-		s.log.Error("Freigabe anlegen", "err", err)
-		return deny("Freigabe konnte nicht angelegt werden")
+		s.log.Error("create approval", "err", err)
+		return deny("approval could not be created")
 	}
 	res, err := s.wait(ctx, a.ID)
 	if err != nil {
-		_, _ = s.finish(context.Background(), a.ID, store.ApprovalCanceled, "", "Agent wartet nicht mehr")
+		_, _ = s.finish(context.Background(), a.ID, store.ApprovalCanceled, "", "agent no longer waits")
 		return deny("abgebrochen")
 	}
 	return answerFor(res)
@@ -438,22 +438,22 @@ func (s *Service) PreToolUse(ctx context.Context, req HookRequest) proxy.Answer 
 func answerFor(a *store.Approval) proxy.Answer {
 	switch {
 	case a.Status == store.ApprovalApproved:
-		r := "ADE: im Dashboard freigegeben"
+		r := "ADE: approved in the dashboard"
 		if a.Reason != "" {
 			r += ": " + a.Reason
 		}
 		return proxy.Answer{Decision: proxy.AnswerAllow, Reason: r}
 	case a.Status == store.ApprovalDenied && a.Reason != "":
-		return deny("im Dashboard abgelehnt: %s", a.Reason)
+		return deny("denied in the dashboard: %s", a.Reason)
 	case a.Status == store.ApprovalDenied:
-		return deny("im Dashboard abgelehnt")
+		return deny("denied in the dashboard")
 	case a.Status == store.ApprovalExpired:
 		return deny("abgelehnt, %s", a.Reason)
 	}
 	return deny("Freigabe %s", a.Status)
 }
 
-// toolTitle ist eine Kurzbeschreibung eines Aufrufs.
+// toolTitle is a short description of a call.
 func toolTitle(tool string, input json.RawMessage) string {
 	var in map[string]any
 	_ = json.Unmarshal(input, &in)
@@ -481,14 +481,14 @@ func toolTitle(tool string, input json.RawMessage) string {
 
 // --- Budgets ----------------------------------------------------------------------------
 
-// RequestBudget legt eine Budget-Freigabe an (agent.Budgets). decided läuft in einer eigenen
-// Goroutine, sobald entschieden, abgelaufen oder abgebrochen ist.
+// RequestBudget creates a budget approval (agent.Budgets). decided runs in its own goroutine
+// as soon as it is decided, expired or canceled.
 func (s *Service) RequestBudget(ctx context.Context, a *store.Approval, decided func(*store.Approval)) error {
 	a.Kind = store.ApprovalBudget
 	if err := s.createFor(ctx, a, BudgetTimeout); err != nil {
 		return err
 	}
-	go func() { //nolint:gosec // G118: wartet über die Anfrage hinaus bis zur Entscheidung
+	go func() { //nolint:gosec // G118: waits beyond the request until the decision
 		res, err := s.wait(context.Background(), a.ID)
 		if err == nil && res != nil {
 			decided(res)
@@ -499,17 +499,17 @@ func (s *Service) RequestBudget(ctx context.Context, a *store.Approval, decided 
 
 // --- Gates ------------------------------------------------------------------------------
 
-// GateTimeout ist die Wartezeit an einem Gate eines Fabrik-Runs. Es wartet kein Prozess.
+// GateTimeout is the waiting time at a gate of a factory run. No process waits.
 const GateTimeout = 7 * 24 * time.Hour
 
-// RequestGate legt die Freigabe eines Gates an (Art gate). decided läuft in einer eigenen
-// Goroutine, sobald entschieden, abgelaufen oder abgebrochen ist.
+// RequestGate creates the approval of a gate (kind gate). decided runs in its own goroutine
+// as soon as it is decided, expired or canceled.
 func (s *Service) RequestGate(ctx context.Context, a *store.Approval, decided func(*store.Approval)) error {
 	a.Kind = store.ApprovalGate
 	if err := s.createFor(ctx, a, GateTimeout); err != nil {
 		return err
 	}
-	go func() { //nolint:gosec // G118: wartet über die Anfrage hinaus bis zur Entscheidung
+	go func() { //nolint:gosec // G118: waits beyond the request until the decision
 		res, err := s.wait(context.Background(), a.ID)
 		if err == nil && res != nil {
 			decided(res)
@@ -518,7 +518,7 @@ func (s *Service) RequestGate(ctx context.Context, a *store.Approval, decided fu
 	return nil
 }
 
-// Cancel bricht eine offene Freigabe ab (z. B. weil der Run abgebrochen wurde).
+// Cancel cancels a pending approval (e.g. because the run was canceled).
 func (s *Service) Cancel(ctx context.Context, id, reason string) error {
 	a, err := s.opts.Store.GetApproval(ctx, id)
 	if err != nil {
@@ -538,13 +538,13 @@ type egressDetail struct {
 	Port int    `json:"port"`
 }
 
-// Egress entscheidet über ein nicht freigegebenes Ziel eines Sandbox-Workspaces. Gleiche
-// Ziele teilen sich eine offene Freigabe. Endet ctx (die Anfrage im Container hat
-// aufgegeben), bleibt die Freigabe offen – eine Ausnahme ist auch danach noch nützlich.
+// Egress decides about a target of a sandbox workspace that is not allowed. Equal targets
+// share one pending approval. If ctx ends (the request in the container gave up), the
+// approval stays pending – an exception is still useful afterwards.
 func (s *Service) Egress(ctx context.Context, workspaceID, host string, port int) proxy.Answer {
 	ws, err := s.opts.Store.GetWorkspace(ctx, workspaceID)
 	if err != nil {
-		return deny("Workspace %s unbekannt", workspaceID)
+		return deny("workspace %s unknown", workspaceID)
 	}
 	target := net.JoinHostPort(host, strconv.Itoa(port))
 	key := ws.ID + "|" + target
@@ -558,23 +558,23 @@ func (s *Service) Egress(ctx context.Context, workspaceID, host string, port int
 			Title: target, Detail: detail, Sandbox: true,
 		}
 		if err := s.create(context.WithoutCancel(ctx), a); err != nil {
-			s.log.Error("Freigabe anlegen", "err", err)
-			return deny("Freigabe konnte nicht angelegt werden")
+			s.log.Error("create approval", "err", err)
+			return deny("approval could not be created")
 		}
 		s.mu.Lock()
 		if other := s.egress[key]; other != "" {
-			id = other // gleichzeitig angelegt: die andere gilt, diese schließen
+			id = other // created at the same time: the other one applies, close this one
 		} else {
 			s.egress[key], id = a.ID, a.ID
 		}
 		s.mu.Unlock()
 		if id != a.ID {
-			_, _ = s.finish(context.Background(), a.ID, store.ApprovalCanceled, "", "doppelte Anfrage")
+			_, _ = s.finish(context.Background(), a.ID, store.ApprovalCanceled, "", "duplicate request")
 		}
 	}
 	res, err := s.wait(ctx, id)
 	if err != nil {
-		return deny("keine Entscheidung")
+		return deny("no decision")
 	}
 	if res.Status == store.ApprovalApproved {
 		return proxy.Answer{Decision: proxy.AnswerAllow}
@@ -582,7 +582,7 @@ func (s *Service) Egress(ctx context.Context, workspaceID, host string, port int
 	return answerFor(res)
 }
 
-// Question beantwortet eine Frage eines Egress-Proxys (sandbox.QuestionHandler).
+// Question answers a question of an egress proxy (sandbox.QuestionHandler).
 func (s *Service) Question(ctx context.Context, workspace string, q proxy.Question) proxy.Answer {
 	switch {
 	case q.Kind == proxy.QuestionTool && q.Hook != nil:
@@ -590,5 +590,5 @@ func (s *Service) Question(ctx context.Context, workspace string, q proxy.Questi
 	case q.Kind == proxy.QuestionEgress && q.Host != "":
 		return s.Egress(ctx, workspace, q.Host, q.Port)
 	}
-	return deny("unbekannte Frage")
+	return deny("unknown question")
 }

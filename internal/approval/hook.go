@@ -13,22 +13,22 @@ import (
 	"github.com/DavidW475/ade/internal/proxy"
 )
 
-// Umgebungsvariablen für ade hook pretooluse.
+// Environment variables for ade hook pretooluse.
 const (
-	// EnvHookURL ist die Adresse, an die der Hook fragt (lokal der Daemon, in der Sandbox der
-	// Egress-Proxy).
+	// EnvHookURL is the address the hook asks (locally the daemon, in the sandbox the egress
+	// proxy).
 	EnvHookURL = "ADE_HOOK_URL"
-	// EnvHookToken weist lokale Hooks beim Daemon aus (nur für die eigene Session gültig).
-	EnvHookToken = "ADE_HOOK_TOKEN" //nolint:gosec // G101: Name, kein Secret
-	// EnvSessionID ist die ADE-Session (wie agent.EnvSessionID).
+	// EnvHookToken authenticates local hooks with the daemon (only valid for the own session).
+	EnvHookToken = "ADE_HOOK_TOKEN" //nolint:gosec // G101: name, not a secret
+	// EnvSessionID is the ADE session (like agent.EnvSessionID).
 	EnvSessionID = "ADE_SESSION_ID"
 )
 
-// HookTimeoutMargin kommt auf das Timeout der Freigaben, damit die CLI den Hook nicht vor
-// der Entscheidung abbricht.
+// HookTimeoutMargin is added to the approval timeout so that the CLI does not abort the hook
+// before the decision.
 const HookTimeoutMargin = 30 * time.Second
 
-// hookOutput ist die Antwort an Claude Code (PreToolUse, JSON auf stdout).
+// hookOutput is the answer to Claude Code (PreToolUse, JSON on stdout).
 type hookOutput struct {
 	HookSpecificOutput struct {
 		HookEventName            string `json:"hookEventName"`
@@ -37,13 +37,13 @@ type hookOutput struct {
 	} `json:"hookSpecificOutput"`
 }
 
-// RunHook ist ade hook pretooluse: Hook-Eingabe von stdin lesen, ADE fragen und die
-// Entscheidung im Format von Claude Code auf stdout schreiben. Jeder Fehler führt zu deny
-// (fail closed); der Rückgabewert ist nur für Meldungen auf stderr.
+// RunHook is ade hook pretooluse: read the hook input from stdin, ask ADE and write the
+// decision in Claude Code's format to stdout. Every error leads to deny (fail closed); the
+// return value is only for messages on stderr.
 func RunHook(ctx context.Context, stdin io.Reader, stdout io.Writer, getenv func(string) string, client *http.Client) error {
 	a, err := askHook(ctx, stdin, getenv, client)
 	if err != nil {
-		a = proxy.Answer{Decision: proxy.AnswerDeny, Reason: "ADE: Freigabe nicht möglich – " + err.Error()}
+		a = proxy.Answer{Decision: proxy.AnswerDeny, Reason: "ADE: approval not possible – " + err.Error()}
 	}
 	if a.Decision != proxy.AnswerAllow {
 		a.Decision = proxy.AnswerDeny
@@ -61,14 +61,14 @@ func RunHook(ctx context.Context, stdin io.Reader, stdout io.Writer, getenv func
 func askHook(ctx context.Context, stdin io.Reader, getenv func(string) string, client *http.Client) (proxy.Answer, error) {
 	in, err := io.ReadAll(io.LimitReader(stdin, 1<<20))
 	if err != nil {
-		return proxy.Answer{}, fmt.Errorf("Eingabe lesen: %w", err)
+		return proxy.Answer{}, fmt.Errorf("read input: %w", err)
 	}
 	if !json.Valid(in) {
-		return proxy.Answer{}, fmt.Errorf("Eingabe ist kein JSON")
+		return proxy.Answer{}, fmt.Errorf("input is not JSON")
 	}
 	url := getenv(EnvHookURL)
 	if !strings.HasPrefix(url, "http://") {
-		return proxy.Answer{}, fmt.Errorf("%s ist nicht gesetzt", EnvHookURL)
+		return proxy.Answer{}, fmt.Errorf("%s is not set", EnvHookURL)
 	}
 	body, _ := json.Marshal(proxy.HookCall{Session: getenv(EnvSessionID), Input: in})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -80,26 +80,26 @@ func askHook(ctx context.Context, stdin io.Reader, getenv func(string) string, c
 		req.Header.Set("Authorization", "Bearer "+t)
 	}
 	if client == nil {
-		// Nie über HTTP(S)_PROXY: Die Adresse ist der Daemon bzw. der Proxy selbst.
+		// Never through HTTP(S)_PROXY: the address is the daemon or the proxy itself.
 		client = &http.Client{Transport: &http.Transport{Proxy: nil}}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return proxy.Answer{}, fmt.Errorf("ADE nicht erreichbar: %w", err)
+		return proxy.Answer{}, fmt.Errorf("ADE not reachable: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	var a proxy.Answer
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&a); err != nil {
-		return proxy.Answer{}, fmt.Errorf("Antwort von ADE (%d) nicht lesbar", resp.StatusCode)
+		return proxy.Answer{}, fmt.Errorf("answer from ADE (%d) not readable", resp.StatusCode)
 	}
 	if resp.StatusCode != http.StatusOK && a.Reason == "" {
-		return proxy.Answer{}, fmt.Errorf("ADE antwortet mit %d", resp.StatusCode)
+		return proxy.Answer{}, fmt.Errorf("ADE answers with %d", resp.StatusCode)
 	}
 	return a, nil
 }
 
-// HookSettings liefert die Einstellungen für claude --settings: ein PreToolUse-Hook für alle
-// Werkzeuge, der command ausführt. timeout ist die Wartezeit auf eine Freigabe.
+// HookSettings returns the settings for claude --settings: a PreToolUse hook for all tools
+// that runs command. timeout is the waiting time for an approval.
 func HookSettings(command string, timeout time.Duration) string {
 	type hook struct {
 		Type    string `json:"type"`
@@ -118,7 +118,7 @@ func HookSettings(command string, timeout time.Duration) string {
 	return string(b)
 }
 
-// ShellQuote setzt einen Pfad für den Hook-Befehl (läuft über die Shell) in Anführungszeichen.
+// ShellQuote quotes a path for the hook command (runs through the shell).
 func ShellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
