@@ -14,10 +14,10 @@ func newTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	run(t, dir, "init", "-q", "-b", "main")
-	write(t, dir, "README.md", "hallo\n")
-	write(t, dir, "src/a.txt", "eins\nzwei\ndrei\n")
-	write(t, dir, "alt.txt", "umbenennen\nbitte\nnicht\nverlieren\n")
-	write(t, dir, "weg.txt", "löschen\n")
+	write(t, dir, "README.md", "hello\n")
+	write(t, dir, "src/a.txt", "one\ntwo\nthree\n")
+	write(t, dir, "old.txt", "rename\nplease\ndo not\nlose\n")
+	write(t, dir, "gone.txt", "delete\n")
 	run(t, dir, "add", ".")
 	run(t, dir, "commit", "-q", "-m", "init")
 	return dir
@@ -113,17 +113,17 @@ func TestWorktreeDiff(t *testing.T) {
 	}
 
 	// Committed change.
-	write(t, repo, "src/a.txt", "eins\nZWEI\ndrei\nvier\n")
+	write(t, repo, "src/a.txt", "one\nTWO\nthree\nfour\n")
 	run(t, repo, "commit", "-q", "-am", "change")
 	// Unstaged change, new file, deletion, rename, binary file, ignored file.
-	write(t, repo, "README.md", "hallo welt\n")
-	write(t, repo, "neu.txt", "neu\n")
+	write(t, repo, "README.md", "hello world\n")
+	write(t, repo, "new.txt", "new\n")
 	write(t, repo, ".gitignore", "*.log\n")
-	write(t, repo, "debug.log", "ignoriert\n")
-	if err := os.Remove(filepath.Join(repo, "weg.txt")); err != nil {
+	write(t, repo, "debug.log", "ignored\n")
+	if err := os.Remove(filepath.Join(repo, "gone.txt")); err != nil {
 		t.Fatal(err)
 	}
-	run(t, repo, "mv", "alt.txt", "neu-name.txt")
+	run(t, repo, "mv", "old.txt", "new-name.txt")
 	if err := os.WriteFile(filepath.Join(repo, "bild.bin"), []byte{0, 1, 2, 0, 255}, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -142,13 +142,13 @@ func TestWorktreeDiff(t *testing.T) {
 		".gitignore":   "added",
 		"README.md":    "modified",
 		"bild.bin":     "added",
-		"neu-name.txt": "renamed",
-		"neu.txt":      "added",
+		"new-name.txt": "renamed",
+		"new.txt":      "added",
 		"src/a.txt":    "modified",
-		"weg.txt":      "deleted",
+		"gone.txt":     "deleted",
 	}
 	if len(got) != len(want) {
-		t.Fatalf("Dateien = %v", keys(got))
+		t.Fatalf("files = %v", keys(got))
 	}
 	for p, s := range want {
 		if got[p].Status != s {
@@ -161,13 +161,13 @@ func TestWorktreeDiff(t *testing.T) {
 	if f := got["src/a.txt"]; f.Additions != 2 || f.Deletions != 1 {
 		t.Errorf("src/a.txt: +%d -%d, want +2 -1", f.Additions, f.Deletions)
 	}
-	if f := got["neu-name.txt"]; f.OldPath != "alt.txt" {
+	if f := got["new-name.txt"]; f.OldPath != "old.txt" {
 		t.Errorf("rename: OldPath = %q", f.OldPath)
 	}
 	if !got["bild.bin"].Binary {
 		t.Error("bild.bin not detected as binary")
 	}
-	if !strings.Contains(got["README.md"].Patch, "+hallo welt") {
+	if !strings.Contains(got["README.md"].Patch, "+hello world") {
 		t.Errorf("README-Patch = %q", got["README.md"].Patch)
 	}
 
@@ -192,20 +192,20 @@ func TestWorktreeDiff(t *testing.T) {
 }
 
 func TestParseFormats(t *testing.T) {
-	files, err := parseNameStatus([]byte("M\x00a.txt\x00R087\x00alt\x00neu\x00A\x00b\x00"))
+	files, err := parseNameStatus([]byte("M\x00a.txt\x00R087\x00old\x00new\x00A\x00b\x00"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 3 || files[1].Status != "renamed" || files[1].OldPath != "alt" || files[1].Path != "neu" {
+	if len(files) != 3 || files[1].Status != "renamed" || files[1].OldPath != "old" || files[1].Path != "new" {
 		t.Fatalf("files = %#v", files)
 	}
-	if err := applyNumStat(files, []byte("1\t2\ta.txt\x003\t0\t\x00alt\x00neu\x00-\t-\tb\x00")); err != nil {
+	if err := applyNumStat(files, []byte("1\t2\ta.txt\x003\t0\t\x00old\x00new\x00-\t-\tb\x00")); err != nil {
 		t.Fatal(err)
 	}
 	if files[0].Additions != 1 || files[1].Additions != 3 || !files[2].Binary {
 		t.Fatalf("files = %#v", files)
 	}
-	if _, err := parseNameStatus([]byte("R100\x00nur-einer\x00")); err == nil {
+	if _, err := parseNameStatus([]byte("R100\x00only-one\x00")); err == nil {
 		t.Error("incomplete rename: expected an error")
 	}
 }

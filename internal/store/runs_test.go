@@ -47,7 +47,7 @@ func TestRunRepeatSteps(t *testing.T) {
 			wantIter = 1
 		}
 		if st.Index != i || st.Iteration != wantIter || st.Status != wantStatus || st.SessionID != "" {
-			t.Errorf("Schritt %d: %+v", i, st)
+			t.Errorf("step %d: %+v", i, st)
 		}
 	}
 	if got.Steps[0].Output != "s.md" || got.Steps[0].Row != 4 || got.History[0].Status != StepDone {

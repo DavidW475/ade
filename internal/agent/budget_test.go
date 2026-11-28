@@ -118,7 +118,7 @@ func TestSessionBudgetPausesAndApprovalResumes(t *testing.T) {
 		t.Fatalf("status after cancel = %s", e.status(s.ID))
 	}
 	b.decide(1, store.ApprovalApproved)
-	waitFor(t, "Fortsetzen", func() bool { return len(e.fake.Specs()) > specs })
+	waitFor(t, "resume", func() bool { return len(e.fake.Specs()) > specs })
 	if spec := e.fake.Specs()[len(e.fake.Specs())-1]; spec.ResumeID != "cli-1" {
 		t.Errorf("Resume-Spec = %+v", spec)
 	}

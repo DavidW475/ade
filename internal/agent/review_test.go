@@ -103,7 +103,7 @@ func TestIdleCommitsAndBusyCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	if st := e.status(s.ID); st != store.SessionDone {
-		t.Errorf("alte Session: %s", st)
+		t.Errorf("old session: %s", st)
 	}
 	e.waitStatus(fb.ID, store.SessionRunning)
 }

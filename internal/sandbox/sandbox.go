@@ -249,7 +249,7 @@ func (m *Manager) run(ctx context.Context, stdin []byte, args ...string) ([]byte
 	}
 	if err := cmd.Run(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			return nil, fmt.Errorf("Docker is not installed (%s not found)", m.opts.Docker)
+			return nil, fmt.Errorf("docker CLI is not installed (%s not found)", m.opts.Docker)
 		}
 		return stdout.Bytes(), &Error{Args: args, Stderr: stderr.String(), Err: err}
 	}
@@ -273,7 +273,7 @@ func (m *Manager) Available(ctx context.Context) (string, error) {
 		rt, err = ParseInfo(out)
 	}
 	if err != nil {
-		err = fmt.Errorf("Docker not reachable: %w", err)
+		err = fmt.Errorf("docker not reachable: %w", err)
 	}
 	m.mu.Lock()
 	m.avail = &availability{at: time.Now(), version: rt.Version, err: err}
@@ -533,7 +533,7 @@ func (m *Manager) Ensure(ctx context.Context, s Spec) error {
 	return nil
 }
 
-// EnsureReader, like Ensure, takes care of network and proxy and additionally of the
+// EnsureReader takes care of network and proxy like Ensure and additionally of the
 // workspace's reader container: same image, same internal network, same proxy, but
 // /workspace mounted read-only. Read-only roles of a factory (planner, reviewer) run in it and
 // cannot change the workspace.

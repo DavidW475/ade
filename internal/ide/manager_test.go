@@ -43,7 +43,7 @@ func fakeServer(mode string) {
 	}
 	_ = fs.Parse(os.Args[1:])
 	if mode == "crash" {
-		fmt.Fprintln(os.Stderr, "kaputt")
+		fmt.Fprintln(os.Stderr, "broken")
 		os.Exit(3)
 	}
 	token, err := os.ReadFile(*tokenFile)
@@ -248,7 +248,7 @@ func TestCrashReportsError(t *testing.T) {
 		t.Fatalf("Acquire err = %v, want Conflict", err)
 	}
 	st := waitState(t, f.m, "ws1", StateError)
-	if !strings.Contains(st.Error, "kaputt") {
+	if !strings.Contains(st.Error, "broken") {
 		t.Errorf("error = %q, want the server's output", st.Error)
 	}
 }
@@ -260,7 +260,7 @@ func TestStartTimeout(t *testing.T) {
 	}
 	st := waitState(t, f.m, "ws1", StateError)
 	if !strings.Contains(st.Error, "does not answer after") {
-		t.Errorf("Fehler = %q", st.Error)
+		t.Errorf("error = %q", st.Error)
 	}
 }
 
@@ -321,7 +321,7 @@ func TestMissingBinary(t *testing.T) {
 	}
 	st := waitState(t, f.m, "ws1", StateError)
 	if !strings.Contains(st.Error, "not found") {
-		t.Errorf("Fehler = %q", st.Error)
+		t.Errorf("error = %q", st.Error)
 	}
 }
 
@@ -437,7 +437,7 @@ func TestSandboxIDE(t *testing.T) {
 	}
 	code, body := get(t, up, up.Token)
 	if code != http.StatusOK || !strings.Contains(body, "folder=/workspace") || !strings.Contains(body, "env=box") {
-		t.Errorf("Antwort %d %q", code, body)
+		t.Errorf("answer %d %q", code, body)
 	}
 	if code, _ := get(t, up, "falsch"); code != http.StatusForbidden {
 		t.Errorf("wrong token: %d", code)

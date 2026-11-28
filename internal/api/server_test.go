@@ -55,7 +55,7 @@ func TestHealth(t *testing.T) {
 }
 
 func TestHealthDegraded(t *testing.T) {
-	s, _ := newTestServer(t, fakeStore{err: errors.New("kaputt")})
+	s, _ := newTestServer(t, fakeStore{err: errors.New("broken")})
 	if w := do(s, "GET", "/api/health", nil); w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("Code = %d", w.Code)
 	}
@@ -221,7 +221,7 @@ func TestTicketExpires(t *testing.T) {
 	}
 	now = now.Add(SessionTTL)
 	if a.ValidSession(id) {
-		t.Fatal("abgelaufene Session akzeptiert")
+		t.Fatal("expired session accepted")
 	}
 }
 

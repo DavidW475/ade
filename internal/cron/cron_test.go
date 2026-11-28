@@ -50,7 +50,7 @@ func TestParseErrors(t *testing.T) {
 		"@sometimes":   "unknown",
 	} {
 		if _, err := Parse(expr); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%q: %v, erwartet %q", expr, err, want)
+			t.Errorf("%q: %v, want %q", expr, err, want)
 		}
 	}
 }

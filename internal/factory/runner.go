@@ -470,7 +470,7 @@ func (r *Runner) Cancel(ctx context.Context, id string) (*View, error) {
 			}
 		}
 		if st.Status == store.StepRunning || st.Status == store.StepWaiting {
-			r.endRow(ctx, run, st, store.StepCanceled, "abgebrochen")
+			r.endRow(ctx, run, st, store.StepCanceled, "canceled")
 		}
 	}
 	r.endRun(ctx, run, store.RunCanceled, "canceled by hand")
@@ -1162,7 +1162,7 @@ func (r *Runner) checkGate(ctx context.Context, run *store.Run, def *Step, st st
 		r.log.Info("gate approved", "run", run.ID, "step", st.Name)
 		return true, nil
 	case store.ApprovalDenied:
-		msg := "abgelehnt"
+		msg := "denied"
 		if a.Reason != "" {
 			msg += ": " + a.Reason
 		}

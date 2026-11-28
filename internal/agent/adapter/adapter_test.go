@@ -33,7 +33,7 @@ func TestRegistry(t *testing.T) {
 }
 
 // The JSON schema must be valid JSON and describe every event type that adapters
-// erzeugen.
+// produce.
 func TestEventSchemaCoversTypes(t *testing.T) {
 	data, err := os.ReadFile("event.schema.json")
 	if err != nil {

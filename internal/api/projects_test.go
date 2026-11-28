@@ -77,7 +77,7 @@ func TestProjectWorkspaceFlow(t *testing.T) {
 	}
 
 	api(t, s, "POST", "/api/projects", `{"path":"`+t.TempDir()+`"}`, http.StatusBadRequest, nil)
-	api(t, s, "POST", "/api/projects", `{"pfad":"x"}`, http.StatusBadRequest, nil)
+	api(t, s, "POST", "/api/projects", `{"pathh":"x"}`, http.StatusBadRequest, nil)
 
 	var p project.View
 	api(t, s, "POST", "/api/projects", `{"path":"`+repo+`"}`, http.StatusCreated, &p)

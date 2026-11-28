@@ -47,7 +47,7 @@ func (a *Adapter) Name() string {
 	return "fake"
 }
 
-// Capabilities implementiert adapter.Adapter.
+// Capabilities implements adapter.Adapter.
 func (a *Adapter) Capabilities() adapter.Capabilities {
 	if a.Caps != nil {
 		return *a.Caps
@@ -55,7 +55,7 @@ func (a *Adapter) Capabilities() adapter.Capabilities {
 	return adapter.Capabilities{Input: true, Resume: true}
 }
 
-// Command implementiert adapter.Adapter.
+// Command implements adapter.Adapter.
 func (a *Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 	a.mu.Lock()
 	a.specs = append(a.specs, spec)
@@ -83,7 +83,7 @@ type line struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
-// Parse implementiert adapter.Adapter.
+// Parse implements adapter.Adapter.
 func (a *Adapter) Parse(r io.Reader, sink adapter.Sink) error {
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
@@ -113,7 +113,7 @@ func (a *Adapter) Parse(r io.Reader, sink adapter.Sink) error {
 	return sc.Err()
 }
 
-// EncodeInput implementiert adapter.Adapter.
+// EncodeInput implements adapter.Adapter.
 func (a *Adapter) EncodeInput(text string) ([]byte, error) {
 	b, err := json.Marshal(map[string]any{"type": adapter.TypeMessage, "payload": adapter.Message{Role: "assistant", Text: "echo: " + text}})
 	if err != nil {

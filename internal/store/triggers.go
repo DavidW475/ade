@@ -128,7 +128,7 @@ func (s *Store) ListTriggerRuns(ctx context.Context, f TriggerRunFilter) ([]Trig
 	return out, rows.Err()
 }
 
-// MarkTriggerRunReported vermerkt, dass das Ende des Runs gemeldet ist.
+// MarkTriggerRunReported records that the end of the run has been reported.
 func (s *Store) MarkTriggerRunReported(ctx context.Context, projectID, trigger, key string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE trigger_runs SET reported = 1 WHERE project_id = ? AND trigger = ? AND key = ?`,
 		projectID, trigger, key)

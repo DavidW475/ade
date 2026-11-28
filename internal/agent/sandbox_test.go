@@ -163,7 +163,7 @@ func TestSandboxReadOnlyRole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := e.m.StartRole(e.ctx, StartRequest{WorkspaceID: ws.ID, Task: "lesen"}, RoleStart{Role: "reviewer", Prompt: "lies", ReadOnly: true})
+	s, err := e.m.StartRole(e.ctx, StartRequest{WorkspaceID: ws.ID, Task: "read"}, RoleStart{Role: "reviewer", Prompt: "read it", ReadOnly: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,12 +175,12 @@ func TestSandboxReadOnlyRole(t *testing.T) {
 	}
 	waitFor(t, "result in the reader container", func() bool { return read("/tmp/result") != "" })
 	if got := read("/tmp/result"); got != "refused" {
-		t.Fatalf("Schreiben in /workspace: %s", got)
+		t.Fatalf("writing to /workspace: %s", got)
 	}
 	if got := read("/tmp/read"); got != "hello" {
-		t.Fatalf("Lesen: %q", got)
+		t.Fatalf("reading: %q", got)
 	}
-	if _, err := os.Stat(ws.Path + "/neu"); err == nil {
+	if _, err := os.Stat(ws.Path + "/new"); err == nil {
 		t.Fatal("file of the read-only role in the workspace")
 	}
 	if c, err := sb.GetReader(e.ctx, ws.ID); err != nil || c == nil || !c.Running {

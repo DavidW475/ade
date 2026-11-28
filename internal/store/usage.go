@@ -52,7 +52,7 @@ func (s *Store) AddUsage(ctx context.Context, u *Usage) error {
 		return fmt.Errorf("store usage: project %s unknown", u.ProjectID)
 	}
 	if err != nil {
-		return fmt.Errorf("Nutzung speichern: %w", err)
+		return fmt.Errorf("store usage: %w", err)
 	}
 	u.ID, _ = res.LastInsertId()
 	if u.SessionID != "" {

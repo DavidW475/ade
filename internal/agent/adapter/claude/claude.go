@@ -48,12 +48,12 @@ func New() *Adapter { return &Adapter{Binary: Binary} }
 // Name implements adapter.Adapter.
 func (a *Adapter) Name() string { return "claude" }
 
-// Capabilities implementiert adapter.Adapter.
+// Capabilities implements adapter.Adapter.
 func (a *Adapter) Capabilities() adapter.Capabilities {
 	return adapter.Capabilities{Input: true, Resume: true, Approvals: true}
 }
 
-// Command implementiert adapter.Adapter.
+// Command implements adapter.Adapter.
 func (a *Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 	bin := a.Binary
 	if bin == "" {
@@ -164,7 +164,7 @@ type block struct {
 // maxLine limits an output line (large file contents in tool results).
 const maxLine = 64 << 20
 
-// Parse implementiert adapter.Adapter.
+// Parse implements adapter.Adapter.
 func (a *Adapter) Parse(r io.Reader, sink adapter.Sink) error {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64<<10), maxLine)

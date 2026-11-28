@@ -69,7 +69,7 @@ func TestParseRecordedTask(t *testing.T) {
 	}
 	readRes := s.events[2].payload.(adapter.ToolResult)
 	if readRes.ID != read.ID || !strings.Contains(readRes.Output, "hello") || readRes.IsError {
-		t.Errorf("Read-Ergebnis = %+v", readRes)
+		t.Errorf("Read result = %+v", readRes)
 	}
 	bash := s.events[3].payload.(adapter.ToolCall)
 	var in struct{ Command string }
@@ -77,7 +77,7 @@ func TestParseRecordedTask(t *testing.T) {
 		t.Errorf("Bash call = %+v (%v)", bash, err)
 	}
 	if res := s.events[4].payload.(adapter.ToolResult); res.ID != bash.ID || res.Output != "2 a.txt" {
-		t.Errorf("Bash-Ergebnis = %+v", res)
+		t.Errorf("Bash result = %+v", res)
 	}
 	if msg := s.events[5].payload.(adapter.Message); msg.Role != "assistant" || !strings.Contains(msg.Text, "world") {
 		t.Errorf("Nachricht = %+v", msg)
@@ -173,7 +173,7 @@ func TestParseTruncatesLargeToolResult(t *testing.T) {
 
 func TestCommand(t *testing.T) {
 	a := &Adapter{Binary: "sh"} // sh exists everywhere; the call is only built
-	c, err := a.Command(adapter.Spec{Task: "Hallo", Model: "haiku", PermissionMode: "acceptEdits", ResumeID: "abc"})
+	c, err := a.Command(adapter.Spec{Task: "Hello", Model: "haiku", PermissionMode: "acceptEdits", ResumeID: "abc"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestCommand(t *testing.T) {
 		Type    string
 		Message struct{ Role, Content string }
 	}
-	if err := json.Unmarshal(c.Input, &msg); err != nil || msg.Type != "user" || msg.Message.Content != "Hallo" || c.Input[len(c.Input)-1] != '\n' {
+	if err := json.Unmarshal(c.Input, &msg); err != nil || msg.Type != "user" || msg.Message.Content != "Hello" || c.Input[len(c.Input)-1] != '\n' {
 		t.Errorf("Input = %q (%v)", c.Input, err)
 	}
 

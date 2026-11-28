@@ -41,7 +41,7 @@ func TestOpenFallsBackOnError(t *testing.T) {
 	runFn := func(name string, _ ...string) error {
 		ran = append(ran, name)
 		if name == "wslview" {
-			return errors.New("kaputt")
+			return errors.New("broken")
 		}
 		return nil
 	}

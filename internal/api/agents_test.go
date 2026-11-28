@@ -238,7 +238,7 @@ func TestWebSocketGuards(t *testing.T) {
 	a.call(t, "POST", "/api/agents", fmt.Sprintf(`{"project_id":%q,"task":"x"}`, a.project), http.StatusCreated, &v)
 
 	for _, path := range []string{"/ws/sessions/" + v.ID + "/events", "/ws/sessions/" + v.ID + "/pty"} {
-		// Ohne Anmeldung.
+		// Without login.
 		if _, code, err := a.dial(t, path, http.Header{}); err == nil || code != http.StatusUnauthorized {
 			t.Errorf("%s without auth: %d %v", path, code, err)
 		}

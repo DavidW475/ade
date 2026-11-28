@@ -53,7 +53,7 @@ func cmdProject(args []string, stdout, stderr io.Writer) error {
 	switch sub {
 	case "add":
 		if fs.NArg() != 1 {
-			return usageError{"ade project add <pfad>"}
+			return usageError{"ade project add <path>"}
 		}
 		abs, err := filepath.Abs(fs.Arg(0))
 		if err != nil {
@@ -92,7 +92,7 @@ func cmdProject(args []string, stdout, stderr io.Writer) error {
 
 	case "remove":
 		if fs.NArg() != 1 {
-			return usageError{"ade project remove [--force] <id|name|pfad>"}
+			return usageError{"ade project remove [--force] <id|name|path>"}
 		}
 		ref := fs.Arg(0)
 		// An existing path is resolved like for add.
@@ -126,7 +126,7 @@ func cmdProject(args []string, stdout, stderr io.Writer) error {
 
 func printProjectNotes(w io.Writer, p *project.View) {
 	for _, warn := range p.Warnings {
-		_, _ = fmt.Fprintln(w, "Warnung:", warn)
+		_, _ = fmt.Fprintln(w, "warning:", warn)
 	}
 	if p.ConfigError != "" {
 		_, _ = fmt.Fprintln(w, "error in the project configuration:", p.ConfigError)

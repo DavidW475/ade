@@ -58,7 +58,7 @@ func TestEvaluate(t *testing.T) {
 		{"mcp__docs__search", nil, VerdictAllow},
 		{"mcp__other__x", nil, VerdictAsk},
 		{"TodoWrite", nil, VerdictAllow},
-		{"Unbekannt", nil, VerdictAsk},
+		{"Unknown", nil, VerdictAsk},
 	} {
 		got, rule := rules.Evaluate(Call{Tool: c.tool, Input: c.input, Workdir: wd})
 		if got != c.want {

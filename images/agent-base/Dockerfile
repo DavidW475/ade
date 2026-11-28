@@ -1,25 +1,25 @@
-# ade-agent-base: Basis-Image für die ADE-Sandbox (doc/sandbox.md#2-agent-container).
+# ade-agent-base: base image for the ADE sandbox (doc/sandbox.md#2-agent-container).
 #
-# Enthält Agent-CLIs und openvscode-server; ADE startet je Workspace einen Container mit
-# /workspace als einzigem Mount. Projekte können davon ableiten (FROM ade-agent-base).
+# Contains agent CLIs and openvscode-server; ADE starts one container per workspace with
+# /workspace as the only mount. Projects can derive from it (FROM ade-agent-base).
 #
-#   make image                       # lokal bauen (Tag :dev)
+#   make image                       # build locally (tag :dev)
 #   docker run --rm -it ghcr.io/davidw475/ade-agent-base:latest bash
 
 FROM node:24-trixie-slim
 
-# openvscode-server: dieselbe Version und Prüfsummen wie internal/ide/install.go.
+# openvscode-server: the same version and checksums as internal/ide/install.go.
 ARG OPENVSCODE_VERSION=1.109.5
 ARG OPENVSCODE_SHA256_AMD64=b433bf4f0227321a7014d8460d10a8f958adc0f45aa79bd889e84e65e8f88363
 ARG OPENVSCODE_SHA256_ARM64=36d9c14036489b63de84ebace837fcacf7e60e669a0dc715802c5443684ea4dc
-# Claude Code (npm-Paket @anthropic-ai/claude-code); "latest" oder eine feste Version.
+# Claude Code (npm package @anthropic-ai/claude-code); "latest" or a fixed version.
 ARG CLAUDE_CODE_VERSION=latest
-# Codex CLI (npm-Paket @openai/codex); "latest" oder eine feste Version.
+# Codex CLI (npm package @openai/codex); "latest" or a fixed version.
 ARG CODEX_VERSION=latest
 ARG TARGETARCH
 
 LABEL org.opencontainers.image.title="ade-agent-base" \
-      org.opencontainers.image.description="ADE-Sandbox: Agent-CLIs und openvscode-server" \
+      org.opencontainers.image.description="ADE sandbox: agent CLIs and openvscode-server" \
       org.opencontainers.image.source="https://github.com/DavidW475/ade" \
       org.opencontainers.image.licenses="Apache-2.0"
 
@@ -33,7 +33,7 @@ RUN set -eu; \
     case "${TARGETARCH:-amd64}" in \
       amd64) arch=x64;   sum="$OPENVSCODE_SHA256_AMD64" ;; \
       arm64) arch=arm64; sum="$OPENVSCODE_SHA256_ARM64" ;; \
-      *) echo "Architektur ${TARGETARCH} wird nicht unterstützt" >&2; exit 1 ;; \
+      *) echo "architecture ${TARGETARCH} is not supported" >&2; exit 1 ;; \
     esac; \
     name="openvscode-server-v${OPENVSCODE_VERSION}-linux-${arch}"; \
     curl -fsSL -o /tmp/ovs.tar.gz \
@@ -47,9 +47,9 @@ RUN set -eu; \
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}" \
  && npm cache clean --force
 
-# Der node-User (UID 1000) wird zu ade. ADE startet den Container mit der UID des Nutzers;
-# weicht sie ab, legt ADE beim Start einen passwd-Eintrag an. HOME ist deshalb für alle
-# beschreibbar (der Container gehört genau einem Workspace).
+# The node user (UID 1000) becomes ade. ADE starts the container with the user's UID; if it
+# differs, ADE adds a passwd entry at start. HOME is therefore writable for everybody (the
+# container belongs to exactly one workspace).
 RUN usermod --login ade --home /home/ade --move-home node \
  && groupmod --new-name ade node \
  && chmod 0777 /home/ade \
@@ -59,7 +59,7 @@ RUN usermod --login ade --home /home/ade --move-home node \
 ENV HOME=/home/ade \
     SHELL=/bin/bash \
     LANG=C.UTF-8 \
-    # Claude Code: keine automatischen Updates im Container.
+    # Claude Code: no automatic updates in the container.
     DISABLE_AUTOUPDATER=1
 
 USER ade

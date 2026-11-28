@@ -53,7 +53,7 @@ func setup(t *testing.T, projectYAML string) *env {
 	ctx := context.Background()
 	repo := t.TempDir()
 	gitRun(t, repo, "init", "-q", "-b", "main")
-	writeFile(t, filepath.Join(repo, "README.md"), "hallo\n")
+	writeFile(t, filepath.Join(repo, "README.md"), "hello\n")
 	if projectYAML != "" {
 		writeFile(t, filepath.Join(repo, project.ConfigFile), projectYAML)
 	}
@@ -125,8 +125,8 @@ func TestCreateDiffDelete(t *testing.T) {
 	}
 
 	// Manual changes appear in the diff.
-	writeFile(t, filepath.Join(w.Path, "README.md"), "hallo welt\n")
-	writeFile(t, filepath.Join(w.Path, "neu.txt"), "neu\n")
+	writeFile(t, filepath.Join(w.Path, "README.md"), "hello world\n")
+	writeFile(t, filepath.Join(w.Path, "new.txt"), "new\n")
 	d, err := e.m.Diff(ctx, w.ID, true)
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestCreateDiffDelete(t *testing.T) {
 	// Committed changes as well.
 	gitRun(t, w.Path, "add", ".")
 	gitRun(t, w.Path, "commit", "-q", "-m", "arbeit")
-	writeFile(t, filepath.Join(w.Path, "dritte.txt"), "x\n")
+	writeFile(t, filepath.Join(w.Path, "third.txt"), "x\n")
 	list, err := e.m.List(ctx, e.project.ID)
 	if err != nil {
 		t.Fatal(err)

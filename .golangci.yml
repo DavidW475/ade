@@ -12,14 +12,13 @@ linters:
     staticcheck:
       checks:
         - all
-        # Deutsche Fehlermeldungen beginnen oft mit einem Substantiv.
-        - -ST1005
+        # Not every package needs a package comment in every file.
         - -ST1000
     gosec:
       excludes:
-        # Unterprozesse (Daemon, Browser) sind gewollt.
+        # Subprocesses (daemon, browser) are intended.
         - G204
-        # Konfigurations- und Logpfade aus Variablen zu lesen ist hier der Zweck.
+        # Reading configuration and log paths from variables is the purpose here.
         - G304
   exclusions:
     presets:

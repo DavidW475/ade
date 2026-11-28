@@ -38,8 +38,8 @@ func TestCollectCommitsAndFetches(t *testing.T) {
 		t.Fatalf("HeadCommit = %s, want %s", got.HeadCommit, w.BaseCommit)
 	}
 
-	writeFile(t, filepath.Join(w.Path, "neu.txt"), "neu\n")
-	writeFile(t, filepath.Join(w.Path, "README.md"), "geändert\n")
+	writeFile(t, filepath.Join(w.Path, "new.txt"), "new\n")
+	writeFile(t, filepath.Join(w.Path, "README.md"), "changed\n")
 	got, err = e.m.Collect(ctx, w.ID, "s1")
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestCollectCommitsAndFetches(t *testing.T) {
 	if head := gitRun(t, e.repo, "rev-parse", w.Branch); head != got.HeadCommit {
 		t.Errorf("branch in the repository = %s, want %s", head, got.HeadCommit)
 	}
-	if files := gitRun(t, e.repo, "diff", "--name-only", w.BaseCommit, w.Branch); files != "README.md\nneu.txt" {
+	if files := gitRun(t, e.repo, "diff", "--name-only", w.BaseCommit, w.Branch); files != "README.md\nnew.txt" {
 		t.Errorf("files in the branch = %q", files)
 	}
 	if st := gitRun(t, w.Path, "status", "--porcelain"); st != "" {
@@ -91,7 +91,7 @@ func TestMergeIntoCheckedOutBase(t *testing.T) {
 	e := setup(t, "")
 	ctx := context.Background()
 	w := e.create()
-	writeFile(t, filepath.Join(w.Path, "neu.txt"), "neu\n")
+	writeFile(t, filepath.Join(w.Path, "new.txt"), "new\n")
 
 	got, err := e.m.Merge(ctx, w.ID)
 	if err != nil {
@@ -108,8 +108,8 @@ func TestMergeIntoCheckedOutBase(t *testing.T) {
 		t.Errorf("Eltern = %v", parents)
 	}
 	// main is checked out: the working tree follows.
-	if data, err := os.ReadFile(filepath.Join(e.repo, "neu.txt")); err != nil || string(data) != "neu\n" {
-		t.Errorf("neu.txt in the repository: %q, %v", data, err)
+	if data, err := os.ReadFile(filepath.Join(e.repo, "new.txt")); err != nil || string(data) != "new\n" {
+		t.Errorf("new.txt in the repository: %q, %v", data, err)
 	}
 	if st := gitRun(t, e.repo, "status", "--porcelain"); st != "" {
 		t.Errorf("repository not clean: %q", st)
@@ -124,9 +124,9 @@ func TestMergeWithoutWorktree(t *testing.T) {
 	e := setup(t, "")
 	ctx := context.Background()
 	w := e.create()
-	gitRun(t, e.repo, "switch", "-q", "-c", "anderer")
-	writeFile(t, filepath.Join(e.repo, "lokal.txt"), "ungespeichert\n")
-	writeFile(t, filepath.Join(w.Path, "neu.txt"), "neu\n")
+	gitRun(t, e.repo, "switch", "-q", "-c", "other")
+	writeFile(t, filepath.Join(e.repo, "local.txt"), "unsaved\n")
+	writeFile(t, filepath.Join(w.Path, "new.txt"), "new\n")
 
 	got, err := e.m.Merge(ctx, w.ID)
 	if err != nil {
@@ -135,17 +135,17 @@ func TestMergeWithoutWorktree(t *testing.T) {
 	if head := gitRun(t, e.repo, "rev-parse", "main"); head != got.MergeCommit {
 		t.Errorf("main = %s, want %s", head, got.MergeCommit)
 	}
-	if files := gitRun(t, e.repo, "ls-tree", "--name-only", "main"); files != "README.md\nneu.txt" {
+	if files := gitRun(t, e.repo, "ls-tree", "--name-only", "main"); files != "README.md\nnew.txt" {
 		t.Errorf("files in main = %q", files)
 	}
 	// The checked-out branch and unsaved changes stay untouched.
-	if b := gitRun(t, e.repo, "branch", "--show-current"); b != "anderer" {
+	if b := gitRun(t, e.repo, "branch", "--show-current"); b != "other" {
 		t.Errorf("ausgecheckt = %s", b)
 	}
-	if _, err := os.Stat(filepath.Join(e.repo, "neu.txt")); !os.IsNotExist(err) {
-		t.Errorf("neu.txt in the working tree: %v", err)
+	if _, err := os.Stat(filepath.Join(e.repo, "new.txt")); !os.IsNotExist(err) {
+		t.Errorf("new.txt in the working tree: %v", err)
 	}
-	if st := gitRun(t, e.repo, "status", "--porcelain"); st != "?? lokal.txt" {
+	if st := gitRun(t, e.repo, "status", "--porcelain"); st != "?? local.txt" {
 		t.Errorf("status = %q", st)
 	}
 }
@@ -154,8 +154,8 @@ func TestMergeConflict(t *testing.T) {
 	e := setup(t, "")
 	ctx := context.Background()
 	w := e.create()
-	writeFile(t, filepath.Join(w.Path, "README.md"), "aus dem Workspace\n")
-	writeFile(t, filepath.Join(e.repo, "README.md"), "im Repo\n")
+	writeFile(t, filepath.Join(w.Path, "README.md"), "from the workspace\n")
+	writeFile(t, filepath.Join(e.repo, "README.md"), "in the repo\n")
 	gitRun(t, e.repo, "commit", "-q", "-am", "parallel")
 	before := gitRun(t, e.repo, "rev-parse", "main")
 
@@ -183,7 +183,7 @@ func TestMergeRequiresChangesAndIdleAgent(t *testing.T) {
 		t.Errorf("merge without changes: %v", err)
 	}
 	e.m.SetBusyCheck(func(context.Context, string) error { return apperr.Conflict("busy") })
-	writeFile(t, filepath.Join(w.Path, "neu.txt"), "neu\n")
+	writeFile(t, filepath.Join(w.Path, "new.txt"), "new\n")
 	if _, err := e.m.Merge(ctx, w.ID); !errors.Is(err, apperr.ErrConflict) {
 		t.Errorf("merge while an agent is running: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestPullRequest(t *testing.T) {
 	e.m.SetGitHubCLI(gh)
 
 	w := e.create()
-	writeFile(t, filepath.Join(w.Path, "neu.txt"), "neu\n")
+	writeFile(t, filepath.Join(w.Path, "new.txt"), "new\n")
 	d, err := e.m.PullRequestDraft(ctx, w.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -244,7 +244,7 @@ func TestPullRequest(t *testing.T) {
 	}
 
 	// More changes: the push updates the PR, gh is not called again.
-	writeFile(t, filepath.Join(w.Path, "zwei.txt"), "zwei\n")
+	writeFile(t, filepath.Join(w.Path, "two.txt"), "two\n")
 	got, err = e.m.PullRequest(ctx, w.ID, PRRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -261,7 +261,7 @@ func TestPullRequestErrors(t *testing.T) {
 	e := setup(t, "")
 	ctx := context.Background()
 	w := e.create()
-	writeFile(t, filepath.Join(w.Path, "neu.txt"), "neu\n")
+	writeFile(t, filepath.Join(w.Path, "new.txt"), "new\n")
 	if _, err := e.m.PullRequest(ctx, w.ID, PRRequest{}); !errors.Is(err, apperr.ErrInvalid) || !strings.Contains(err.Error(), "remote") {
 		t.Errorf("without remote: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestDeleteRemovesBranch(t *testing.T) {
 	ctx := context.Background()
 	before := repoState(t, e.repo)
 	w := e.create()
-	writeFile(t, filepath.Join(w.Path, "neu.txt"), "neu\n")
+	writeFile(t, filepath.Join(w.Path, "new.txt"), "new\n")
 	if _, err := e.m.Collect(ctx, w.ID, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +316,7 @@ func TestFileContents(t *testing.T) {
 	e := setup(t, "")
 	ctx := context.Background()
 	w := e.create()
-	writeFile(t, filepath.Join(w.Path, "README.md"), "hallo welt\n")
+	writeFile(t, filepath.Join(w.Path, "README.md"), "hello world\n")
 	writeFile(t, filepath.Join(w.Path, "bin.dat"), "a\x00b")
 	gitRun(t, w.Path, "mv", "README.md", "LIESMICH.md")
 	if err := os.Symlink("/etc/passwd", filepath.Join(w.Path, "link")); err != nil {
@@ -327,7 +327,7 @@ func TestFileContents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fc.Original.Text != "hallo\n" || fc.Modified.Text != "hallo welt\n" || fc.OldPath != "README.md" {
+	if fc.Original.Text != "hello\n" || fc.Modified.Text != "hello world\n" || fc.OldPath != "README.md" {
 		t.Errorf("umbenannt = %#v", fc)
 	}
 	fc, err = e.m.File(ctx, w.ID, "bin.dat", "")
@@ -358,7 +358,7 @@ func TestFileContents(t *testing.T) {
 	}
 	for _, p := range []string{"", "../x", "/etc/passwd", "a/../../b", "a//b"} {
 		if _, err := e.m.File(ctx, w.ID, p, ""); !errors.Is(err, apperr.ErrInvalid) {
-			t.Errorf("Pfad %q: %v", p, err)
+			t.Errorf("path %q: %v", p, err)
 		}
 	}
 }
