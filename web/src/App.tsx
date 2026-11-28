@@ -14,7 +14,7 @@ import { RunPage } from "./pages/RunPage";
 import { RunsPage } from "./pages/RunsPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
 
-// Die Session-Seite bringt xterm.js mit – erst laden, wenn sie gebraucht wird.
+// The session page brings xterm.js – only load it when it is needed.
 const SessionPage = lazy(() => import("./pages/SessionPage").then((m) => ({ default: m.SessionPage })));
 
 export function App() {
@@ -29,8 +29,8 @@ export function App() {
           <span>ADE</span>
         </Link>
         <nav>
-          <Link to="/">Projekte</Link>
-          <Link to="/agents">Agenten</Link>
+          <Link to="/">Projects</Link>
+          <Link to="/agents">Agents</Link>
           <Link to="/runs">Runs</Link>
           {auth.data && (
             <Link to="/approvals" className="navitem">
@@ -41,11 +41,11 @@ export function App() {
         <div className="daemon" title={health.data ? `Schema ${health.data.schema}` : undefined}>
           {health.isError ? (
             <>
-              <span className="dot bad" aria-hidden /> Daemon nicht erreichbar
+              <span className="dot bad" aria-hidden /> Daemon not reachable
             </>
           ) : health.data ? (
             <>
-              <span className={`dot ${health.data.status === "ok" ? "ok" : "warn"}`} aria-hidden /> ADE läuft ·{" "}
+              <span className={`dot ${health.data.status === "ok" ? "ok" : "warn"}`} aria-hidden /> ADE is running ·{" "}
               {health.data.version}
             </>
           ) : (
@@ -56,14 +56,14 @@ export function App() {
 
       <main className="content">
         {auth.isPending ? (
-          <p className="muted">Verbinde mit dem Daemon …</p>
+          <p className="muted">Connecting to the daemon …</p>
         ) : auth.isError ? (
-          <Notice tone="bad" title="Daemon nicht erreichbar">
+          <Notice tone="bad" title="Daemon not reachable">
             {errorMessage(auth.error)}
           </Notice>
         ) : !auth.data ? (
-          <Notice tone="info" title="Nicht angemeldet">
-            Zum Anmelden im Terminal <code>ade start</code> ausführen.
+          <Notice tone="info" title="Not logged in">
+            To log in, run <code>ade start</code> in the terminal.
           </Notice>
         ) : (
           <Routes>
@@ -78,7 +78,7 @@ export function App() {
             <Route
               path="/sessions/:id"
               element={
-                <Suspense fallback={<p className="muted">Lade …</p>}>
+                <Suspense fallback={<p className="muted">Loading …</p>}>
                   <SessionPage />
                 </Suspense>
               }
@@ -86,8 +86,8 @@ export function App() {
             <Route
               path="*"
               element={
-                <Notice tone="warn" title="Seite nicht gefunden">
-                  <Link to="/">Zur Projektübersicht</Link>
+                <Notice tone="warn" title="Page not found">
+                  <Link to="/">To the project overview</Link>
                 </Notice>
               }
             />

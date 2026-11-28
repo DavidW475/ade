@@ -206,7 +206,7 @@ details.panel pre.log { margin-top: 0.75rem; }
 }
 h1.mono { font-size: 1.35rem; }
 
-/* --- Agenten (M2) --- */
+/* --- Agents (M2) --- */
 .sectionhead.first { margin-top: 0; }
 .running { margin-bottom: 2rem; }
 td.wrap { white-space: normal; max-width: 28rem; }
@@ -325,7 +325,7 @@ dialog.modal::backdrop { background: rgb(15 17 21 / 0.45); }
 .modalbody textarea { margin-top: 0.25rem; }
 .modalbody input:not([type="checkbox"]) { width: 100%; }
 
-/* Die Diff-Ansicht nutzt mehr Breite als die Textspalte. */
+/* The diff view uses more width than the text column. */
 .diffview {
   display: grid;
   grid-template-columns: minmax(14rem, 20rem) 1fr;
@@ -380,14 +380,14 @@ dialog.modal::backdrop { background: rgb(15 17 21 / 0.45); }
   .difffiles { border-right: none; border-bottom: 1px solid var(--border); }
 }
 
-/* Sandbox-Schalter */
+/* Sandbox switch */
 .sandboxtoggle { display: flex; flex-direction: column; gap: 0.2rem; }
 .sandboxtoggle label { display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 600; cursor: pointer; }
 .sandboxtoggle .hint { margin: 0; }
 .inline-form .sandboxtoggle { flex-basis: 100%; }
 .sandboxtoggle input[type="checkbox"] { width: auto; min-width: 0; flex: none; margin: 0; }
 
-/* Netzwerk-Ansicht */
+/* Network view */
 .netpolicy .facts { margin-bottom: 0.5rem; }
 .netpolicy details summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
 .netpolicy .notice { margin-top: 0; }
@@ -399,7 +399,7 @@ label.checkbox { display: inline-flex; align-items: center; gap: 0.4rem; cursor:
 label.checkbox input[type="checkbox"] { width: auto; min-width: 0; margin: 0; }
 .netevents td.wrap { word-break: break-all; }
 
-/* Freigaben (M7) */
+/* Approvals (M7) */
 .navitem { display: inline-flex; align-items: center; gap: 0.35rem; }
 .navbadge {
   display: inline-block;
@@ -438,7 +438,7 @@ label.checkbox input[type="checkbox"] { width: auto; min-width: 0; margin: 0; }
 .grant { display: inline-flex; align-items: center; gap: 0.3rem; }
 .pagehint { margin-bottom: 1rem; }
 
-/* Software-Fabrik (M9) */
+/* Software factory (M9) */
 .pipeline { list-style: none; padding: 0; margin: 0 0 0.75rem; display: flex; flex-wrap: wrap; gap: 0.5rem; counter-reset: step; }
 .pstep { flex: 1 1 9rem; min-width: 9rem; position: relative; }
 .pstep button {
@@ -460,7 +460,7 @@ label.checkbox input[type="checkbox"] { width: auto; min-width: 0; margin: 0; }
 .artifactbox summary, .taskdetails summary { cursor: pointer; }
 .artifactbox { margin-bottom: 0.6rem; }
 
-/* Pipeline v2 (M10): parallele Gruppen, Bedingungen, Rücksprünge, Durchläufe */
+/* Pipeline v2 (M10): parallel groups, conditions, jumps back, passes */
 .punit { flex: 1 1 9rem; min-width: 9rem; display: flex; }
 .punit > .pstep { flex: 1; }
 .pgroup { flex: 2 1 14rem; flex-direction: column; gap: 0.3rem; padding: 0.35rem; border: 1px dashed var(--border); border-radius: 12px; }

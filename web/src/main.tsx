@@ -9,7 +9,7 @@ import "./index.css";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // 4xx-Antworten (z. B. 404) nicht wiederholen.
+      // Do not retry 4xx responses (e.g. 404).
       retry: (count, err) => !(err instanceof ApiError && err.status < 500) && count < 2,
       refetchOnWindowFocus: true,
     },
@@ -17,7 +17,7 @@ const queryClient = new QueryClient({
 });
 
 const root = document.getElementById("root");
-if (!root) throw new Error("#root fehlt");
+if (!root) throw new Error("#root missing");
 
 createRoot(root).render(
   <StrictMode>

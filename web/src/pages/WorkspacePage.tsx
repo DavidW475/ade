@@ -29,21 +29,21 @@ export function WorkspacePage() {
   const hasTree = ws.data && ws.data.status !== "creating" && ws.data.status !== "error";
   const diff = useQuery({
     queryKey: ["diff", id],
-    // Nur die Dateiliste; Inhalte lädt der Diff-Editor je Datei.
+    // Only the file list; the diff editor loads contents per file.
     queryFn: () => api.diff(id, false),
     enabled: !!hasTree,
     refetchInterval: 5000,
   });
   const sessions = useSessions({ workspace_id: id });
 
-  if (ws.isPending) return <p className="muted">Lade Workspace …</p>;
+  if (ws.isPending) return <p className="muted">Loading workspace …</p>;
   if (ws.isError) return <Notice tone="bad">{errorMessage(ws.error)}</Notice>;
   const w = ws.data;
 
   return (
     <>
       <div className="crumbs">
-        <Link to="/">Projekte</Link> / <Link to={`/projects/${w.project_id}`}>{project.data?.name ?? w.project_id}</Link> /{" "}
+        <Link to="/">Projects</Link> / <Link to={`/projects/${w.project_id}`}>{project.data?.name ?? w.project_id}</Link> /{" "}
         {w.id}
       </div>
       <div className="pagehead">
@@ -58,36 +58,36 @@ export function WorkspacePage() {
         <dd>
           <WorkspaceStatusBadge status={w.status} />
         </dd>
-        <dt>Pfad</dt>
+        <dt>Path</dt>
         <dd className="mono">{w.path}</dd>
-        <dt>Basis</dt>
+        <dt>Base</dt>
         <dd className="mono">
           {w.base_branch} @ {shortCommit(w.base_commit)}
         </dd>
         <SandboxFacts workspace={w} />
-        <dt>Kosten</dt>
+        <dt>Costs</dt>
         <dd>
-          <UsageAmount total={usage.data?.workspaces?.[w.id]} empty="0.00 $" />
+          <UsageAmount total={usage.data?.workspaces?.[w.id]} empty="$0.00" />
         </dd>
-        <dt>Angelegt</dt>
+        <dt>Created</dt>
         <dd>{formatTime(w.created_at)}</dd>
       </dl>
       <SandboxNotice workspace={w} />
 
       {w.error && (
-        <Notice tone={w.status === "setup_failed" ? "warn" : "bad"} title="Fehler">
+        <Notice tone={w.status === "setup_failed" ? "warn" : "bad"} title="Error">
           {w.error}
         </Notice>
       )}
       {w.setup_log && (
         <details className="panel" open={w.status === "setup_failed"}>
-          <summary>Setup-Ausgabe</summary>
+          <summary>Setup output</summary>
           <pre className="log">{w.setup_log}</pre>
         </details>
       )}
 
       <div className="sectionhead">
-        <h2>Agenten in diesem Workspace</h2>
+        <h2>Agents in this workspace</h2>
         <StartAgent
           projectId={w.project_id}
           workspaceId={w.id}
@@ -98,14 +98,14 @@ export function WorkspacePage() {
       {sessions.data?.length ? (
         <SessionTable sessions={sessions.data} showWorkspace={false} />
       ) : (
-        <p className="muted">Noch keine Agenten in diesem Workspace.</p>
+        <p className="muted">No agents in this workspace yet.</p>
       )}
 
       <div className="sectionhead">
-        <h2>Änderungen gegenüber {w.base_branch}</h2>
+        <h2>Changes compared to {w.base_branch}</h2>
         {diff.data && diff.data.files?.length ? (
           <span>
-            {diff.data.files.length} {diff.data.files.length === 1 ? "Datei" : "Dateien"}{" "}
+            {diff.data.files.length} {diff.data.files.length === 1 ? "file" : "files"}{" "}
             <LineStats additions={diff.data.additions} deletions={diff.data.deletions} />
           </span>
         ) : null}
@@ -118,16 +118,16 @@ export function WorkspacePage() {
         hasChanges={!!diff.data?.files?.length || (!!w.head_commit && w.head_commit !== w.base_commit)}
       />
       {!hasTree ? (
-        <p className="muted">Kein Arbeitsverzeichnis vorhanden.</p>
+        <p className="muted">No working directory.</p>
       ) : diff.isPending ? (
-        <p className="muted">Berechne Diff …</p>
+        <p className="muted">Computing diff …</p>
       ) : diff.isError ? (
         <Notice tone="bad">{errorMessage(diff.error)}</Notice>
       ) : !diff.data.files?.length ? (
         <div className="empty">
-          <p>Keine Änderungen.</p>
+          <p>No changes.</p>
           <p className="muted">
-            Änderungen im Workspace (<code>{w.path}</code>) erscheinen hier automatisch.
+            Changes in the workspace (<code>{w.path}</code>) appear here automatically.
           </p>
         </div>
       ) : (

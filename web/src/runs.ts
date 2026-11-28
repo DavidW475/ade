@@ -1,15 +1,15 @@
-// Hilfen rund um Fabrik-Runs (ohne Komponenten, für Fast Refresh getrennt).
+// Helpers around factory runs (without components, separate for Fast Refresh).
 import { useQuery } from "@tanstack/react-query";
 import { api, runActive, type Run } from "./api";
 
-/** Erste Zeile der Aufgabe eines Runs. */
+/** First line of a run's task. */
 export function runTitle(r: Pick<Run, "task" | "factory">): string {
   const line = (r.task ?? "").split("\n")[0] ?? "";
   if (!line) return r.factory;
   return line.length > 90 ? `${line.slice(0, 90)} …` : line;
 }
 
-/** Fragt Runs ab – öfter, solange einer läuft. */
+/** Queries runs – more often while one is running. */
 export function useRuns(filter: Parameters<typeof api.runs>[0]) {
   return useQuery({
     queryKey: ["runs", filter],

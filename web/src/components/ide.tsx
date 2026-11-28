@@ -3,11 +3,11 @@ import { api, ideBusy, type IdeState } from "../api";
 import { Badge } from "./ui";
 
 const ideLabels: Record<IdeState, string> = {
-  stopped: "gestoppt",
-  installing: "wird installiert",
-  starting: "startet",
-  running: "läuft",
-  error: "Fehler",
+  stopped: "stopped",
+  installing: "installing",
+  starting: "starting",
+  running: "running",
+  error: "error",
 };
 
 export function IdeStateBadge({ state }: { state: IdeState }) {
@@ -16,8 +16,8 @@ export function IdeStateBadge({ state }: { state: IdeState }) {
 }
 
 /**
- * „IDE öffnen“: öffnet /ide/<id> in einem neuen Tab. Die Seite startet die IDE, wartet auf sie
- * und leitet mit einem Einmal-Ticket auf ws-<id>.localhost weiter.
+ * “Open IDE”: opens /ide/<id> in a new tab. The page starts the IDE, waits for it and
+ * redirects to ws-<id>.localhost with a one-time ticket.
  */
 export function IdeButton({ workspaceId, disabled }: { workspaceId: string; disabled?: boolean }) {
   const qc = useQueryClient();
@@ -36,12 +36,12 @@ export function IdeButton({ workspaceId, disabled }: { workspaceId: string; disa
     <span className="idebutton">
       {state && state !== "stopped" && <IdeStateBadge state={state} />}
       {disabled ? (
-        <button type="button" disabled title="Der Workspace hat noch kein Arbeitsverzeichnis">
-          IDE öffnen
+        <button type="button" disabled title="The workspace has no working directory yet">
+          Open IDE
         </button>
       ) : (
         <a className="button" href={`/ide/${encodeURIComponent(workspaceId)}`} target="_blank" rel="noopener">
-          IDE öffnen
+          Open IDE
         </a>
       )}
       {state === "running" && (
@@ -49,9 +49,9 @@ export function IdeButton({ workspaceId, disabled }: { workspaceId: string; disa
           type="button"
           onClick={() => stop.mutate()}
           disabled={stop.isPending}
-          title={status.data?.connections ? `${status.data.connections} offene Verbindung(en)` : undefined}
+          title={status.data?.connections ? `${status.data.connections} open connection(s)` : undefined}
         >
-          IDE stoppen
+          Stop IDE
         </button>
       )}
     </span>

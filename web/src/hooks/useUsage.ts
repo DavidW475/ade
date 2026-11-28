@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 
-/** Kosten und Tokens (alle Projekte oder eines), alle 15 s aktualisiert. "-": Projekt noch unbekannt. */
+/** Costs and tokens (all projects or one), refreshed every 15 s. "-": project not known yet. */
 export function useUsage(projectId?: string) {
   return useQuery({
     queryKey: ["usage", projectId ?? ""],

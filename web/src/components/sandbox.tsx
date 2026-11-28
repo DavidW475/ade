@@ -3,36 +3,36 @@ import { api, type SandboxInfo, type Workspace } from "../api";
 import { networkHint } from "../sandbox";
 import { Badge, Notice } from "./ui";
 
-/** Schalter „Sandbox“ für neue Workspaces. */
+/** “Sandbox” switch for new workspaces. */
 export function SandboxToggle({ checked, onChange, info, id }: { checked: boolean; onChange: (v: boolean) => void; info?: SandboxInfo; id: string }) {
   const unavailable = !info?.available;
   return (
     <div className="sandboxtoggle">
-      <label htmlFor={id} title={unavailable ? info?.error ?? "Docker nicht erreichbar" : undefined}>
+      <label htmlFor={id} title={unavailable ? info?.error ?? "Docker not reachable" : undefined}>
         <input id={id} type="checkbox" checked={checked && !unavailable} disabled={unavailable} onChange={(e) => onChange(e.target.checked)} />
         Sandbox (Docker)
       </label>
       <span className="hint">
         {unavailable
-          ? `Nicht verfügbar: ${info?.error ?? "Docker nicht erreichbar"}`
+          ? `Not available: ${info?.error ?? "Docker not reachable"}`
           : checked
-            ? `Agent, Setup und IDE laufen isoliert im Container (${[info.image, info.runtime].filter(Boolean).join(", ")}). ${networkHint}`
-            : "Ohne Sandbox läuft der Agent mit deinen Rechten direkt im Workspace-Verzeichnis."}
+            ? `Agent, setup and IDE run isolated in the container (${[info.image, info.runtime].filter(Boolean).join(", ")}). ${networkHint}`
+            : "Without a sandbox the agent runs with your permissions directly in the workspace directory."}
       </span>
     </div>
   );
 }
 
-/** Kennzeichnung, ob ein Workspace isoliert läuft. */
+/** Marks whether a workspace runs isolated. */
 export function SandboxBadge({ workspace }: { workspace: Pick<Workspace, "sandbox"> }) {
   return workspace.sandbox ? (
     <Badge tone="ok">Sandbox</Badge>
   ) : (
-    <Badge tone="warn">lokal</Badge>
+    <Badge tone="warn">local</Badge>
   );
 }
 
-/** Container-Details eines Workspaces (Workspace-Seite). */
+/** Container details of a workspace (workspace page). */
 export function SandboxFacts({ workspace: w }: { workspace: Workspace }) {
   const sb = useQuery({
     queryKey: ["workspace-sandbox", w.id],
@@ -43,9 +43,9 @@ export function SandboxFacts({ workspace: w }: { workspace: Workspace }) {
   if (!w.sandbox) {
     return (
       <>
-        <dt>Ausführung</dt>
+        <dt>Execution</dt>
         <dd>
-          <SandboxBadge workspace={w} /> <span className="muted">ohne Container, mit deinen Rechten</span>
+          <SandboxBadge workspace={w} /> <span className="muted">without a container, with your permissions</span>
         </dd>
       </>
     );
@@ -53,16 +53,16 @@ export function SandboxFacts({ workspace: w }: { workspace: Workspace }) {
   const c = sb.data?.container;
   return (
     <>
-      <dt>Ausführung</dt>
+      <dt>Execution</dt>
       <dd>
         <SandboxBadge workspace={w} />{" "}
-        {c ? <Badge tone={c.running ? "ok" : "neutral"}>{c.running ? "Container läuft" : `Container ${c.state}`}</Badge> : <Badge>kein Container</Badge>}{" "}
+        {c ? <Badge tone={c.running ? "ok" : "neutral"}>{c.running ? "container running" : `container ${c.state}`}</Badge> : <Badge>no container</Badge>}{" "}
         {sb.data?.network === "open" ? (
-          <span title="Container aus einer älteren ADE-Version; er wird beim nächsten Start mit abgeschottetem Netz neu angelegt">
-            <Badge tone="warn">Netz offen bis zum Neustart</Badge>
+          <span title="Container from an older ADE version; it is recreated with an isolated network on the next start">
+            <Badge tone="warn">network open until the restart</Badge>
           </span>
         ) : (
-          <Badge tone="ok">Netz: nur Allowlist</Badge>
+          <Badge tone="ok">network: allowlist only</Badge>
         )}
       </dd>
       <dt>Image</dt>
@@ -71,12 +71,12 @@ export function SandboxFacts({ workspace: w }: { workspace: Workspace }) {
   );
 }
 
-/** Hinweis auf der Workspace-Seite. */
+/** Notice on the workspace page. */
 export function SandboxNotice({ workspace: w }: { workspace: Workspace }) {
   if (!w.sandbox) return null;
   return (
     <Notice tone="info" title="Sandbox">
-      Der Container sieht nur dieses Workspace-Verzeichnis (als <code>/workspace</code>), läuft ohne Root-Rechte und mit Ressourcen-Grenzen. {networkHint}
+      The container only sees this workspace directory (as <code>/workspace</code>), runs without root permissions and with resource limits. {networkHint}
     </Notice>
   );
 }

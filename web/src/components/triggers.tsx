@@ -4,21 +4,21 @@ import { api, type TriggerView } from "../api";
 import { errorMessage, formatTime } from "../format";
 import { Badge, Notice } from "./ui";
 
-/** Auslöser eines Projekts (triggers in .ade/project.yaml) mit Zustand. */
+/** Triggers of a project (triggers in .ade/project.yaml) with state. */
 export function TriggerList({ projectId }: { projectId: string }) {
   const q = useQuery({
     queryKey: ["triggers", projectId],
     queryFn: () => api.triggers(projectId),
     refetchInterval: 15_000,
   });
-  if (q.isPending) return <p className="muted">Lade Auslöser …</p>;
+  if (q.isPending) return <p className="muted">Loading triggers …</p>;
   if (q.isError) return <Notice tone="bad">{errorMessage(q.error)}</Notice>;
   if (q.data.length === 0)
     return (
       <div className="empty">
-        <p>Keine Auslöser.</p>
+        <p>No triggers.</p>
         <p className="muted">
-          Unter <code>triggers</code> in <code>.ade/project.yaml</code> starten Runs automatisch – je GitHub-Issue mit Label oder nach Zeitplan.
+          Under <code>triggers</code> in <code>.ade/project.yaml</code> runs start automatically – per GitHub issue with a label or on a schedule.
         </p>
       </div>
     );
@@ -27,11 +27,11 @@ export function TriggerList({ projectId }: { projectId: string }) {
       <table>
         <thead>
           <tr>
-            <th>Auslöser</th>
-            <th>Fabrik</th>
+            <th>Trigger</th>
+            <th>Factory</th>
             <th>Status</th>
-            <th>Letzter Lauf</th>
-            <th>Nächster</th>
+            <th>Last run</th>
+            <th>Next</th>
             <th />
           </tr>
         </thead>
@@ -45,7 +45,7 @@ export function TriggerList({ projectId }: { projectId: string }) {
   );
 }
 
-/** Abfrage-Intervall kompakt: 5 min, 1 h, 1 h 30 min. */
+/** Compact polling interval: 5 min, 1 h, 1 h 30 min. */
 function formatInterval(ns: number): string {
   const min = Math.round(ns / 60e9);
   if (min < 60) return `${min} min`;
@@ -57,16 +57,16 @@ function TriggerSource({ t }: { t: TriggerView }) {
     const g = t.github_issues;
     return (
       <>
-        GitHub-Issues mit Label <code>{g.label}</code>
-        {g.authors?.length ? <> von {g.authors.join(", ")}</> : null}
-        <span className="muted"> · alle {formatInterval(g.interval_ns ?? 5 * 60e9)}</span>
+        GitHub issues with label <code>{g.label}</code>
+        {g.authors?.length ? <> by {g.authors.join(", ")}</> : null}
+        <span className="muted"> · every {formatInterval(g.interval_ns ?? 5 * 60e9)}</span>
       </>
     );
   }
   return (
     <>
-      Zeitplan <code>{t.schedule?.cron}</code>
-      {t.schedule?.catch_up === false && <span className="muted"> · ohne Nachholen</span>}
+      Schedule <code>{t.schedule?.cron}</code>
+      {t.schedule?.catch_up === false && <span className="muted"> · without catch-up</span>}
     </>
   );
 }
@@ -84,12 +84,12 @@ function TriggerRow({ projectId, t }: { projectId: string; t: TriggerView }) {
         <strong>{t.name}</strong>
         <div className="hint">
           <TriggerSource t={t} />
-          {t.sandbox === false && <span className="muted"> · ohne Sandbox</span>}
+          {t.sandbox === false && <span className="muted"> · without sandbox</span>}
         </div>
-        {t.state.last_error && <p className="triggererror">Letzter Fehler: {t.state.last_error}</p>}
+        {t.state.last_error && <p className="triggererror">Last error: {t.state.last_error}</p>}
       </td>
       <td className="mono">{t.factory}</td>
-      <td>{t.state.paused ? <Badge tone="warn">pausiert</Badge> : t.state.last_error ? <Badge tone="bad">Fehler</Badge> : <Badge tone="ok">aktiv</Badge>}</td>
+      <td>{t.state.paused ? <Badge tone="warn">paused</Badge> : t.state.last_error ? <Badge tone="bad">error</Badge> : <Badge tone="ok">active</Badge>}</td>
       <td className="muted">
         {last ? (
           <>
@@ -98,7 +98,7 @@ function TriggerRow({ projectId, t }: { projectId: string; t: TriggerView }) {
             {t.runs.length > 1 && <> · {t.runs.length} Runs</>}
           </>
         ) : t.state.last_check ? (
-          `kein Run · geprüft ${formatTime(t.state.last_check)}`
+          `no run · checked ${formatTime(t.state.last_check)}`
         ) : (
           "–"
         )}
@@ -106,7 +106,7 @@ function TriggerRow({ projectId, t }: { projectId: string; t: TriggerView }) {
       <td className="muted">{t.state.paused ? "–" : t.next ? formatTime(t.next) : "–"}</td>
       <td>
         <button type="button" disabled={toggle.isPending} onClick={() => toggle.mutate()}>
-          {t.state.paused ? "Fortsetzen" : "Pausieren"}
+          {t.state.paused ? "Resume" : "Pause"}
         </button>
         {toggle.isError && <Notice tone="bad">{errorMessage(toggle.error)}</Notice>}
       </td>

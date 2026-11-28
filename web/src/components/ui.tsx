@@ -2,11 +2,11 @@ import { useEffect, useRef, type ReactNode } from "react";
 import type { FileStatus, SessionStatus, WorkspaceStatus } from "../api";
 
 const workspaceLabels: Record<WorkspaceStatus, string> = {
-  creating: "wird angelegt",
-  setup: "Setup läuft",
-  ready: "bereit",
-  setup_failed: "Setup fehlgeschlagen",
-  error: "Fehler",
+  creating: "creating",
+  setup: "setup running",
+  ready: "ready",
+  setup_failed: "setup failed",
+  error: "error",
 };
 
 const workspaceTone: Record<WorkspaceStatus, Tone> = {
@@ -28,13 +28,13 @@ export function WorkspaceStatusBadge({ status }: { status: WorkspaceStatus }) {
 }
 
 const fileLabels: Record<FileStatus, string> = {
-  added: "neu",
-  modified: "geändert",
-  deleted: "gelöscht",
-  renamed: "umbenannt",
-  copied: "kopiert",
-  type_changed: "Typ geändert",
-  unmerged: "Konflikt",
+  added: "new",
+  modified: "modified",
+  deleted: "deleted",
+  renamed: "renamed",
+  copied: "copied",
+  type_changed: "type changed",
+  unmerged: "conflict",
 };
 
 export function FileStatusBadge({ status }: { status: FileStatus }) {
@@ -60,14 +60,14 @@ export function LineStats({ additions, deletions }: { additions: number; deletio
 }
 
 const sessionLabels: Record<SessionStatus, string> = {
-  starting: "startet",
-  running: "arbeitet",
-  idle: "wartet",
-  done: "fertig",
-  failed: "fehlgeschlagen",
-  stopped: "gestoppt",
-  interrupted: "unterbrochen",
-  paused: "pausiert (Budget)",
+  starting: "starting",
+  running: "working",
+  idle: "waiting",
+  done: "done",
+  failed: "failed",
+  stopped: "stopped",
+  interrupted: "interrupted",
+  paused: "paused (budget)",
 };
 
 const sessionTone: Record<SessionStatus, Tone> = {
@@ -82,11 +82,11 @@ const sessionTone: Record<SessionStatus, Tone> = {
 };
 
 export function SessionStatusBadge({ status, terminal = false }: { status: SessionStatus; terminal?: boolean }) {
-  const label = terminal && status === "running" ? "läuft" : sessionLabels[status];
+  const label = terminal && status === "running" ? "running" : sessionLabels[status];
   return <Badge tone={sessionTone[status]}>{label}</Badge>;
 }
 
-/** Modaler Dialog (natives <dialog>): Escape und Klick auf den Hintergrund schließen ihn. */
+/** Modal dialog (native <dialog>): Escape and a click on the backdrop close it. */
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {

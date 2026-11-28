@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type { CostPayload, SessionEvent, StatusPayload, ToolCallPayload, ToolResultPayload } from "../api";
-import { formatDuration, formatTime, formatUSD } from "../format";
+import { formatDuration, formatNumber, formatTime, formatUSD } from "../format";
 
 type Item =
   | { kind: "event"; ev: SessionEvent }
   | { kind: "tool"; seq: number; ts: string; call: ToolCallPayload; result?: ToolResultPayload };
 
-/** Fasst tool_call und zugehöriges tool_result zu einem Eintrag zusammen. */
+/** Combines tool_call and the matching tool_result into one entry. */
 function buildItems(events: SessionEvent[]): Item[] {
   const items: Item[] = [];
   const tools = new Map<string, Extract<Item, { kind: "tool" }>>();
@@ -31,7 +31,7 @@ export function Timeline({ events, live }: { events: SessionEvent[]; live: boole
   const end = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
-  // Am Ende kleben, solange der Nutzer nicht nach oben gescrollt hat.
+  // Stick to the bottom as long as the user has not scrolled up.
   useEffect(() => {
     const onScroll = () => {
       stick.current = window.innerHeight + window.scrollY >= document.body.scrollHeight - 120;
@@ -43,7 +43,7 @@ export function Timeline({ events, live }: { events: SessionEvent[]; live: boole
     if (stick.current) end.current?.scrollIntoView({ block: "end" });
   }, [items.length]);
 
-  if (items.length === 0) return <p className="muted">{live ? "Warte auf Events …" : "Keine Events."}</p>;
+  if (items.length === 0) return <p className="muted">{live ? "Waiting for events …" : "No events."}</p>;
   return (
     <>
       <ol className="timeline">
@@ -57,14 +57,14 @@ export function Timeline({ events, live }: { events: SessionEvent[]; live: boole
 }
 
 const statusText: Record<StatusPayload["status"], string> = {
-  starting: "Startet",
-  running: "Agent arbeitet",
-  idle: "Wartet auf eine Anweisung",
-  done: "Beendet",
-  failed: "Fehlgeschlagen",
-  stopped: "Gestoppt",
-  interrupted: "Unterbrochen",
-  paused: "Pausiert",
+  starting: "Starting",
+  running: "Agent working",
+  idle: "Waiting for an instruction",
+  done: "Ended",
+  failed: "Failed",
+  stopped: "Stopped",
+  interrupted: "Interrupted",
+  paused: "Paused",
 };
 
 function EventItem({ ev }: { ev: SessionEvent }) {
@@ -73,7 +73,7 @@ function EventItem({ ev }: { ev: SessionEvent }) {
       return (
         <li className={`tl-msg ${ev.payload.role}`}>
           <div className="tl-who">
-            {ev.payload.role === "user" ? "Du" : "Agent"} <time>{formatTime(ev.ts, true)}</time>
+            {ev.payload.role === "user" ? "You" : "Agent"} <time>{formatTime(ev.ts, true)}</time>
           </div>
           <div className="tl-text">{ev.payload.text}</div>
         </li>
@@ -82,7 +82,7 @@ function EventItem({ ev }: { ev: SessionEvent }) {
       return (
         <li className="tl-thinking">
           <details>
-            <summary>Nachdenken</summary>
+            <summary>Thinking</summary>
             <div className="tl-text">{ev.payload.text}</div>
           </details>
         </li>
@@ -90,7 +90,7 @@ function EventItem({ ev }: { ev: SessionEvent }) {
     case "status": {
       const p = ev.payload;
       if (p.status === "running" && !p.model && !p.reason) return null;
-      const text = p.model ? `${statusText[p.status]} · Modell ${p.model}` : statusText[p.status];
+      const text = p.model ? `${statusText[p.status]} · model ${p.model}` : statusText[p.status];
       return (
         <li className={`tl-status ${p.status}`}>
           <span>
@@ -105,7 +105,7 @@ function EventItem({ ev }: { ev: SessionEvent }) {
     case "cost":
       return <CostItem cost={ev.payload} />;
     case "usage":
-      // Einzelne API-Aufrufe (Egress-Proxy) nicht anzeigen; die Summe steht im cost-Event.
+      // Do not show individual API calls (egress proxy); the sum is in the cost event.
       return null;
     case "error":
       return (
@@ -114,11 +114,11 @@ function EventItem({ ev }: { ev: SessionEvent }) {
         </li>
       );
     case "tool_result":
-      // Ergebnis ohne bekannten Aufruf.
+      // Result without a known call.
       return (
         <li className="tl-tool">
           <details>
-            <summary>Ergebnis</summary>
+            <summary>Result</summary>
             <pre className="tl-output">{ev.payload.output}</pre>
           </details>
         </li>
@@ -136,22 +136,22 @@ function EventItem({ ev }: { ev: SessionEvent }) {
 
 function CostItem({ cost: c }: { cost: CostPayload }) {
   const tokens = (c.input_tokens ?? 0) + (c.output_tokens ?? 0) + (c.cache_read_tokens ?? 0) + (c.cache_write_tokens ?? 0);
-  const parts = [`Durchgang beendet`, formatUSD(c.turn_usd) + (c.estimated ? " (geschätzt)" : c.metered ? " (gemessen)" : "")];
-  if (tokens) parts.push(`${tokens.toLocaleString("de-DE")} Tokens`);
+  const parts = [`Turn ended`, formatUSD(c.turn_usd) + (c.estimated ? " (estimated)" : c.metered ? " (measured)" : "")];
+  if (tokens) parts.push(`${formatNumber(tokens)} tokens`);
   if (c.duration_ms) parts.push(formatDuration(c.duration_ms));
-  if (c.turns) parts.push(`${c.turns} ${c.turns === 1 ? "Schritt" : "Schritte"}`);
+  if (c.turns) parts.push(`${c.turns} ${c.turns === 1 ? "step" : "steps"}`);
   return (
     <li className="tl-cost">
       {parts.join(" · ")}{" "}
       <span className="muted">
-        (gesamt {formatUSD(c.total_usd)}
-        {c.budget_usd ? ` von ${formatUSD(c.budget_usd)}` : ""})
+        (total {formatUSD(c.total_usd)}
+        {c.budget_usd ? ` of ${formatUSD(c.budget_usd)}` : ""})
       </span>
     </li>
   );
 }
 
-/** Kurze Beschreibung eines Werkzeugaufrufs aus seiner Eingabe. */
+/** Short description of a tool call from its input. */
 function toolSummary(call: ToolCallPayload): string {
   const input = (call.input ?? {}) as Record<string, unknown>;
   for (const key of ["command", "file_path", "path", "pattern", "url", "query", "description", "prompt"]) {
@@ -168,7 +168,7 @@ function ToolItem({ call, result, ts }: { call: ToolCallPayload; result?: ToolRe
     <li className={`tl-tool ${state}${call.parent_id ? " nested" : ""}`}>
       <details>
         <summary>
-          <span className="tl-icon" aria-label={state === "running" ? "läuft" : state === "error" ? "Fehler" : "erledigt"}>
+          <span className="tl-icon" aria-label={state === "running" ? "running" : state === "error" ? "error" : "done"}>
             {state === "running" ? "…" : state === "error" ? "✗" : "✓"}
           </span>
           <strong>{call.tool}</strong>
@@ -176,13 +176,13 @@ function ToolItem({ call, result, ts }: { call: ToolCallPayload; result?: ToolRe
           <time>{formatTime(ts, true)}</time>
         </summary>
         <div className="tl-tooldetail">
-          <div className="tl-label">Eingabe</div>
+          <div className="tl-label">Input</div>
           <pre className="tl-output">{JSON.stringify(call.input ?? {}, null, 2)}</pre>
           {result && (
             <>
               <div className="tl-label">
-                Ergebnis{result.truncated ? " (gekürzt)" : ""}
-                {result.is_error ? " – Fehler" : ""}
+                Result{result.truncated ? " (truncated)" : ""}
+                {result.is_error ? " – error" : ""}
               </div>
               <pre className="tl-output">{result.output || "(leer)"}</pre>
             </>

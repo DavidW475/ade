@@ -7,9 +7,9 @@ import { wsURL } from "../api";
 type TermState = "connecting" | "live" | "ended" | "reconnecting";
 
 /**
- * Terminal einer pty-Session über WS /ws/sessions/{id}/pty.
- * Binärnachrichten sind Terminal-Daten, Textnachrichten Steuerbefehle (resize, exit).
- * Ein neu verbundener Client bekommt zuerst die letzte Ausgabe.
+ * Terminal of a pty session via WS /ws/sessions/{id}/pty.
+ * Binary messages are terminal data, text messages control commands (resize, exit).
+ * A newly connected client first gets the latest output.
  */
 export function Terminal({ sessionId, onExit }: { sessionId: string; onExit?: () => void }) {
   const box = useRef<HTMLDivElement>(null);
@@ -64,7 +64,7 @@ export function Terminal({ sessionId, onExit }: { sessionId: string; onExit?: ()
           return;
         }
         if (first) {
-          // Replay nach einer Neuverbindung: alten Inhalt ersetzen statt doppeln.
+          // Replay after a reconnect: replace the old content instead of doubling it.
           term.reset();
           first = false;
         }
@@ -101,7 +101,7 @@ export function Terminal({ sessionId, onExit }: { sessionId: string; onExit?: ()
     <div className="terminal">
       <div className="termbar">
         <span className={`dot ${state === "live" ? "ok" : state === "ended" ? "" : "warn"}`} aria-hidden />
-        {state === "live" ? "verbunden" : state === "ended" ? "Prozess beendet" : state === "reconnecting" ? "verbinde neu …" : "verbinde …"}
+        {state === "live" ? "connected" : state === "ended" ? "process ended" : state === "reconnecting" ? "reconnecting …" : "connecting …"}
       </div>
       <div className="termbox" ref={box} />
     </div>

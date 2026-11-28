@@ -1,4 +1,4 @@
-// Typen und Aufrufe der ADE-API. Die Typen spiegeln die Go-Structs in internal/.
+// Types and calls of the ADE API. The types mirror the Go structs in internal/.
 
 export interface Health {
   service: string;
@@ -25,10 +25,10 @@ export interface Project {
   config: ProjectConfig;
   config_error?: string;
   warnings?: string[];
-  /** Wirksame .ade/sandbox.yaml (mit Voreinstellungen). */
+  /** Effective .ade/sandbox.yaml (with defaults). */
   sandbox?: { image?: string; resources: { memory: string; cpus: number; pids: number }; egress?: Egress };
   sandbox_error?: string;
-  /** Wirksame Freigabe-Regeln (bei ungültiger project.yaml leer: alles braucht eine Freigabe). */
+  /** Effective approval rules (empty for an invalid project.yaml: everything needs an approval). */
   approvals: { sandbox: RuleSet; local: RuleSet };
 }
 
@@ -48,13 +48,13 @@ export interface Workspace {
   updated_at: string;
   changes?: { files: number; additions: number; deletions: number };
   diff_error?: string;
-  /** Zuletzt ins Projekt-Repo geholter Stand von ade/<id>. */
+  /** State of ade/<id> most recently fetched into the project repository. */
   head_commit?: string;
   collected_at?: string;
   merge_commit?: string;
   merged_at?: string;
   pr_url?: string;
-  /** Agent, Setup und IDE laufen im Docker-Container des Workspaces. */
+  /** Agent, setup and IDE run in the workspace's Docker container. */
   sandbox: boolean;
   sandbox_image?: string;
 }
@@ -64,30 +64,30 @@ export interface SandboxInfo {
   available: boolean;
   error?: string;
   docker_version?: string;
-  /** Erkannte Container-Laufzeit, z. B. „Docker (rootless)“ oder „Podman (rootless)“. */
+  /** Detected container runtime, e.g. “Docker (rootless)” or “Podman (rootless)”. */
   runtime?: string;
   image: string;
-  /** Voreinstellung für neue Workspaces (defaults.sandbox). */
+  /** Default for new workspaces (defaults.sandbox). */
   default: boolean;
-  /** Netzwerk-Isolation neuer Container: internes Netz, Internet nur über den Egress-Proxy. */
+  /** Network isolation of new containers: internal network, internet only through the egress proxy. */
   network: NetworkMode;
-  /** Verfügbare egress.presets mit ihren Hosts. */
+  /** Available egress.presets with their hosts. */
   presets: Record<string, string[]>;
-  /** Presets ohne egress-Abschnitt in .ade/sandbox.yaml. */
+  /** Presets without an egress section in .ade/sandbox.yaml. */
   default_presets: string[];
 }
 
-/** proxy: nur über den Egress-Proxy; open: Container aus M5 mit normalem Netz. */
+/** proxy: only through the egress proxy; open: container from M5 with a normal network. */
 export type NetworkMode = "proxy" | "open";
 
-/** Abschnitt egress in .ade/sandbox.yaml. */
+/** The egress section in .ade/sandbox.yaml. */
 export interface Egress {
   presets: string[] | null;
   allow: string[] | null;
   deny: string[] | null;
-  /** deny: sofort blocken; ask: Anfrage wartet auf eine Freigabe im Dashboard. */
+  /** deny: block right away; ask: the request waits for an approval in the dashboard. */
   on_blocked: "deny" | "ask";
-  /** Kein egress-Abschnitt: es gelten die Voreinstellungen. */
+  /** No egress section: the defaults apply. */
   default: boolean;
 }
 
@@ -96,15 +96,15 @@ export interface WorkspaceEgress {
   events: EgressEvent[];
   hosts: EgressHost[];
   policy?: Egress & { effective_allow: string[] | null; error?: string; providers: string[] };
-  /** Ausnahmen aus Freigaben (projektweit und für diesen Workspace). */
+  /** Exceptions from approvals (project-wide and for this workspace). */
   grants: EgressGrant[];
 }
 
-/** Egress-Ausnahme aus einer Freigabe; ergänzt .ade/sandbox.yaml, ohne das Repo zu ändern. */
+/** Egress exception from an approval; extends .ade/sandbox.yaml without changing the repository. */
 export interface EgressGrant {
   id: number;
   project_id: string;
-  /** Leer: gilt für alle Workspaces des Projekts. */
+  /** Empty: applies to all workspaces of the project. */
   workspace_id?: string;
   rule: string;
   approval_id?: string;
@@ -114,7 +114,7 @@ export interface EgressGrant {
 export type ApprovalStatus = "pending" | "approved" | "denied" | "expired" | "canceled";
 export type ApprovalDecision = "allow" | "allow_workspace" | "allow_project" | "deny";
 
-/** Freigabe-Anfrage (Werkzeug-Aufruf eines Agenten, geblocktes Netzwerk-Ziel oder überschrittenes Budget). */
+/** Approval request (an agent's tool call, a blocked network target or an exceeded budget). */
 export interface Approval {
   id: string;
   kind: "tool" | "egress" | "budget" | "gate";
@@ -136,24 +136,24 @@ export interface BudgetApprovalDetail {
   scope: "session" | "monthly";
   limit_usd: number;
   spent_usd: number;
-  /** Betrag, um den „Erlauben“ das Budget erhöht. */
+  /** Amount by which “Allow” raises the budget. */
   step_usd: number;
 }
 
-/** Gate eines Fabrik-Runs (gate: human). */
+/** Gate of a factory run (gate: human). */
 export interface GateApprovalDetail {
   run_id: string;
   factory: string;
   step: string;
   task?: string;
   artifacts?: string[];
-  /** Ablehnen springt zurück zu diesem Schritt (leer: Ablehnen bricht den Run ab). */
+  /** Denying jumps back to this step (empty: denying cancels the run). */
   on_deny?: string;
   iteration?: number;
   max_iterations?: number;
-  /** Geänderte Dateien unter .github/workflows/, .github/actions/ oder .ade/. */
+  /** Changed files under .github/workflows/, .github/actions/ or .ade/. */
   sensitive?: string[];
-  /** Freigabe vor pull_request ohne Gate, nur wegen sensibler Änderungen. */
+  /** Approval before pull_request without a gate, only because of sensitive changes. */
   unattended?: boolean;
 }
 
@@ -169,7 +169,7 @@ export interface EgressApprovalDetail {
   port: number;
 }
 
-/** Regeln je Umgebung (approvals in .ade/project.yaml). */
+/** Rules per environment (approvals in .ade/project.yaml). */
 export interface RuleSet {
   allow: string[] | null;
   ask: string[] | null;
@@ -222,7 +222,7 @@ export interface WorkspaceSandbox {
   network?: NetworkMode;
 }
 
-/** Eine Seite einer Datei im Diff-Editor (Basis-Commit bzw. Workspace). */
+/** One side of a file in the diff editor (base commit or workspace). */
 export interface FileSide {
   exists: boolean;
   binary?: boolean;
@@ -287,7 +287,7 @@ export interface Capabilities {
   terminal: boolean;
   input: boolean;
   resume: boolean;
-  /** Die CLI fragt vor Werkzeug-Aufrufen bei ADE nach (Freigaben). */
+  /** The CLI asks ADE before tool calls (approvals). */
   approvals: boolean;
 }
 
@@ -305,21 +305,21 @@ export interface Session {
   exit_code?: number;
   resume_id?: string;
   cost_usd: number;
-  /** Aufgelöste Modell-ID, wenn model ein Alias ist. */
+  /** Resolved model ID if model is an alias. */
   model_id?: string;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
-  /** Für einen Teil der Tokens war kein Preis bekannt. */
+  /** No price was known for some of the tokens. */
   unpriced?: boolean;
-  /** Der Egress-Proxy misst die Nutzung. */
+  /** The egress proxy measures the usage. */
   metered?: boolean;
-  /** Budget der Session in USD (fehlt: keins). */
+  /** Budget of the session in USD (missing: none). */
   budget_usd?: number;
-  /** Rolle einer Fabrik (z. B. planner) bzw. feedback. */
+  /** Role of a factory (e.g. planner) or feedback. */
   role?: string;
-  /** Lese-Rolle: Workspace nur lesend (Lese-Container bzw. Schnappschuss). */
+  /** Read-only role: workspace read-only (reader container or snapshot). */
   read_only?: boolean;
   created_at: string;
   updated_at: string;
@@ -343,9 +343,9 @@ export interface ModelAlias {
 export interface Adapters {
   adapters: AdapterInfo[];
   permission_modes: string[];
-  /** Werte für permission_mode je Adapter. */
+  /** Values for permission_mode per adapter. */
   modes?: Record<string, string[]>;
-  /** Anbieter je Adapter. */
+  /** Provider per adapter. */
   providers?: Record<string, string>;
   models?: ModelAlias[];
   default: string;
@@ -379,13 +379,13 @@ export interface StartAgentRequest {
   command?: string[];
   model?: string;
   permission_mode?: string;
-  /** Nur für einen neuen Workspace; ohne Angabe gilt defaults.sandbox. */
+  /** Only for a new workspace; without it defaults.sandbox applies. */
   sandbox?: boolean;
-  /** Budget der Session in USD (ohne Angabe: budget.session_usd, 0: keins). */
+  /** Budget of the session in USD (without it: budget.session_usd, 0: none). */
   budget_usd?: number;
 }
 
-// Event-Payloads (internal/agent/adapter/events.go, Schema in event.schema.json).
+// Event payloads (internal/agent/adapter/events.go, schema in event.schema.json).
 export interface StatusPayload {
   status: SessionStatus;
   reason?: string;
@@ -422,13 +422,13 @@ export interface CostPayload {
   duration_ms?: number;
   turns?: number;
   model?: string;
-  /** ADE hat die Kosten aus Tokens und Preistabelle berechnet. */
+  /** ADE computed the costs from tokens and the price table. */
   estimated?: boolean;
-  /** Vom Egress-Proxy gemessen. */
+  /** Measured by the egress proxy. */
   metered?: boolean;
   budget_usd?: number;
 }
-/** Vom Egress-Proxy gemessene Nutzung einer Anfrage (nicht in der Timeline). */
+/** Usage of a request measured by the egress proxy (not in the timeline). */
 export interface UsagePayload {
   provider?: string;
   model?: string;
@@ -461,7 +461,7 @@ interface EventOf<T extends string, P> {
   payload: P;
 }
 
-/** Ein Event, dessen Typ das Dashboard (noch) nicht kennt. */
+/** An event whose type the dashboard does not know (yet). */
 export interface UnknownEvent {
   seq: number;
   session_id: string;
@@ -480,20 +480,20 @@ export interface IdeStatus {
   url: string;
 }
 
-// --- Software-Fabrik (M9) ---
+// --- Software factory (M9) ---
 
 export type RunStatus = "running" | "waiting" | "paused" | "done" | "failed" | "canceled";
 export type StepStatus = "pending" | "running" | "waiting" | "done" | "failed" | "canceled" | "skipped" | "looped";
 export type StepKind = "role" | "gate" | "action" | "decision";
 
 export interface RunStep {
-  /** Position im Ablauf. */
+  /** Position in the flow. */
   index: number;
-  /** Zeile der Ausführung (eindeutig im Run). */
+  /** Row of the execution (unique within the run). */
   row: number;
-  /** Durchlauf (1, 2, … nach Rücksprüngen). */
+  /** Pass (1, 2, … after jumps back). */
   iteration: number;
-  /** Bei Mitgliedern einer parallelen Gruppe die Position des ersten Mitglieds. */
+  /** For members of a parallel group, the position of the first member. */
   group?: number;
   name: string;
   kind: StepKind;
@@ -502,10 +502,10 @@ export interface RunStep {
   status: StepStatus;
   session_id?: string;
   approval_id?: string;
-  /** Artefakt der Rolle (ihre letzte Antwort). */
+  /** Artifact of the role (its last answer). */
   output?: string;
   error?: string;
-  /** Korrektur-Runden für ein ungültiges strukturiertes Artefakt. */
+  /** Correction rounds for an invalid structured artifact. */
   fixes?: number;
   started_at?: string;
   ended_at?: string;
@@ -521,7 +521,7 @@ export interface Run {
   task?: string;
   sandbox: boolean;
   status: RunStatus;
-  /** Index des aktuellen Schritts (= Anzahl Schritte, wenn fertig). */
+  /** Index of the current step (= number of steps when done). */
   current: number;
   error?: string;
   budget_usd?: number;
@@ -529,32 +529,32 @@ export interface Run {
   created_at: string;
   updated_at: string;
   ended_at?: string;
-  /** Je Position die jüngste Ausführung. */
+  /** The latest execution per position. */
   steps: RunStep[];
-  /** Frühere Durchläufe (Schleifen). */
+  /** Earlier passes (loops). */
   history?: RunStep[];
   cost_usd: number;
-  /** Auslöser (leer: von Hand), Verweis (z. B. Issue-URL), geschlossenes Issue. */
+  /** Trigger (empty: by hand), reference (e.g. issue URL), closed issue. */
   trigger?: string;
   trigger_ref?: string;
   closes?: number;
   artifacts: { name: string; step: string; role: string; size: number; iterations?: number[] }[];
   pr_url?: string;
   workspace_gone?: boolean;
-  /** Je Position (wie steps) Bedingung und Rücksprung aus der Definition. */
+  /** Condition and jump back from the definition per position (like steps). */
   plan?: StepPlan[];
 }
 
 export interface StepPlan {
-  /** Bedingung: sonst übersprungen (bei einer Entscheidung: Rücksprung, wenn wahr). */
+  /** Condition: otherwise skipped (for a decision: jump back if true). */
   when?: string;
-  /** Ziel eines Rücksprungs (Entscheidung: goto, Gate: on_deny.goto). */
+  /** Target of a jump back (decision: goto, gate: on_deny.goto). */
   goto?: string;
   max_iterations?: number;
   on_exhausted?: string;
 }
 
-// --- Auslöser (M10) ---
+// --- Triggers (M10) ---
 
 export interface TriggerView {
   name: string;
@@ -566,7 +566,7 @@ export interface TriggerView {
   schedule?: { cron: string; catch_up?: boolean };
   kind: "github_issues" | "schedule";
   state: { paused: boolean; last_check?: string; last_fire?: string; last_error?: string };
-  /** Nächste Abfrage bzw. nächster Termin (fehlt bei pausierten Auslösern). */
+  /** Next poll or next date (missing for paused triggers). */
   next?: string;
   runs: { trigger: string; key: string; run_id: string; reported: boolean; created_at: string }[];
 }
@@ -577,7 +577,7 @@ export interface FactoryInput {
   description?: string;
 }
 
-/** GET /api/factories: eigene (.ade/factories) und mitgelieferte Fabriken. */
+/** GET /api/factories: own (.ade/factories) and built-in factories. */
 export interface FactorySummary {
   name: string;
   description?: string;
@@ -608,17 +608,17 @@ async function requestText(path: string): Promise<string> {
       const data = (await res.json()) as { error?: string };
       if (data.error) message = data.error;
     } catch {
-      // Kein JSON.
+      // Not JSON.
     }
     throw new ApiError(res.status, message);
   }
   return res.text();
 }
 
-/** Fehler einer API-Antwort mit HTTP-Status und Meldung des Daemons. */
+/** Error of an API response with HTTP status and the daemon's message. */
 export class ApiError extends Error {
   readonly status: number;
-  /** Weitere Felder der Fehlerantwort (z. B. conflicts beim Mergen). */
+  /** Further fields of the error response (e.g. conflicts when merging). */
   readonly details: Record<string, unknown>;
   constructor(status: number, message: string, details: Record<string, unknown> = {}) {
     super(message);
@@ -627,7 +627,7 @@ export class ApiError extends Error {
   }
 }
 
-/** Dateien mit Konflikten aus einer fehlgeschlagenen Merge-Antwort. */
+/** Files with conflicts from a failed merge response. */
 export function mergeConflicts(err: unknown): string[] {
   if (err instanceof ApiError && Array.isArray(err.details.conflicts)) {
     return err.details.conflicts.filter((c): c is string => typeof c === "string");
@@ -649,7 +649,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       if (data.error) message = data.error;
       details = data;
     } catch {
-      // Kein JSON – Statuszeile genügt.
+      // Not JSON – the status line is enough.
     }
     throw new ApiError(res.status, message, details);
   }
@@ -663,7 +663,7 @@ export async function fetchHealth(): Promise<Health> {
   return (await res.json()) as Health;
 }
 
-/** Meldet, ob der Browser eine gültige ADE-Session hat. */
+/** Reports whether the browser has a valid ADE session. */
 export async function fetchAuthenticated(): Promise<boolean> {
   try {
     await request("GET", "/api/session");
@@ -752,28 +752,28 @@ export const api = {
   ideStatus: (workspaceId: string) => request<IdeStatus>("GET", `/api/workspaces/${encodeURIComponent(workspaceId)}/ide`),
   startIde: (workspaceId: string) => request<IdeStatus>("POST", `/api/workspaces/${encodeURIComponent(workspaceId)}/ide`),
   stopIde: (workspaceId: string) => request<void>("DELETE", `/api/workspaces/${encodeURIComponent(workspaceId)}/ide`),
-  /** Liefert die Anmelde-URL der IDE-Subdomain (Einmal-Ticket, ADR-004). */
+  /** Returns the login URL of the IDE subdomain (one-time ticket, ADR-004). */
   ideTicket: (workspaceId: string) =>
     request<{ url: string }>("POST", `/api/workspaces/${encodeURIComponent(workspaceId)}/ide/ticket`),
 };
 
-/** IDEs in diesen Zuständen werden gleich bereit – öfter abfragen. */
+/** IDEs in these states are about to be ready – poll more often. */
 export function ideBusy(state: IdeState): boolean {
   return state === "installing" || state === "starting";
 }
 
-/** Sessions in diesen Zuständen haben einen Prozess (oder bekommen gleich einen). */
+/** Sessions in these states have a process (or are about to get one). */
 export function isActive(status: SessionStatus): boolean {
   return status === "starting" || status === "running" || status === "idle";
 }
 
-/** URL eines WebSockets auf dem Daemon (gleicher Host, daher gleiche Cookies und Origin). */
+/** URL of a WebSocket on the daemon (same host, therefore same cookies and origin). */
 export function wsURL(path: string): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${window.location.host}${path}`;
 }
 
-/** Workspaces in diesen Zuständen ändern sich gleich – öfter abfragen. */
+/** Workspaces in these states are about to change – poll more often. */
 export function isBusy(status: WorkspaceStatus): boolean {
   return status === "creating" || status === "setup";
 }
