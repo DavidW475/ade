@@ -229,11 +229,11 @@ func TestWebSocketThroughGateway(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Write(ctx, websocket.MessageText, []byte("hallo")); err != nil {
+	if err := c.Write(ctx, websocket.MessageText, []byte("hello")); err != nil {
 		t.Fatal(err)
 	}
 	_, data, err := c.Read(ctx)
-	if err != nil || string(data) != "hallo" {
+	if err != nil || string(data) != "hello" {
 		t.Fatalf("Echo = %q, %v", data, err)
 	}
 	if ides.released.Load() != 0 {

@@ -30,7 +30,7 @@ func TestUsageScanner(t *testing.T) {
 		}, &Usage{Model: "claude-sonnet-4-5", Input: 12, Output: 34, CacheRead: 100, CacheWrite: 7}},
 		{"anthropic sse", DialectAnthropic, "text/event-stream; charset=utf-8", []string{
 			"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5-5\",\"usage\":{\"input_tokens\":5,\"cache_read_input_tokens\":50,\"cache_creation_input_tokens\":0,\"output_tokens\":1}}}\n\n",
-			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"hallo\"}}\n\nevent: message_delta\nda",
+			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"hello\"}}\n\nevent: message_delta\nda",
 			"ta: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":42}}\r\n\r\n",
 		}, &Usage{Model: "claude-opus-5-5", Input: 5, Output: 42, CacheRead: 50}},
 		{"openai responses sse", DialectOpenAI, "text/event-stream", []string{
@@ -40,8 +40,8 @@ func TestUsageScanner(t *testing.T) {
 		{"openai chat json", DialectOpenAI, "application/json", []string{
 			`{"model":"gpt-5-mini","usage":{"prompt_tokens":30,"completion_tokens":4,"prompt_tokens_details":{"cached_tokens":10}}}`,
 		}, &Usage{Model: "gpt-5-mini", Input: 20, Output: 4, CacheRead: 10}},
-		{"ohne usage", DialectAnthropic, "application/json", []string{`{"error":"x"}`}, nil},
-		{"kein json", DialectAnthropic, "text/plain", []string{`hallo`}, nil},
+		{"without usage", DialectAnthropic, "application/json", []string{`{"error":"x"}`}, nil},
+		{"not json", DialectAnthropic, "text/plain", []string{`hello`}, nil},
 	}
 	for _, tc := range cases {
 		got := scan(tc.dialect, tc.ct, tc.chunks...)
@@ -61,11 +61,11 @@ func TestProviderCountsUsage(t *testing.T) {
 	defer upstream.Close()
 	up, _ := url.Parse(upstream.URL)
 	s, ts := testProxy(t, up.Host, Options{Providers: map[string]Provider{"openai": {Upstream: up, Header: "Authorization", Prefix: "Bearer ", Dialect: DialectOpenAI}}})
-	if err := s.SetPolicy(Policy{Secrets: map[string]string{"openai": "sk-echt"}}); err != nil {
+	if err := s.SetPolicy(Policy{Secrets: map[string]string{"openai": "sk-real"}}); err != nil {
 		t.Fatal(err)
 	}
 	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/p/openai/v1/responses", strings.NewReader("{}"))
-	req.Header.Set("Authorization", "Bearer platzhalter")
+	req.Header.Set("Authorization", "Bearer placeholder")
 	req.Header.Set("Accept-Encoding", "br")
 	resp, err := http.DefaultTransport.(*http.Transport).Clone().RoundTrip(req)
 	if err != nil {
@@ -74,10 +74,10 @@ func TestProviderCountsUsage(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	if !strings.Contains(string(body), "response.completed") {
-		t.Fatalf("Antwort %q", body)
+		t.Fatalf("answer %q", body)
 	}
-	if auth != "Bearer sk-echt" || enc == "br" {
-		t.Errorf("Upstream sah Authorization %q, Accept-Encoding %q", auth, enc)
+	if auth != "Bearer sk-real" || enc == "br" {
+		t.Errorf("upstream saw Authorization %q, Accept-Encoding %q", auth, enc)
 	}
 	ev := lastEvent(t, s)
 	if ev.Usage == nil || *ev.Usage != (Usage{Model: "gpt-5", Input: 10, Output: 3}) {

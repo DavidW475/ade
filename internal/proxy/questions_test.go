@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// waitQuestion wartet, bis der Proxy eine offene Frage hat, und liefert sie.
+// waitQuestion waits until the proxy has an open question and returns it.
 func waitQuestion(t *testing.T, c *Client, kind string) Question {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -29,7 +29,7 @@ func waitQuestion(t *testing.T, c *Client, kind string) Question {
 			}
 		}
 	}
-	t.Fatalf("keine Frage der Art %s", kind)
+	t.Fatalf("no question of kind %s", kind)
 	return Question{}
 }
 
@@ -62,51 +62,51 @@ func TestEgressAskAllow(t *testing.T) {
 		return ch
 	}
 
-	// Zwei gleichzeitige Anfragen an dasselbe Ziel teilen sich eine Frage.
+	// Two concurrent requests to the same target share one question.
 	r1, r2 := get("http://new.example/a"), get("http://new.example/b")
 	q := waitQuestion(t, c, QuestionEgress)
 	if q.Host != "new.example" || q.Port != 80 {
-		t.Fatalf("Frage %+v", q)
+		t.Fatalf("question %+v", q)
 	}
 	time.Sleep(100 * time.Millisecond)
 	if r, _ := c.Questions(context.Background(), "", 0, 0); len(r.Questions) != 1 {
-		t.Fatalf("%d Fragen, erwartet 1", len(r.Questions))
+		t.Fatalf("%d questions, want 1", len(r.Questions))
 	}
 	if err := c.Answer(context.Background(), q.ID, Answer{Decision: AnswerAllow}); err != nil {
 		t.Fatal(err)
 	}
 	for _, ch := range []<-chan result{r1, r2} {
 		if r := <-ch; r.status != 200 || r.body != "ok" {
-			t.Fatalf("Antwort %+v", r)
+			t.Fatalf("answer %+v", r)
 		}
 	}
 	if ev := lastEvent(t, s); !ev.Allowed || ev.Reason != ReasonApproved {
 		t.Fatalf("Event %+v", ev)
 	}
 	if err := c.Answer(context.Background(), q.ID, Answer{Decision: AnswerAllow}); err == nil {
-		t.Fatal("zweite Antwort angenommen")
+		t.Fatal("second answer accepted")
 	}
 
-	// deny-Liste fragt nie.
+	// The deny list never asks.
 	if r := <-get("http://bad.example/"); r.status != http.StatusForbidden {
-		t.Fatalf("deny-Liste: %+v", r)
+		t.Fatalf("deny list: %+v", r)
 	}
 	if r, _ := c.Questions(context.Background(), "", 0, 0); len(r.Questions) != 0 {
-		t.Fatalf("Frage für die deny-Liste: %+v", r.Questions)
+		t.Fatalf("question for the deny list: %+v", r.Questions)
 	}
 
-	// Ablehnen: dieses Ziel wird bis zum Neustart nicht erneut gefragt.
+	// Deny: this target is not asked again until the restart.
 	r3 := get("http://other.example/")
 	q = waitQuestion(t, c, QuestionEgress)
 	if err := c.Answer(context.Background(), q.ID, Answer{Decision: AnswerDeny, Reason: "nein"}); err != nil {
 		t.Fatal(err)
 	}
 	if r := <-r3; r.status != http.StatusForbidden || !strings.Contains(r.body, "nein") {
-		t.Fatalf("abgelehnt: %+v", r)
+		t.Fatalf("denied: %+v", r)
 	}
 	start := time.Now()
 	if r := <-get("http://other.example/"); r.status != http.StatusForbidden || time.Since(start) > 2*time.Second {
-		t.Fatalf("erneut gefragt: %+v", r)
+		t.Fatalf("asked again: %+v", r)
 	}
 }
 
@@ -126,7 +126,7 @@ func TestEgressAskTimeout(t *testing.T) {
 		t.Fatalf("Status %d", resp.StatusCode)
 	}
 	if qs, _, _ := s.questions.list(); len(qs) != 0 {
-		t.Fatalf("Frage nach Ablauf noch offen: %+v", qs)
+		t.Fatalf("question still open after expiry: %+v", qs)
 	}
 }
 
@@ -140,7 +140,7 @@ func TestHookRelay(t *testing.T) {
 	body, _ := json.Marshal(call)
 	done := make(chan Answer, 1)
 	go func() {
-		// Wie der Hook im Container: direkt an den Proxy, ohne HTTP_PROXY.
+		// Like the hook in the container: directly to the proxy, without HTTP_PROXY.
 		resp, err := http.Post(ts.URL+HookPath, "application/json", bytes.NewReader(body))
 		if err != nil {
 			done <- Answer{Reason: err.Error()}
@@ -153,16 +153,16 @@ func TestHookRelay(t *testing.T) {
 	}()
 	q := waitQuestion(t, c, QuestionTool)
 	if q.Hook == nil || q.Hook.Session != "s1" || !strings.Contains(string(q.Hook.Input), "Bash") {
-		t.Fatalf("Frage %+v", q)
+		t.Fatalf("question %+v", q)
 	}
-	if err := c.Answer(context.Background(), q.ID, Answer{Decision: AnswerDeny, Reason: "lieber nicht"}); err != nil {
+	if err := c.Answer(context.Background(), q.ID, Answer{Decision: AnswerDeny, Reason: "rather not"}); err != nil {
 		t.Fatal(err)
 	}
-	if a := <-done; a.Decision != AnswerDeny || a.Reason != "lieber nicht" {
-		t.Fatalf("Antwort %+v", a)
+	if a := <-done; a.Decision != AnswerDeny || a.Reason != "rather not" {
+		t.Fatalf("answer %+v", a)
 	}
 
-	// Gibt der Hook auf, verschwindet die Frage.
+	// If the hook gives up, the question disappears.
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+HookPath, bytes.NewReader(body))
@@ -179,16 +179,16 @@ func TestHookRelay(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("Frage nach Abbruch noch offen")
+			t.Fatal("question still open after aborting")
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	// Ungültige Antworten und Steuer-API ohne Token.
+	// Invalid answers and control API without a token.
 	if err := c.Answer(context.Background(), "gibtsnicht", Answer{Decision: "vielleicht"}); err == nil {
-		t.Fatal("ungültige Antwort angenommen")
+		t.Fatal("invalid answer accepted")
 	}
 	if _, err := (&Client{Base: ctl.URL, Token: "falsch"}).Questions(context.Background(), "", 0, 0); !IsUnauthorized(err) {
-		t.Fatalf("ohne Token: %v", err)
+		t.Fatalf("without token: %v", err)
 	}
 }

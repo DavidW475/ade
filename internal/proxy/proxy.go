@@ -1,20 +1,20 @@
-// Package proxy ist der Egress-Proxy der Sandbox (`ade proxy`, doc/sandbox.md#3-egress-proxy-ade-proxy).
+// Package proxy is the sandbox's egress proxy (`ade proxy`, doc/sandbox.md#3-egress-proxy-ade-proxy).
 //
-// Er läuft im Proxy-Container eines Workspaces, der als einziger Container sowohl im internen
-// Netz des Agenten als auch im Egress-Netz hängt. Der Agent erreicht das Internet nur über ihn:
+// It runs in a workspace's proxy container, the only container attached both to the agent's
+// internal network and to the egress network. The agent reaches the internet only through it:
 //
-//   - CONNECT host:port und Klartext-HTTP mit absoluter URI prüft er gegen die Allowlist.
-//   - /p/<anbieter>/… leitet er an die API des Anbieters weiter und fügt den API-Key selbst
-//     ein; der Agent sieht nur einen Platzhalter (Secret-Injection, Abschnitt 4).
-//   - Interne Adressen (Loopback, private Netze, Link-Local) sind immer gesperrt.
-//   - Ein weiterer Port leitet TCP an die IDE im Agent-Container weiter, weil Docker in
-//     internen Netzen keine Ports veröffentlicht.
-//   - /ade/hook/pretooluse nimmt Freigabe-Fragen des Hooks entgegen und reicht sie an den
-//     Daemon weiter (questions.go).
+//   - It checks CONNECT host:port and plain HTTP with an absolute URI against the allowlist.
+//   - It forwards /p/<provider>/… to the provider's API and inserts the API key itself; the
+//     agent only sees a placeholder (secret injection, section 4).
+//   - Internal addresses (loopback, private networks, link-local) are always blocked.
+//   - Another port forwards TCP to the IDE in the agent container, because Docker publishes
+//     no ports in internal networks.
+//   - /ade/hook/pretooluse accepts approval questions of the hook and passes them to the
+//     daemon (questions.go).
 //
-// Der Daemon steuert den Proxy über eine eigene Steuer-API (Token aus ADE_PROXY_TOKEN):
-// Policy und Secrets setzen, Egress-Events und Fragen abholen, Fragen beantworten. Ohne
-// Policy ist alles gesperrt.
+// The daemon controls the proxy through its own control API (token from ADE_PROXY_TOKEN):
+// set policy and secrets, fetch egress events and questions, answer questions. Without a
+// policy everything is blocked.
 package proxy
 
 import (
@@ -36,42 +36,42 @@ import (
 	"time"
 )
 
-// Ports des Proxys im Container.
+// Ports of the proxy in the container.
 const (
 	Port        = 8080
 	ControlPort = 8081
 	IDEPort     = 3000
 )
 
-// EnvToken ist die Umgebungsvariable mit dem Token der Steuer-API.
-const EnvToken = "ADE_PROXY_TOKEN" //nolint:gosec // G101: Name, kein Secret
+// EnvToken is the environment variable with the control API's token.
+const EnvToken = "ADE_PROXY_TOKEN" //nolint:gosec // G101: name, not a secret
 
-// Policy ist die Netzwerk-Policy eines Workspaces, wie der Daemon sie schickt.
+// Policy is a workspace's network policy as the daemon sends it.
 type Policy struct {
-	// Allow und Deny sind Einträge im Format von ParseRule.
+	// Allow and Deny are entries in the format of ParseRule.
 	Allow []string `json:"allow"`
 	Deny  []string `json:"deny"`
-	// Secrets sind API-Keys je Anbieter (siehe Providers).
+	// Secrets are API keys per provider (see Providers).
 	Secrets map[string]string `json:"secrets,omitempty"`
-	// Ask: Anfragen an nicht freigegebene Ziele warten auf eine Freigabe im Dashboard
-	// (egress.on_blocked: ask), statt sofort zu scheitern.
+	// Ask: requests to targets that are not allowed wait for an approval in the dashboard
+	// (egress.on_blocked: ask) instead of failing right away.
 	Ask bool `json:"ask,omitempty"`
-	// AskWaitSeconds begrenzt das Warten auf die Freigabe (Standard 120).
+	// AskWaitSeconds limits waiting for the approval (default 120).
 	AskWaitSeconds int `json:"ask_wait_seconds,omitempty"`
 }
 
-// Provider ist eine Anbieter-API, an die /p/<name>/… weitergeleitet wird.
+// Provider is a provider API that /p/<name>/… is forwarded to.
 type Provider struct {
-	// Upstream ist die Basis-URL der API.
+	// Upstream is the base URL of the API.
 	Upstream *url.URL
-	// Header nimmt den API-Key auf, Prefix steht davor (z. B. "Bearer ").
+	// Header takes the API key, Prefix comes before it (e.g. "Bearer ").
 	Header string
 	Prefix string
-	// Dialect ist die Zählweise der Token-Nutzung in den Antworten (DialectAnthropic, DialectOpenAI).
+	// Dialect is how token usage is counted in the responses (DialectAnthropic, DialectOpenAI).
 	Dialect string
 }
 
-// Providers sind die Anbieter mit Secret-Injection.
+// Providers are the providers with secret injection.
 var Providers = map[string]Provider{
 	"anthropic": {Upstream: mustURL("https://api.anthropic.com"), Header: "X-Api-Key", Dialect: DialectAnthropic},
 	"openai":    {Upstream: mustURL("https://api.openai.com"), Header: "Authorization", Prefix: "Bearer ", Dialect: DialectOpenAI},
@@ -85,14 +85,14 @@ func mustURL(s string) *url.URL {
 	return u
 }
 
-// Arten von Events.
+// Kinds of events.
 const (
-	KindConnect = "connect" // CONNECT-Tunnel (meist HTTPS)
-	KindHTTP    = "http"    // Klartext-HTTP über den Proxy
-	KindAPI     = "api"     // Anbieter-API über /p/<anbieter>/ mit Secret-Injection
+	KindConnect = "connect" // CONNECT tunnel (mostly HTTPS)
+	KindHTTP    = "http"    // plain HTTP through the proxy
+	KindAPI     = "api"     // provider API via /p/<provider>/ with secret injection
 )
 
-// Event beschreibt eine Anfrage an den Proxy.
+// Event describes a request to the proxy.
 type Event struct {
 	Seq      int64     `json:"seq"`
 	Time     time.Time `json:"time"`
@@ -105,39 +105,39 @@ type Event struct {
 	Allowed  bool      `json:"allowed"`
 	Reason   string    `json:"reason"`
 	Status   int       `json:"status,omitempty"`
-	// BytesOut: vom Agenten gesendet, BytesIn: an den Agenten geliefert.
+	// BytesOut: sent by the agent, BytesIn: delivered to the agent.
 	BytesOut   int64  `json:"bytes_out"`
 	BytesIn    int64  `json:"bytes_in"`
 	DurationMS int64  `json:"duration_ms"`
 	Error      string `json:"error,omitempty"`
-	// Usage ist die Token-Nutzung aus der Antwort einer Anbieter-API (nur KindAPI).
+	// Usage is the token usage from the answer of a provider API (KindAPI only).
 	Usage *Usage `json:"usage,omitempty"`
 }
 
-// Options konfiguriert den Proxy.
+// Options configures the proxy.
 type Options struct {
-	// Listen ist die Adresse für den Agenten (Standard :8080).
+	// Listen is the address for the agent (default :8080).
 	Listen string
-	// Control ist die Adresse der Steuer-API (Standard :8081).
+	// Control is the address of the control API (default :8081).
 	Control string
-	// IDE ist die Adresse der IDE-Weiterleitung (leer: keine).
+	// IDE is the address of the IDE forwarding (empty: none).
 	IDE string
-	// IDETarget ist das Ziel der IDE-Weiterleitung (z. B. agent:3000).
+	// IDETarget is the target of the IDE forwarding (e.g. agent:3000).
 	IDETarget string
-	// Token schützt die Steuer-API; leer sperrt sie ganz.
+	// Token protects the control API; empty locks it completely.
 	Token  string
 	Logger *slog.Logger
-	// Dial verbindet zu Zielen im Internet (Standard: nur öffentliche Adressen). Für Tests.
+	// Dial connects to targets on the internet (default: public addresses only). For tests.
 	Dial dialFunc
-	// Providers ersetzt die Anbieter-Liste (für Tests).
+	// Providers replaces the provider list (for tests).
 	Providers map[string]Provider
-	// Self sind Authorities (host:port), unter denen der Agent den Proxy selbst anspricht
-	// (Standard: proxy:8080). Clients mit HTTP_PROXY schicken auch Anfragen an die Basis-URL
-	// /p/<anbieter>/ als Proxy-Anfrage; die gehören nicht zur Allowlist-Prüfung.
+	// Self are authorities (host:port) under which the agent addresses the proxy itself
+	// (default: proxy:8080). Clients with HTTP_PROXY also send requests to the base URL
+	// /p/<provider>/ as proxy requests; they are not subject to the allowlist check.
 	Self []string
 }
 
-// Server ist der Egress-Proxy.
+// Server is the egress proxy.
 type Server struct {
 	opts      Options
 	log       *slog.Logger
@@ -154,13 +154,13 @@ type Server struct {
 type compiled struct {
 	rules   *Rules
 	secrets map[string]string
-	ask     time.Duration // 0: nicht fragen
+	ask     time.Duration // 0: do not ask
 }
 
-// DefaultAskWait ist die Wartezeit auf eine Egress-Freigabe ohne AskWaitSeconds.
+// DefaultAskWait is the waiting time for an egress approval without AskWaitSeconds.
 const DefaultAskWait = 2 * time.Minute
 
-// New erzeugt einen Proxy.
+// New creates a proxy.
 func New(opts Options) *Server {
 	if opts.Listen == "" {
 		opts.Listen = ":" + strconv.Itoa(Port)
@@ -198,7 +198,7 @@ func randomID() string {
 	return hex.EncodeToString(b)
 }
 
-// SetPolicy setzt die Policy (prüft die Einträge vorher).
+// SetPolicy sets the policy (checks the entries first).
 func (s *Server) SetPolicy(p Policy) error {
 	rules, err := CompileRules(p.Allow, p.Deny)
 	if err != nil {
@@ -207,7 +207,7 @@ func (s *Server) SetPolicy(p Policy) error {
 	secrets := map[string]string{}
 	for k, v := range p.Secrets {
 		if _, ok := s.providers[k]; !ok {
-			return fmt.Errorf("secrets: unbekannter Anbieter %q", k)
+			return fmt.Errorf("secrets: unknown provider %q", k)
 		}
 		if v != "" {
 			secrets[k] = v
@@ -221,11 +221,11 @@ func (s *Server) SetPolicy(p Policy) error {
 		}
 	}
 	s.policy.Store(c)
-	s.log.Info("Policy gesetzt", "allow", len(p.Allow), "deny", len(p.Deny), "secrets", len(secrets), "ask", p.Ask)
+	s.log.Info("policy set", "allow", len(p.Allow), "deny", len(p.Deny), "secrets", len(secrets), "ask", p.Ask)
 	return nil
 }
 
-// Run startet alle Listener und blockiert, bis ctx endet oder einer scheitert.
+// Run starts all listeners and blocks until ctx ends or one of them fails.
 func (s *Server) Run(ctx context.Context) error {
 	type srv struct {
 		ln  net.Listener
@@ -253,7 +253,7 @@ func (s *Server) Run(ctx context.Context) error {
 		ln, err := listen(x.addr)
 		if err != nil {
 			closeAll()
-			return fmt.Errorf("auf %s lauschen: %w", x.addr, err)
+			return fmt.Errorf("listen on %s: %w", x.addr, err)
 		}
 		srvs = append(srvs, srv{ln, x.run})
 	}
@@ -261,7 +261,7 @@ func (s *Server) Run(ctx context.Context) error {
 		ln, err := listen(s.opts.IDE)
 		if err != nil {
 			closeAll()
-			return fmt.Errorf("auf %s lauschen: %w", s.opts.IDE, err)
+			return fmt.Errorf("listen on %s: %w", s.opts.IDE, err)
 		}
 		srvs = append(srvs, srv{ln, s.forwardTCP})
 	}
@@ -269,7 +269,7 @@ func (s *Server) Run(ctx context.Context) error {
 	for _, x := range srvs {
 		go func() { errc <- x.run(x.ln) }()
 	}
-	s.log.Info("Egress-Proxy läuft", "listen", s.opts.Listen, "control", s.opts.Control, "ide", s.opts.IDE)
+	s.log.Info("egress proxy running", "listen", s.opts.Listen, "control", s.opts.Control, "ide", s.opts.IDE)
 	var err error
 	select {
 	case <-ctx.Done():
@@ -286,7 +286,7 @@ func (s *Server) Run(ctx context.Context) error {
 	return err
 }
 
-// forwardTCP leitet Verbindungen an die IDE im Agent-Container weiter.
+// forwardTCP forwards connections to the IDE in the agent container.
 func (s *Server) forwardTCP(ln net.Listener) error {
 	for {
 		c, err := ln.Accept()
@@ -298,7 +298,7 @@ func (s *Server) forwardTCP(ln net.Listener) error {
 			d := net.Dialer{Timeout: 10 * time.Second}
 			up, err := d.Dial("tcp", s.opts.IDETarget)
 			if err != nil {
-				s.log.Debug("IDE nicht erreichbar", "ziel", s.opts.IDETarget, "err", err)
+				s.log.Debug("IDE not reachable", "target", s.opts.IDETarget, "err", err)
 				return
 			}
 			defer func() { _ = up.Close() }()
@@ -307,7 +307,7 @@ func (s *Server) forwardTCP(ln net.Listener) error {
 	}
 }
 
-// pipe kopiert in beide Richtungen und liefert die Bytes a→b und b→a.
+// pipe copies in both directions and returns the bytes a→b and b→a.
 func pipe(a, b net.Conn) (int64, int64) {
 	var ab, ba int64
 	var wg sync.WaitGroup
@@ -329,7 +329,7 @@ func closeWrite(c net.Conn) {
 	_ = c.Close()
 }
 
-// ServeHTTP bedient den Agenten: CONNECT, Klartext-HTTP und /p/<anbieter>/….
+// ServeHTTP serves the agent: CONNECT, plain HTTP and /p/<provider>/….
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodConnect:
@@ -343,7 +343,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/p/"):
 		s.provider(w, r)
 	default:
-		http.Error(w, "ADE-Egress-Proxy: als HTTP(S)-Proxy verwenden (HTTPS_PROXY) oder über /p/<anbieter>/", http.StatusBadRequest)
+		http.Error(w, "ADE egress proxy: use it as an HTTP(S) proxy (HTTPS_PROXY) or via /p/<provider>/", http.StatusBadRequest)
 	}
 }
 
@@ -364,9 +364,9 @@ func (s *Server) isSelf(authority string) bool {
 	return false
 }
 
-// decide prüft host:port gegen die aktuelle Policy. Mit Ask wartet eine Anfrage an ein
-// nicht freigegebenes Ziel auf die Entscheidung im Dashboard (nie bei deny-Liste oder
-// internen Adressen). msg ist ein Zusatz für die Fehlermeldung.
+// decide checks host:port against the current policy. With Ask, a request to a target that
+// is not allowed waits for the decision in the dashboard (never for the deny list or
+// internal addresses). msg is an addition for the error message.
 func (s *Server) decide(ctx context.Context, host string, port int) (ok bool, reason, msg string) {
 	p := s.policy.Load()
 	if p == nil {
@@ -385,20 +385,20 @@ func (s *Server) decide(ctx context.Context, host string, port int) (ok bool, re
 func blockedMessage(host string, port int, reason, extra string) string {
 	target := net.JoinHostPort(host, strconv.Itoa(port))
 	if extra != "" {
-		return "ADE: " + target + " ist nicht freigegeben (" + extra + ")\n"
+		return "ADE: " + target + " is not allowed (" + extra + ")\n"
 	}
 	switch reason {
 	case ReasonDenied:
-		return "ADE: " + target + " ist gesperrt (egress.deny in .ade/sandbox.yaml)\n"
+		return "ADE: " + target + " is blocked (egress.deny in .ade/sandbox.yaml)\n"
 	case ReasonInternal:
-		return "ADE: " + target + " ist eine interne Adresse und aus der Sandbox nicht erreichbar\n"
+		return "ADE: " + target + " is an internal address and not reachable from the sandbox\n"
 	case ReasonNoPolicy:
-		return "ADE: Netzwerk-Policy noch nicht geladen\n"
+		return "ADE: network policy not loaded yet\n"
 	}
-	return "ADE: " + target + " ist nicht freigegeben (egress in .ade/sandbox.yaml)\n"
+	return "ADE: " + target + " is not allowed (egress in .ade/sandbox.yaml)\n"
 }
 
-// splitTarget liest host und port aus einer Authority; def ist der Standard-Port.
+// splitTarget reads host and port from an authority; def is the default port.
 func splitTarget(authority string, def int) (string, int, error) {
 	host, ps, err := net.SplitHostPort(authority)
 	if err != nil {
@@ -410,7 +410,7 @@ func splitTarget(authority string, def int) (string, int, error) {
 	}
 	port, err := strconv.Atoi(ps)
 	if err != nil || port < 1 || port > 65535 || host == "" {
-		return "", 0, fmt.Errorf("ungültiges Ziel %q", authority)
+		return "", 0, fmt.Errorf("invalid target %q", authority)
 	}
 	return normalizeHost(host), port, nil
 }
@@ -447,7 +447,7 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = up.Close() }()
 	hj, ok := w.(http.Hijacker)
 	if !ok {
-		http.Error(w, "Hijacking nicht unterstützt", http.StatusInternalServerError)
+		http.Error(w, "hijacking not supported", http.StatusInternalServerError)
 		return
 	}
 	client, buf, err := hj.Hijack()
@@ -459,7 +459,7 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ev.Allowed, ev.Status = true, http.StatusOK
-	// Bereits gepufferte Bytes des Clients (z. B. ein früh gesendetes TLS-ClientHello) zuerst.
+	// Bytes of the client that are already buffered (e.g. an early TLS ClientHello) first.
 	var pre int64
 	if n := buf.Reader.Buffered(); n > 0 {
 		b, _ := buf.Peek(n)
@@ -485,7 +485,7 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request) {
 	if err != nil || (r.URL.Scheme != "http" && r.URL.Scheme != "https") {
 		ev.Host, ev.Reason, ev.Status = r.URL.Host, ReasonBadRequest, http.StatusBadRequest
 		s.record(ev, start)
-		http.Error(w, "ADE: ungültige Anfrage", http.StatusBadRequest)
+		http.Error(w, "ADE: invalid request", http.StatusBadRequest)
 		return
 	}
 	ev.Host, ev.Port = host, port
@@ -517,7 +517,7 @@ func (s *Server) provider(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		ev.Reason, ev.Status = ReasonBadRequest, http.StatusNotFound
 		s.record(ev, start)
-		http.Error(w, fmt.Sprintf("ADE: unbekannter Anbieter %q", name), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("ADE: unknown provider %q", name), http.StatusNotFound)
 		return
 	}
 	ev.Host, ev.Port, _ = splitTarget(prov.Upstream.Host, 443)
@@ -528,9 +528,9 @@ func (s *Server) provider(w http.ResponseWriter, r *http.Request) {
 	}
 	if key == "" {
 		ev.Reason, ev.Status = ReasonProvider, http.StatusForbidden
-		ev.Error = "kein API-Key hinterlegt"
+		ev.Error = "no API key configured"
 		s.record(ev, start)
-		http.Error(w, fmt.Sprintf("ADE: für %s ist kein API-Key konfiguriert (providers.%s.api_key)", name, name), http.StatusForbidden)
+		http.Error(w, fmt.Sprintf("ADE: no API key is configured for %s (providers.%s.api_key)", name, name), http.StatusForbidden)
 		return
 	}
 	ev.Allowed, ev.Reason = true, ReasonProvider
@@ -555,24 +555,24 @@ func (s *Server) provider(w http.ResponseWriter, r *http.Request) {
 		u.RawQuery = r.URL.RawQuery
 		out.Out.URL = &u
 		out.Out.Host = u.Host
-		// Was der Agent als Zugang schickt, ist ein Platzhalter – ersetzen, nie weiterreichen.
+		// What the agent sends as credentials is a placeholder – replace it, never pass it on.
 		out.Out.Header.Del("Authorization")
 		out.Out.Header.Del("X-Api-Key")
 		out.Out.Header.Set(prov.Header, prov.Prefix+key)
 		out.Out.Header.Del("Proxy-Authorization")
-		// Unkomprimiert anfordern, damit der Proxy die Token-Nutzung mitlesen kann (der
-		// Transport fordert selbst gzip an und entpackt).
+		// Request uncompressed, so the proxy can read the token usage (the transport requests
+		// gzip itself and unpacks it).
 		out.Out.Header.Del("Accept-Encoding")
 	})
 }
 
-// reverse leitet eine Anfrage weiter, zählt Bytes und meldet das Event am Ende.
+// reverse forwards a request, counts bytes and reports the event at the end.
 func (s *Server) reverse(w http.ResponseWriter, r *http.Request, ev *Event, start time.Time, rewrite func(*httputil.ProxyRequest)) {
 	s.reverseWith(w, r, ev, start, nil, nil, nil, rewrite)
 }
 
-// reverseWith ist reverse mit Haken: onResponse sieht die Antwort des Ziels, tee liefert einen
-// Writer, der den Antwort-Body mitliest (nil: keiner), done läuft vor dem Melden des Events.
+// reverseWith is reverse with hooks: onResponse sees the target's response, tee returns a
+// writer that reads along the response body (nil: none), done runs before reporting the event.
 func (s *Server) reverseWith(w http.ResponseWriter, r *http.Request, ev *Event, start time.Time,
 	onResponse func(*http.Response), tee func() io.Writer, done func(), rewrite func(*httputil.ProxyRequest)) {
 	body := &countingReader{r: r.Body}
@@ -667,13 +667,13 @@ func (s *Server) record(ev Event, start time.Time) {
 	ev.DurationMS = time.Since(start).Milliseconds()
 	ev = s.events.add(ev)
 	if !ev.Allowed {
-		s.log.Info("Anfrage geblockt", "host", ev.Host, "port", ev.Port, "grund", ev.Reason)
+		s.log.Info("request blocked", "host", ev.Host, "port", ev.Port, "reason", ev.Reason)
 	} else {
-		s.log.Debug("Anfrage", "kind", ev.Kind, "host", ev.Host, "port", ev.Port, "status", ev.Status)
+		s.log.Debug("request", "kind", ev.Kind, "host", ev.Host, "port", ev.Port, "status", ev.Status)
 	}
 }
 
-// eventLog ist ein Ringpuffer der letzten Events mit Benachrichtigung für Long-Polling.
+// eventLog is a ring buffer of the latest events with notification for long polling.
 type eventLog struct {
 	mu     sync.Mutex
 	buf    []Event
@@ -701,8 +701,8 @@ func (l *eventLog) add(ev Event) Event {
 	return ev
 }
 
-// since liefert Events nach after (höchstens limit), die nächste Position und einen Kanal,
-// der sich bei neuen Events schließt.
+// since returns events after after (at most limit), the next position and a channel that
+// closes on new events.
 func (l *eventLog) since(after int64, limit int) ([]Event, int64, <-chan struct{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -719,7 +719,7 @@ func (l *eventLog) since(after int64, limit int) ([]Event, int64, <-chan struct{
 	if len(out) > 0 {
 		next = out[len(out)-1].Seq
 	} else if after > l.seq {
-		next = l.seq // Zähler eines früheren Proxy-Laufs
+		next = l.seq // counter of an earlier proxy run
 	}
 	return out, next, l.notify
 }
