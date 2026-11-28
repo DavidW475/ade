@@ -3,9 +3,9 @@
   "required": ["failed", "passed", "summary"],
   "additionalProperties": false,
   "properties": {
-    "failed": { "type": "integer", "minimum": 0, "description": "Zahl der fehlgeschlagenen Tests (0: alles grün)" },
+    "failed": { "type": "integer", "minimum": 0, "description": "Number of failed tests (0: everything green)" },
     "passed": { "type": "integer", "minimum": 0 },
     "commands": { "type": "array", "items": { "type": "string" } },
-    "summary": { "type": "string", "maxLength": 8000, "description": "Was fehlschlägt, mit Auszug der Ausgabe" }
+    "summary": { "type": "string", "maxLength": 8000, "description": "What fails, with an excerpt of the output" }
   }
 }

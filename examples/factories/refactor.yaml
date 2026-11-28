@@ -1,11 +1,11 @@
-# Fabrik „refactor“: Plan in kleinen Schritten → Freigabe → je Durchlauf ein Schritt mit
-# anschließendem Testlauf, bis der Plan erledigt und alles grün ist → Freigabe → Pull Request.
-# Aufbau: doc/factory.md.
+# Factory "refactor": plan in small steps → approval → one step per pass followed by a test run,
+# until the plan is done and everything is green → approval → pull request.
+# Structure: doc/factory.md.
 name: refactor
-description: Refactoring in kleinen, einzeln getesteten Schritten
+description: Refactoring in small, individually tested steps
 
 inputs:
-  task: { type: text, required: true, description: Was umgebaut werden soll und warum }
+  task: { type: text, required: true, description: What should be restructured and why }
 
 roles:
   planner:

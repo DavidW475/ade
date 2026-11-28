@@ -1,31 +1,31 @@
-# Fabrik „feature“: Plan → Freigabe → Umsetzung → Review und Test parallel → bei Bedarf zurück
-# zur Umsetzung → Freigabe → Pull Request. Gehört (angepasst) nach .ade/factories/feature.yaml
-# im Repo; ohne eigene Datei nimmt ADE diese Vorlage. Aufbau: doc/factory.md.
+# Factory "feature": plan → approval → implementation → review and test in parallel → back to the
+# implementation if needed → approval → pull request. Goes (adapted) to .ade/factories/feature.yaml
+# in the repository; without an own file ADE uses this template. Structure: doc/factory.md.
 name: feature
-description: Feature von der Aufgabe bis zum Pull Request, mit Review und Test
+description: Feature from the task to the pull request, with review and test
 
 inputs:
-  task: { type: text, required: true, description: Was gebaut werden soll }
+  task: { type: text, required: true, description: What should be built }
 
 roles:
   planner:
     adapter: claude
-    model: opus            # Alias aus models in config.yaml, sonst unverändert an die CLI
-    permissions: read      # sieht den Workspace nur lesend
+    model: opus            # alias from models in config.yaml, otherwise passed to the CLI unchanged
+    permissions: read      # sees the workspace read-only
     prompt: prompts/planner.md
-    outputs: [plan.md]     # die letzte Antwort der Rolle
+    outputs: [plan.md]     # the role's last answer
 
   implementer:
     adapter: claude
     model: sonnet
     permissions: write
     prompt: prompts/implementer.md
-    # review.json und test.json gibt es erst ab dem zweiten Durchlauf (Feedback).
+    # review.json and test.json only exist from the second pass on (feedback).
     inputs: [plan.md, review.json, test.json]
     outputs: [summary.md]
 
   reviewer:
-    adapter: claude        # z. B. codex für ein zweites Modell
+    adapter: claude        # e.g. codex for a second model
     model: opus
     permissions: read
     prompt: prompts/reviewer.md
@@ -35,7 +35,7 @@ roles:
   tester:
     adapter: claude
     model: haiku
-    permissions: write     # darf Tests ergänzen; läuft parallel zum (lesenden) Reviewer
+    permissions: write     # may add tests; runs in parallel to the (read-only) reviewer
     prompt: prompts/tester.md
     inputs: [summary.md]
     outputs: [{ name: test.json, schema: schemas/test.json }]
@@ -54,10 +54,10 @@ flow:
     when: "review.verdict == 'changes' || test.failed > 0"
     goto: implement
     max_iterations: 3
-    on_exhausted: continue # nach drei Runden entscheidet der Mensch am letzten Gate
+    on_exhausted: continue # after three rounds the human decides at the last gate
   - step: final
     gate: human
-    on_deny: { goto: implement }   # Ablehnen mit Begründung = Feedback an die Umsetzung
+    on_deny: { goto: implement }   # denying with a reason = feedback to the implementation
   - step: deliver
     action: pull_request
 

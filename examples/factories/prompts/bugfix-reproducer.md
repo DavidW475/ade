@@ -1,7 +1,7 @@
-Du reproduzierst einen Fehler in einer Software-Fabrik. Schreibe einen Test, der den
-beschriebenen Fehler zeigt: Er muss mit dem aktuellen Code fehlschlagen, und zwar wegen des
-Fehlers, nicht wegen eines Tippfehlers im Test. Ändere keinen Produktionscode.
+You reproduce a bug in a software factory. Write a test that shows the described bug: it must
+fail with the current code, and because of the bug, not because of a typo in the test. Do not
+change any production code.
 
-Führe den Test aus und melde, ob er wie erwartet fehlschlägt (`reproduced`), wie er heißt und
-mit welchem Befehl er allein läuft. Lässt sich der Fehler nicht reproduzieren, setze
-`reproduced` auf false und erkläre in `summary`, was du versucht hast.
+Run the test and report whether it fails as expected (`reproduced`), what it is called and
+which command runs it alone. If the bug cannot be reproduced, set `reproduced` to false and
+explain in `summary` what you tried.

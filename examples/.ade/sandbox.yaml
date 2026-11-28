@@ -1,30 +1,31 @@
-# Sandbox-Konfiguration eines Projekts: <repo>/.ade/sandbox.yaml (doc/sandbox.md).
-# ADE liest sie aus dem Projekt-Repo, nie aus dem Workspace. Alle Schlüssel sind optional.
+# Sandbox configuration of a project: <repo>/.ade/sandbox.yaml (doc/sandbox.md).
+# ADE reads it from the project repository, never from the workspace. All keys are optional.
+# Reference: doc/configuration.md.
 
-# Eigenes Image, z. B. vom Basis-Image abgeleitet (FROM ghcr.io/davidw475/ade-agent-base) mit
-# den Werkzeugen des Projekts. Leer = sandbox.image aus der globalen Konfiguration.
-# image: ghcr.io/me/mein-projekt-sandbox:1
+# Own image, e.g. derived from the base image (FROM ghcr.io/davidw475/ade-agent-base) with the
+# project's tools. Empty = sandbox.image from the global configuration.
+# image: ghcr.io/me/my-project-sandbox:1
 
-# Grenzen des Containers (Defaults wie hier).
+# Limits of the container (defaults as here).
 resources:
   memory: 4g
   cpus: 2
   pids: 512
 
-# Netzwerk-Regeln: Der Container erreicht das Internet nur über den Egress-Proxy und nur diese
-# Ziele. Ohne egress-Abschnitt gelten die Presets anthropic, github-readonly, npm, pypi und
-# go-proxy; mit Abschnitt nur, was hier steht (egress: {} sperrt alles). Änderungen wirken nach
-# wenigen Sekunden, ohne Neustart. Interne Adressen (Host, Container, private Netze) sind immer
-# gesperrt.
+# Network rules: the container only reaches the internet through the egress proxy and only
+# these targets. Without an egress section the presets anthropic, openai, github-readonly, npm,
+# pypi and go-proxy apply; with a section only what is listed here (egress: {} blocks
+# everything). Changes take effect within seconds, without a restart. Internal addresses (host,
+# containers, private networks) are always blocked.
 egress:
-  # Im Binary hinterlegte Domain-Listen: anthropic, github-readonly, npm, pypi, go-proxy
+  # Domain lists built into the binary: anthropic, openai, github-readonly, npm, pypi, go-proxy
   presets: [anthropic, github-readonly, npm]
-  # Eigene Einträge: host (Ports 80 und 443), *.domain (alle Subdomains), host:port
+  # Own entries: host (ports 80 and 443), *.domain (all subdomains), host:port
   allow:
     - api.example.com
     - "*.githubusercontent.com"
-  # Sperren gehen vor (ohne Port: alle Ports)
+  # Blocks win (without a port: all ports)
   deny:
     - "*.pastebin.com"
-  # deny: geblockt ist geblockt. ask (Freigabe im Dashboard) kommt mit M7.
+  # deny: blocked is blocked. ask: approval in the dashboard.
   on_blocked: deny

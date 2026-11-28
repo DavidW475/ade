@@ -1,62 +1,63 @@
-# Globale ADE-Konfiguration: ~/.config/ade/config.yaml (oder $ADE_CONFIG).
-# Alle Schlüssel sind optional; fehlende Werte nehmen die hier gezeigten Defaults.
+# Global ADE configuration: ~/.config/ade/config.yaml (or $ADE_CONFIG).
+# All keys are optional; missing values take the defaults shown here. Reference:
+# doc/configuration.md.
 
-# Adresse des Daemons. Nur Loopback-Adressen sind erlaubt.
+# Address of the daemon. Only loopback addresses are allowed.
 listen: 127.0.0.1:7000
 
-# Datenbank, Daemon-Secret, Lock und Log.
+# Database, daemon secret, lock and log.
 data_dir: ~/.local/share/ade
 
-# Workspace-Clones. Muss im Linux-Dateisystem liegen, nicht unter /mnt/c.
+# Workspace clones. Must be on the Linux file system, not under /mnt/c.
 workspaces_dir: ~/.ade/workspaces
 
-# API-Keys immer als Referenz angeben, nie im Klartext. In der Sandbox fügt der Egress-Proxy den
-# Key ein (anthropic für claude, openai für codex); der Container sieht nur einen Platzhalter.
-# Dann zählt der Proxy auch die Tokens. Ohne Key nutzt die CLI ihre eigene Anmeldung.
+# Always give API keys as a reference, never in plain text. In the sandbox the egress proxy inserts
+# the key (anthropic for claude, openai for codex); the container only sees a placeholder. The
+# proxy then also counts the tokens. Without a key the CLI uses its own login.
 providers:
   anthropic:
     api_key: env:ANTHROPIC_API_KEY
   # openai:
   #   api_key: env:OPENAI_API_KEY
 
-# Modell-Aliase (doc/factory.md#4-modelle-und-anbieter): Beim Start eines Agenten und in
-# Fabriken statt Modell-IDs verwenden. Der Anbieter muss zum Adapter passen
-# (claude → anthropic, codex → openai). Namen ohne Alias gehen unverändert an die CLI.
+# Model aliases (doc/factory.md#4-models-and-providers): use them instead of model IDs when
+# starting an agent and in factories. The provider must match the adapter
+# (claude → anthropic, codex → openai). Names without an alias go to the CLI unchanged.
 models:
   opus:   { provider: anthropic, id: claude-opus-5-5 }
   sonnet: { provider: anthropic, id: claude-sonnet-5-5 }
   haiku:  { provider: anthropic, id: claude-haiku-5-5 }
   gpt:    { provider: openai,    id: gpt-5.3-codex }
 
-# Preise in USD je Million Tokens, um die eingebaute Tabelle (Schätzwerte, siehe Dashboard)
-# zu ergänzen oder zu korrigieren. Schlüssel ist eine Modell-ID oder ihr Anfang; der längste
-# Treffer gilt. Ohne Preis zählt ADE nur Tokens.
+# Prices in USD per million tokens, to extend or correct the built-in table (estimates, see the
+# dashboard). The key is a model ID or its prefix; the longest match wins. Without a price ADE
+# only counts tokens.
 # pricing:
 #   claude-opus-5-5: { input: 4, output: 20, cache_read: 0.4, cache_write: 5 }
 #   gpt-5.3-codex:   { input: 1.75, output: 14, cache_read: 0.175 }
 
 defaults:
   adapter: claude
-  # Neue Workspaces in der Docker-Sandbox anlegen (im Dashboard pro Start umschaltbar).
+  # Create new workspaces in the Docker sandbox (can be switched per start in the dashboard).
   sandbox: true
 
-# Docker-Sandbox (doc/sandbox.md).
+# Docker sandbox (doc/sandbox.md).
 sandbox:
-  # Standard-Image; leer = ghcr.io/davidw475/ade-agent-base passend zur ADE-Version.
+  # Default image; empty = ghcr.io/davidw475/ade-agent-base matching the ADE version.
   image: ""
-  # docker-Binary; leer = docker im PATH. Auch rootless Docker oder "podman"
-  # (doc/sandbox.md#6-container-laufzeiten).
+  # docker binary; empty = docker in PATH. Also rootless Docker or "podman"
+  # (doc/sandbox.md#6-container-runtimes).
   docker: ""
 
-# Browser-IDE (openvscode-server, Erweiterungen aus Open VSX).
+# Browser IDE (openvscode-server, extensions from Open VSX).
 ide:
-  # Eigener openvscode-server; leer = ADE lädt die getestete Version bei Bedarf herunter.
+  # Own openvscode-server; empty = ADE downloads the tested version on demand.
   binary: ""
-  # Ohne offenen IDE-Tab wird die IDE nach dieser Zeit gestoppt (mindestens 1m).
+  # Without an open IDE tab the IDE is stopped after this time (at least 1m).
   idle_timeout: 15m
 
-# Freigaben (doc/architecture.md#43-freigaben). Regeln je Projekt stehen in .ade/project.yaml
-# unter approvals.
+# Approvals (doc/architecture.md#43-approvals). Rules per project are in .ade/project.yaml
+# under approvals.
 approvals:
-  # Wartezeit auf eine Entscheidung im Dashboard; danach gilt die Anfrage als abgelehnt (10s–2h).
+  # Waiting time for a decision in the dashboard; after that the request counts as denied (10s–2h).
   timeout: 10m

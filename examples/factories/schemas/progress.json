@@ -3,8 +3,8 @@
   "required": ["remaining", "summary"],
   "additionalProperties": false,
   "properties": {
-    "done": { "type": "array", "items": { "type": "string" }, "description": "Erledigte Schritte des Plans" },
-    "remaining": { "type": "integer", "minimum": 0, "description": "Zahl der noch offenen Schritte (0: fertig)" },
-    "summary": { "type": "string", "maxLength": 4000, "description": "Was in diesem Durchlauf geändert wurde" }
+    "done": { "type": "array", "items": { "type": "string" }, "description": "Completed steps of the plan" },
+    "remaining": { "type": "integer", "minimum": 0, "description": "Number of steps still open (0: done)" },
+    "summary": { "type": "string", "maxLength": 4000, "description": "What was changed in this pass" }
   }
 }

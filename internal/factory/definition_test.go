@@ -34,7 +34,7 @@ func TestBuiltinFeature(t *testing.T) {
 	if !f.Roles["planner"].ReadOnly() || f.Roles["implementer"].ReadOnly() || !f.Roles["reviewer"].ReadOnly() {
 		t.Fatal("permissions of the roles")
 	}
-	if !strings.Contains(f.Roles["planner"].PromptText, "Planer") {
+	if !strings.Contains(f.Roles["planner"].PromptText, "planner") {
 		t.Fatalf("prompt not loaded: %q", f.Roles["planner"].PromptText)
 	}
 	if f.Budget == nil || f.Budget.MaxDuration != 2*time.Hour {

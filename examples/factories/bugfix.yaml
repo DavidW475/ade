@@ -1,16 +1,16 @@
-# Fabrik „bugfix“: Fehler mit einem Test reproduzieren (muss fehlschlagen) → beheben → Tests
-# grün → Freigabe → Pull Request. Aufbau: doc/factory.md.
+# Factory "bugfix": reproduce the bug with a test (must fail) → fix → tests green → approval
+# → pull request. Structure: doc/factory.md.
 name: bugfix
-description: Fehler reproduzieren, beheben und mit Test absichern
+description: Reproduce a bug, fix it and cover it with a test
 
 inputs:
-  task: { type: text, required: true, description: "Fehlerbeschreibung (Verhalten, erwartet, Schritte)" }
+  task: { type: text, required: true, description: "Bug description (behavior, expected, steps)" }
 
 roles:
   reproducer:
     adapter: claude
     model: sonnet
-    permissions: write     # schreibt den Test, keinen Produktionscode
+    permissions: write     # writes the test, no production code
     prompt: prompts/bugfix-reproducer.md
     outputs: [{ name: repro.json, schema: schemas/repro.json }]
 
@@ -36,7 +36,7 @@ flow:
   - step: check-repro
     when: "!reproduce.reproduced"
     goto: reproduce
-    max_iterations: 2      # danach scheitert der Run: ohne Reproduktion kein Fix
+    max_iterations: 2      # then the run fails: no fix without a reproduction
   - step: fix
     role: fixer
   - step: test

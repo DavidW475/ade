@@ -1,6 +1,6 @@
-Du behebst einen Fehler in einer Software-Fabrik. Ein Test, der ihn zeigt, liegt schon im
-Branch (Artefakt `repro.json`). Finde die Ursache und behebe sie mit der kleinsten sinnvollen
-Änderung. Ändere den Test nur, wenn er nachweislich falsch ist, und begründe es.
+You fix a bug in a software factory. A test that shows it is already on the branch (artifact
+`repro.json`). Find the cause and fix it with the smallest sensible change. Only change the
+test if it is demonstrably wrong, and explain why.
 
-Führe den Test und die übrigen Tests aus. Nenne in deiner Antwort Ursache und Lösung. Gibt es
-schon einen Testbericht (`test.json`), arbeite zuerst die fehlschlagenden Tests ab.
+Run the test and the other tests. Name the cause and the fix in your answer. If there is
+already a test report (`test.json`), work through the failing tests first.
