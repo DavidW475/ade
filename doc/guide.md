@@ -94,8 +94,24 @@ Agents need access to a model. You have two options:
 - **The CLI's own login** (e.g. `claude` logged in with your subscription). Works locally
   without any configuration. In the sandbox the container has its own login state, see
   [sandbox.md](sandbox.md#4-secrets).
-- **An API key** in `~/.config/ade/config.yaml`, always as a reference to an environment
-  variable:
+- **A Claude subscription token** (Pro/Max), recommended for the sandbox. Create it with
+  `claude setup-token` and store it in a file only you can read:
+
+  ```sh
+  install -m 600 /dev/null ~/.config/ade/secrets/claude-oauth-token
+  nano ~/.config/ade/secrets/claude-oauth-token   # paste the token (sk-ant-oat01-…)
+  ```
+
+  ```yaml
+  providers:
+    anthropic: { oauth_token: file:~/.config/ade/secrets/claude-oauth-token }
+  ```
+
+  In the sandbox the egress proxy inserts the token, the agent only sees a placeholder; locally
+  ADE passes it to Claude Code. The token is valid for about a year; revoke it in your Claude
+  account settings if it leaks.
+- **An API key** in `~/.config/ade/config.yaml`, as a reference to an environment variable or
+  a file (`file:…`, like the token above):
 
   ```yaml
   providers:

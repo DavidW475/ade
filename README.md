@@ -32,7 +32,8 @@ ade start  →  http://localhost:7000
   browser. It works the same on a regular Linux (browser via `xdg-open`).
 - **Git ≥ 2.38** (`git --version`; for `git merge-tree --write-tree`)
 - **[Claude Code](https://docs.claude.com/claude-code)**, installed and logged in – for the
-  adapter `claude`. Alternatively `providers.anthropic.api_key` in the configuration.
+  adapter `claude`. Alternatively a subscription token (`providers.anthropic.oauth_token`, from
+  `claude setup-token`) or an API key (`providers.anthropic.api_key`) in the configuration.
 - **Docker Engine** in WSL (or Docker Desktop with WSL integration, rootless Docker, Podman) –
   for the sandbox. Without Docker, agents only run locally (switch "Sandbox" off). Docker pulls
   the image `ghcr.io/davidw475/ade-agent-base` with the first sandbox workspace (~1.5 GB).
@@ -89,8 +90,9 @@ ade stop                           # stop the daemon again (ade restart after ch
 1. Open the project in the dashboard and **start an agent**: enter the task, adapter `claude`.
    ADE creates a workspace (local clone, branch `ade/<id>`) and starts the agent in it – with
    **sandbox** (default when Docker runs) in its own container that only sees this workspace.
-   Claude Code needs an API key there (`providers.anthropic.api_key`); the egress proxy inserts
-   it, the container only sees a placeholder. Which internet targets are reachable is set by
+   Claude Code needs a subscription token (`providers.anthropic.oauth_token`) or an API key
+   (`providers.anthropic.api_key`) there; the egress proxy inserts it, the container only sees a
+   placeholder. Which internet targets are reachable is set by
    `egress` in `.ade/sandbox.yaml`; the workspace's **Network** view shows allowed and blocked
    requests.
 2. Watch the agent in the timeline; open the **IDE** or give follow-up instructions if needed.

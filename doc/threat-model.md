@@ -101,7 +101,7 @@ registries, attacks on the kernel or the container runtime itself (zero-days).
 | The proxy's control API (policy, secrets, answers to questions) | Bearer token (constant-time comparison), only the daemon knows it; locked without a token; port only published on `127.0.0.1` | – |
 | Proxies of other workspaces | Docker: `enable_icc=false` in the egress network; agents only reach their own internal network | Podman: proxies reach each other (the control API is still protected by its token, doc/sandbox.md § 6) |
 | Forging approvals (hook, egress questions) | Hook token per session; answers only through the authenticated daemon API | Many questions are annoying (denial of service) |
-| Subscription logins of the CLIs | Without a sandbox they are on the host; in the sandbox only what is explicitly passed in (#51) | – |
+| Subscription logins of the CLIs | Without a sandbox they are on the host; in the sandbox the Claude subscription token (`oauth_token`) stays in the proxy like an API key; a `/login` inside the container stays in that container | – |
 
 ### 4.5 Smuggling code into the project (A1, A2)
 

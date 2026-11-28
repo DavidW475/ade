@@ -165,13 +165,18 @@ dashboard or TLS interception (later) remain.
 
 Implementation (M6 for Anthropic, M8 for OpenAI):
 
-- The daemon sends the resolved keys (`providers.<name>.api_key`) to the proxy through the
-  control API. They never appear in the container configuration, environment or files of the
+- The daemon sends the resolved keys (`providers.<name>.api_key`, or `oauth_token` for
+  Anthropic) to the proxy through the control API. They never appear in the container configuration, environment or files of the
   agent container.
 - Agent sessions in the sandbox get `ANTHROPIC_BASE_URL=http://proxy:8080/p/anthropic`,
   `ANTHROPIC_API_KEY=<placeholder>` and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. The proxy
   removes the client's `Authorization`/`X-Api-Key` and sets the real key; it passes responses
   (SSE) through unbuffered.
+- With `oauth_token` (subscription token from `claude setup-token`, ADR-026) the container gets
+  `CLAUDE_CODE_OAUTH_TOKEN=<placeholder>` instead of `ANTHROPIC_API_KEY`. The proxy recognizes the
+  token by its prefix `sk-ant-oat` and sends it as `Authorization: Bearer <token>`, adding
+  `oauth-2025-04-20` to `anthropic-beta` if missing. Tokens are counted as with an API key; the
+  costs shown are estimates at API prices.
 - `proxy` is in `NO_PROXY`. Clients that still address the base URL through `HTTP_PROXY` are
   served the same way (requests to the proxy itself under `/p/`).
 - Without a configured key the CLI gets no base URL and uses its own login through the allowlist
@@ -199,9 +204,10 @@ report counts.
 `fetch`/`push` to the remote, after approval. Read access to GitHub (e.g. dependencies) goes
 through the allowlist.
 
-**Subscription login:** if a user uses a CLI with its own subscription login in the sandbox, its
-credentials are in the container (volume). This is deliberately the user's decision; ADE then
-shows a notice. ADE itself does not implement providers' subscription logins
+**Subscription login:** for Claude Code the recommended way is `oauth_token` (see above): the
+token stays outside the container like an API key. A login with `/login` inside the container
+still works, but then its credentials are in the container and every new workspace needs its own
+login. ADE itself does not implement providers' subscription logins
 (see [decisions.md](decisions.md#adr-010-provider-access-only-via-api-keys-or-official-clis)).
 
 ## 5. Life cycle

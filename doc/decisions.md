@@ -459,3 +459,19 @@ ones as *superseded by ADR-xxx* instead of deleting them.
   it. The switch happens in several PRs (docs, backend, dashboard).
 - **Consequences:** historic issues, PRs and commit messages stay German. Tests that compare
   messages change with them. Links to doc headings changed with the translation.
+
+## ADR-026: Claude subscription token through the egress proxy
+
+- **Context:** in the sandbox Claude Code needed an API key; with a subscription only a `/login`
+  per container was possible, whose credentials every agent in it can read (#51, #115).
+- **Decision:** `providers.anthropic.oauth_token` takes a token the user creates with the official
+  CLI (`claude setup-token`). ADE does not build a login flow of its own (ADR-010). In the sandbox
+  the token is handled like an API key: the proxy keeps it, recognizes it by the prefix
+  `sk-ant-oat` and sends it as `Authorization: Bearer`; the container only gets
+  `CLAUDE_CODE_OAUTH_TOKEN=<placeholder>` and `ANTHROPIC_BASE_URL` to the proxy. Locally Claude
+  Code gets the token as `CLAUDE_CODE_OAUTH_TOKEN`. New reference form `file:PATH` (mode 600),
+  because the systemd service does not see shell variables.
+- **Consequences:** like with an API key, every process in the agent container can use the
+  subscription through the proxy; usage limits and terms of use of the subscription apply. Costs
+  in the dashboard are estimates at API prices. If Anthropic changes the token format or the
+  beta flag, the proxy needs an update.

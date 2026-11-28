@@ -111,6 +111,8 @@ func TestLoadRejectsInvalid(t *testing.T) {
 		"model-id-option":    "models:\n  x: { provider: openai, id: --help }\n",
 		"alias-space":        "models:\n  \"a b\": { provider: openai, id: m }\n",
 		"price-negative":     "pricing:\n  gpt-5: { input: -1 }\n",
+		"oauth-openai":       "providers:\n  openai: { oauth_token: env:X }\n",
+		"oauth-and-key":      "providers:\n  anthropic: { api_key: env:A, oauth_token: env:B }\n",
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -194,5 +196,51 @@ func TestExampleConfigLoads(t *testing.T) {
 	setHome(t)
 	if _, err := Load(filepath.Join("..", "..", "examples", "config.yaml")); err != nil {
 		t.Fatalf("examples/config.yaml: %v", err)
+	}
+}
+
+func TestResolveFile(t *testing.T) {
+	home := setHome(t)
+	secret := filepath.Join(home, "token")
+	writeFile(t, secret, "  sk-ant-oat01-abc\n")
+	if err := os.Chmod(secret, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"file:" + secret, "file:~/token"} {
+		if v, err := Resolve(ref); err != nil || v != "sk-ant-oat01-abc" {
+			t.Errorf("Resolve(%q) = %q, %v", ref, v, err)
+		}
+	}
+
+	if err := os.Chmod(secret, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Resolve("file:" + secret); err == nil || !strings.Contains(err.Error(), "chmod 600") {
+		t.Errorf("group-readable file: err = %v", err)
+	}
+
+	empty := filepath.Join(home, "empty")
+	writeFile(t, empty, " \n")
+	if err := os.Chmod(empty, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"file:", "file:" + empty, "file:" + filepath.Join(home, "missing"), "file:relative/token", "file:" + home} {
+		if _, err := Resolve(ref); err == nil {
+			t.Errorf("Resolve(%q): expected an error", ref)
+		}
+	}
+}
+
+func TestProviderResolveSecret(t *testing.T) {
+	t.Setenv("ADE_TEST_KEY", "sk-ant-api-1")
+	t.Setenv("ADE_TEST_OAUTH", "sk-ant-oat01-2")
+	if v, oauth, err := (Provider{APIKey: "env:ADE_TEST_KEY"}).ResolveSecret(); err != nil || oauth || v != "sk-ant-api-1" {
+		t.Errorf("api_key: %q, %v, %v", v, oauth, err)
+	}
+	if v, oauth, err := (Provider{OAuthToken: "env:ADE_TEST_OAUTH"}).ResolveSecret(); err != nil || !oauth || v != "sk-ant-oat01-2" {
+		t.Errorf("oauth_token: %q, %v, %v", v, oauth, err)
+	}
+	if (Provider{}).Configured() || !(Provider{OAuthToken: "env:X"}).Configured() {
+		t.Error("Configured")
 	}
 }

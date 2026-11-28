@@ -11,8 +11,9 @@ so a typo never goes unnoticed.
 | [`.ade/factories/<name>.yaml`](#factory-adefactoriesnameyaml) | One factory | The project's main repository; built-in templates otherwise |
 
 Conventions in the tables below: `<name>` stands for a key you choose (a map), `[]` for a list
-entry. Durations use Go syntax (`90s`, `15m`, `2h`). Values of the form `env:VAR` are read from the
-environment variable `VAR` of the daemon; only `api_key` fields accept them.
+entry. Durations use Go syntax (`90s`, `15m`, `2h`). Credentials (`api_key`, `oauth_token`) are references:
+`env:VAR` reads the environment variable `VAR` of the daemon, `file:PATH` reads a file (absolute
+or `~/…`, leading and trailing whitespace removed) that only its owner may access (`chmod 600`).
 
 The tables are checked against the Go structs by a test (`internal/config/reference_test.go`):
 every YAML field must appear here, and every row must name an existing field.
@@ -29,6 +30,7 @@ Global settings of the daemon. Changes take effect after a restart of the daemon
 | `data_dir` | path | `~/.local/share/ade` (`$XDG_DATA_HOME/ade`) | SQLite database, daemon secret, lock, log, run artifacts and the downloaded IDE. Absolute or `~/…`. |
 | `workspaces_dir` | path | `~/.ade/workspaces` | Workspace clones. Must be on the Linux file system, not under `/mnt/c`. |
 | `providers.<name>.api_key` | string | – | API key of a provider (`anthropic`, `openai`) as a reference, e.g. `env:ANTHROPIC_API_KEY`, never in plain text. In the sandbox the egress proxy injects it; locally it is passed to the CLI. Without a key the CLI uses its own login. |
+| `providers.<name>.oauth_token` | string | – | Subscription token from `claude setup-token` (Claude Pro/Max) as a reference, e.g. `file:~/.config/ade/secrets/claude-oauth-token`. Only for `anthropic`, not together with `api_key`. In the sandbox the egress proxy sends it as `Authorization: Bearer`, the container only sees a placeholder; locally it is passed to Claude Code as `CLAUDE_CODE_OAUTH_TOKEN`. |
 | `models.<name>.provider` | string | – | Provider of a model alias: `anthropic` or `openai`. Must match the adapter (`claude` → `anthropic`, `codex` → `openai`). |
 | `models.<name>.id` | string | – | Model ID at the provider, e.g. `claude-opus-5-5`. Aliases work when starting agents and in factories (`model: opus`). |
 | `pricing.<name>.input` | number | built-in table | USD per million input tokens. The key is a model ID or its prefix; the longest match wins. |

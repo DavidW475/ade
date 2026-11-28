@@ -11,12 +11,15 @@ data_dir: ~/.local/share/ade
 # Workspace clones. Must be on the Linux file system, not under /mnt/c.
 workspaces_dir: ~/.ade/workspaces
 
-# Always give API keys as a reference, never in plain text. In the sandbox the egress proxy inserts
-# the key (anthropic for claude, openai for codex); the container only sees a placeholder. The
-# proxy then also counts the tokens. Without a key the CLI uses its own login.
+# Always give API keys as a reference (env:VAR or file:PATH with mode 600), never in plain text.
+# In the sandbox the egress proxy inserts the key (anthropic for claude, openai for codex); the
+# container only sees a placeholder. The proxy then also counts the tokens. Without a key the CLI
+# uses its own login.
 providers:
   anthropic:
     api_key: env:ANTHROPIC_API_KEY
+    # Instead of api_key: Claude subscription token from `claude setup-token` (Pro/Max).
+    # oauth_token: file:~/.config/ade/secrets/claude-oauth-token
   # openai:
   #   api_key: env:OPENAI_API_KEY
 

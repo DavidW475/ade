@@ -8,6 +8,11 @@ section of each version as release notes.
 
 ### Added
 
+- **Claude subscription in the sandbox** (M11, ADR-026): `providers.anthropic.oauth_token` takes a
+  token from `claude setup-token`. In the sandbox the egress proxy sends it as `Authorization:
+  Bearer`, the container only sees a placeholder, and tokens are counted as with an API key;
+  locally Claude Code gets it as `CLAUDE_CODE_OAUTH_TOKEN`. Credentials can now also be read from
+  a file (`file:~/…`, mode 600), which suits the systemd service (#115).
 - **`ade stop`** and **`ade restart`** (M11): stop the daemon of the configuration – the systemd
   service if it runs as one, otherwise the background process from `daemon.lock` – and wait until
   it has ended; `restart` starts it again, e.g. after changing `config.yaml`.

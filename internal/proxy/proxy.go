@@ -69,12 +69,42 @@ type Provider struct {
 	Prefix string
 	// Dialect is how token usage is counted in the responses (DialectAnthropic, DialectOpenAI).
 	Dialect string
+	// OAuthPrefix marks subscription tokens (e.g. from `claude setup-token`); they go as
+	// "Authorization: Bearer" instead of Header, with OAuthBeta in the anthropic-beta header.
+	OAuthPrefix string
+	OAuthBeta   string
 }
 
 // Providers are the providers with secret injection.
 var Providers = map[string]Provider{
-	"anthropic": {Upstream: mustURL("https://api.anthropic.com"), Header: "X-Api-Key", Dialect: DialectAnthropic},
-	"openai":    {Upstream: mustURL("https://api.openai.com"), Header: "Authorization", Prefix: "Bearer ", Dialect: DialectOpenAI},
+	"anthropic": {
+		Upstream: mustURL("https://api.anthropic.com"), Header: "X-Api-Key", Dialect: DialectAnthropic,
+		OAuthPrefix: "sk-ant-oat", OAuthBeta: "oauth-2025-04-20",
+	},
+	"openai": {Upstream: mustURL("https://api.openai.com"), Header: "Authorization", Prefix: "Bearer ", Dialect: DialectOpenAI},
+}
+
+// IsOAuthToken reports whether secret is a subscription token of the provider (sent as Bearer).
+func IsOAuthToken(provider, secret string) bool {
+	p, ok := Providers[provider]
+	return ok && p.isOAuth(secret)
+}
+
+func (p Provider) isOAuth(secret string) bool {
+	return p.OAuthPrefix != "" && strings.HasPrefix(secret, p.OAuthPrefix)
+}
+
+// withBeta returns the anthropic-beta value with flag added (comma-separated list).
+func withBeta(v, flag string) string {
+	for f := range strings.SplitSeq(v, ",") {
+		if strings.TrimSpace(f) == flag {
+			return v
+		}
+	}
+	if strings.TrimSpace(v) == "" {
+		return flag
+	}
+	return v + "," + flag
 }
 
 func mustURL(s string) *url.URL {
@@ -528,9 +558,9 @@ func (s *Server) provider(w http.ResponseWriter, r *http.Request) {
 	}
 	if key == "" {
 		ev.Reason, ev.Status = ReasonProvider, http.StatusForbidden
-		ev.Error = "no API key configured"
+		ev.Error = "no API key or token configured"
 		s.record(ev, start)
-		http.Error(w, fmt.Sprintf("ADE: no API key is configured for %s (providers.%s.api_key)", name, name), http.StatusForbidden)
+		http.Error(w, fmt.Sprintf("ADE: no API key or token is configured for %s (providers.%s.api_key or oauth_token)", name, name), http.StatusForbidden)
 		return
 	}
 	ev.Allowed, ev.Reason = true, ReasonProvider
@@ -558,7 +588,12 @@ func (s *Server) provider(w http.ResponseWriter, r *http.Request) {
 		// What the agent sends as credentials is a placeholder – replace it, never pass it on.
 		out.Out.Header.Del("Authorization")
 		out.Out.Header.Del("X-Api-Key")
-		out.Out.Header.Set(prov.Header, prov.Prefix+key)
+		if prov.isOAuth(key) {
+			out.Out.Header.Set("Authorization", "Bearer "+key)
+			out.Out.Header.Set("Anthropic-Beta", withBeta(strings.Join(out.Out.Header.Values("Anthropic-Beta"), ","), prov.OAuthBeta))
+		} else {
+			out.Out.Header.Set(prov.Header, prov.Prefix+key)
+		}
 		out.Out.Header.Del("Proxy-Authorization")
 		// Request uncompressed, so the proxy can read the token usage (the transport requests
 		// gzip itself and unpacks it).
