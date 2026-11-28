@@ -13,17 +13,17 @@ import (
 	"github.com/DavidW475/ade/internal/apperr"
 )
 
-// Status eines Runs (Software-Fabrik, M9).
+// Status of a run (software factory, M9).
 const (
-	RunRunning  = "running"  // eine Rolle arbeitet (oder startet gleich)
-	RunWaiting  = "waiting"  // wartet an einem Gate auf eine Freigabe
-	RunPaused   = "paused"   // Budget der laufenden Session überschritten
-	RunDone     = "done"     // alle Schritte erledigt
-	RunFailed   = "failed"   // ein Schritt ist fehlgeschlagen
-	RunCanceled = "canceled" // abgebrochen oder an einem Gate abgelehnt
+	RunRunning  = "running"  // a role is working (or about to start)
+	RunWaiting  = "waiting"  // waits for an approval at a gate
+	RunPaused   = "paused"   // budget of the running session exceeded
+	RunDone     = "done"     // all steps done
+	RunFailed   = "failed"   // a step failed
+	RunCanceled = "canceled" // canceled or denied at a gate
 )
 
-// RunActive meldet, ob ein Run noch weiterläuft.
+// RunActive reports whether a run is still going on.
 func RunActive(status string) bool {
 	switch status {
 	case RunRunning, RunWaiting, RunPaused:
@@ -32,7 +32,7 @@ func RunActive(status string) bool {
 	return false
 }
 
-// Status eines Schritts.
+// Status of a step.
 const (
 	StepPending  = "pending"
 	StepRunning  = "running"
@@ -40,13 +40,13 @@ const (
 	StepDone     = "done"
 	StepFailed   = "failed"
 	StepCanceled = "canceled"
-	// StepSkipped: Bedingung (when) war falsch.
+	// StepSkipped: the condition (when) was false.
 	StepSkipped = "skipped"
-	// StepLooped: Entscheidung oder abgelehntes Gate ist zurückgesprungen (Error: Grund).
+	// StepLooped: a decision or a denied gate jumped back (Error: reason).
 	StepLooped = "looped"
 )
 
-// StepFinished meldet, ob ein Schritt erledigt ist und der Run dahinter weitergeht.
+// StepFinished reports whether a step is done and the run continues after it.
 func StepFinished(status string) bool {
 	switch status {
 	case StepDone, StepSkipped, StepLooped:
@@ -55,7 +55,7 @@ func StepFinished(status string) bool {
 	return false
 }
 
-// Run ist ein Lauf einer Fabrik.
+// Run is a run of a factory.
 type Run struct {
 	ID          string            `json:"id"`
 	ProjectID   string            `json:"project_id"`
@@ -70,35 +70,35 @@ type Run struct {
 	Current     int               `json:"current"`
 	Error       string            `json:"error,omitempty"`
 	BudgetUSD   float64           `json:"budget_usd,omitempty"`
-	// MaxDuration ist die erlaubte Arbeitszeit der Agenten (0: keine Grenze).
+	// MaxDuration is the allowed working time of the agents (0: no limit).
 	MaxDuration time.Duration `json:"max_duration_ns,omitempty"`
 	CreatedAt   time.Time     `json:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at"`
 	EndedAt     *time.Time    `json:"ended_at,omitempty"`
-	// Steps ist je Position im Ablauf die jüngste Ausführung (Steps[Current] ist der
-	// aktuelle Schritt).
+	// Steps is the latest execution per position in the flow (Steps[Current] is the
+	// current step).
 	Steps []RunStep `json:"steps"`
-	// History sind frühere Durchläufe (Schleifen), nach Position und Durchlauf.
+	// History are earlier passes (loops), by position and pass.
 	History []RunStep `json:"history,omitempty"`
-	// Trigger ist der Auslöser (leer: von Hand gestartet), TriggerRef sein Verweis (z. B. die
-	// URL des Issues), Closes das Issue, das der Pull Request schließt (0: keins).
+	// Trigger is the trigger (empty: started by hand), TriggerRef its reference (e.g. the
+	// issue's URL), Closes the issue the pull request closes (0: none).
 	Trigger    string `json:"trigger,omitempty"`
 	TriggerRef string `json:"trigger_ref,omitempty"`
 	Closes     int    `json:"closes,omitempty"`
-	// CostUSD ist die Summe der Nutzung aller Sessions des Runs (Tabelle usage, bleibt nach
-	// dem Verwerfen des Workspaces erhalten).
+	// CostUSD is the sum of the usage of all sessions of the run (table usage, kept after
+	// the workspace is discarded).
 	CostUSD float64 `json:"cost_usd"`
 }
 
-// RunStep ist eine Ausführung eines Schritts.
+// RunStep is one execution of a step.
 type RunStep struct {
-	// Index ist die Position im Ablauf.
+	// Index is the position in the flow.
 	Index int `json:"index"`
-	// Row ist die Zeile (eindeutig im Run, für UpdateRunStep).
+	// Row is the row (unique within the run, for UpdateRunStep).
 	Row int `json:"row"`
-	// Group ist bei Mitgliedern einer parallelen Gruppe die Position des ersten Mitglieds.
+	// Group is, for members of a parallel group, the position of the first member.
 	Group *int `json:"group,omitempty"`
-	// Iteration ist der Durchlauf (1, 2, … nach Rücksprüngen).
+	// Iteration is the pass (1, 2, … after jumps back).
 	Iteration  int    `json:"iteration"`
 	Name       string `json:"name"`
 	Kind       string `json:"kind"`
@@ -109,7 +109,7 @@ type RunStep struct {
 	ApprovalID string `json:"approval_id,omitempty"`
 	Output     string `json:"output,omitempty"`
 	Error      string `json:"error,omitempty"`
-	// Fixes zählt die Korrektur-Runden für ein ungültiges strukturiertes Artefakt.
+	// Fixes counts the correction rounds for an invalid structured artifact.
 	Fixes     int        `json:"fixes,omitempty"`
 	StartedAt *time.Time `json:"started_at,omitempty"`
 	EndedAt   *time.Time `json:"ended_at,omitempty"`
@@ -141,7 +141,7 @@ func scanRun(row interface{ Scan(...any) error }) (*Run, error) {
 	return &r, nil
 }
 
-// CreateRun legt einen Run mit seinen Schritten an.
+// CreateRun creates a run with its steps.
 func (s *Store) CreateRun(ctx context.Context, r *Run) error {
 	inputs, err := json.Marshal(r.Inputs)
 	if err != nil {
@@ -160,10 +160,10 @@ func (s *Store) CreateRun(ctx context.Context, r *Run) error {
 		r.ID, r.ProjectID, r.WorkspaceID, r.Factory, r.Source, string(r.Definition), string(inputs), r.Task,
 		r.Sandbox, r.Status, r.BudgetUSD, int64(r.MaxDuration/time.Second), r.Trigger, r.TriggerRef, r.Closes)
 	if isForeignKeyViolation(err) {
-		return apperr.NotFound("Projekt %s nicht gefunden", r.ProjectID)
+		return apperr.NotFound("project %s not found", r.ProjectID)
 	}
 	if err != nil {
-		return fmt.Errorf("Run speichern: %w", err)
+		return fmt.Errorf("store run: %w", err)
 	}
 	for i, st := range r.Steps {
 		status := st.Status
@@ -172,7 +172,7 @@ func (s *Store) CreateRun(ctx context.Context, r *Run) error {
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO run_steps (run_id, idx, pos, grp, iteration, name, kind, role, read_only, status, output)
 			VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`, r.ID, i, i, st.Group, st.Name, st.Kind, st.Role, st.ReadOnly, status, st.Output); err != nil {
-			return fmt.Errorf("Schritt speichern: %w", err)
+			return fmt.Errorf("store step: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -186,11 +186,11 @@ func (s *Store) CreateRun(ctx context.Context, r *Run) error {
 	return nil
 }
 
-// GetRun liefert einen Run mit Schritten.
+// GetRun returns a run with its steps.
 func (s *Store) GetRun(ctx context.Context, id string) (*Run, error) {
 	r, err := scanRun(s.db.QueryRowContext(ctx, `SELECT `+runCols+` FROM runs r WHERE r.id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, apperr.NotFound("Run %s nicht gefunden", id)
+		return nil, apperr.NotFound("run %s not found", id)
 	}
 	if err != nil {
 		return nil, err
@@ -222,7 +222,7 @@ func (s *Store) runSteps(ctx context.Context, r *Run) error {
 			g := int(grp.Int64)
 			st.Group = &g
 		}
-		// Je Position gewinnt der jüngste Durchlauf; die älteren wandern in History.
+		// Per position the latest pass wins; the older ones move to History.
 		if n := len(r.Steps); n > 0 && r.Steps[n-1].Index == st.Index {
 			r.History = append(r.History, r.Steps[n-1])
 			r.Steps[n-1] = st
@@ -233,7 +233,7 @@ func (s *Store) runSteps(ctx context.Context, r *Run) error {
 	return rows.Err()
 }
 
-// Executions liefert alle Ausführungen (History und Steps) in der Reihenfolge ihres Entstehens.
+// Executions returns all executions (history and steps) in the order they were created.
 func (r *Run) Executions() []RunStep {
 	out := make([]RunStep, 0, len(r.History)+len(r.Steps))
 	out = append(out, r.History...)
@@ -242,8 +242,8 @@ func (r *Run) Executions() []RunStep {
 	return out
 }
 
-// RepeatSteps legt für die Positionen from bis to je einen neuen Durchlauf an (Status
-// pending) und setzt den Run auf from zurück (Rücksprung einer Schleife).
+// RepeatSteps creates a new pass for each position from from to to (status pending) and
+// resets the run to from (jump back of a loop).
 func (s *Store) RepeatSteps(ctx context.Context, runID string, from, to int) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -259,10 +259,10 @@ func (s *Store) RepeatSteps(ctx context.Context, runID string, from, to int) err
 			SELECT run_id, ?, pos, grp, iteration + 1, name, kind, role, read_only, output FROM run_steps
 			WHERE run_id = ? AND pos = ? ORDER BY iteration DESC LIMIT 1`, next, runID, pos)
 		if err != nil {
-			return fmt.Errorf("Durchlauf anlegen: %w", err)
+			return fmt.Errorf("create pass: %w", err)
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
-			return apperr.NotFound("Schritt %d von Run %s nicht gefunden", pos, runID)
+			return apperr.NotFound("step %d of run %s not found", pos, runID)
 		}
 		next++
 	}
@@ -272,21 +272,21 @@ func (s *Store) RepeatSteps(ctx context.Context, runID string, from, to int) err
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return apperr.NotFound("Run %s nicht gefunden", runID)
+		return apperr.NotFound("run %s not found", runID)
 	}
 	return tx.Commit()
 }
 
-// RunFilter schränkt ListRuns ein; leere Felder filtern nicht.
+// RunFilter restricts ListRuns; empty fields do not filter.
 type RunFilter struct {
 	ProjectID   string
 	WorkspaceID string
 	Active      bool
-	// Limit (Standard 100, höchstens 1000).
+	// Limit (default 100, at most 1000).
 	Limit int
 }
 
-// ListRuns liefert Runs mit Schritten, neueste zuerst.
+// ListRuns returns runs with steps, newest first.
 func (s *Store) ListRuns(ctx context.Context, f RunFilter) ([]*Run, error) {
 	var where []string
 	var args []any
@@ -301,7 +301,7 @@ func (s *Store) ListRuns(ctx context.Context, f RunFilter) ([]*Run, error) {
 	}
 	q := `SELECT ` + runCols + ` FROM runs r`
 	if len(where) > 0 {
-		q += ` WHERE ` + strings.Join(where, " AND ") //nolint:gosec // G202: nur feste Bedingungen, Werte als Parameter
+		q += ` WHERE ` + strings.Join(where, " AND ") //nolint:gosec // G202: only fixed conditions, values as parameters
 	}
 	limit := f.Limit
 	if limit <= 0 {
@@ -334,17 +334,17 @@ func (s *Store) ListRuns(ctx context.Context, f RunFilter) ([]*Run, error) {
 	return out, nil
 }
 
-// RunUpdate sind Änderungen an einem Run; nil-Felder bleiben unverändert.
+// RunUpdate are changes to a run; nil fields stay unchanged.
 type RunUpdate struct {
 	WorkspaceID *string
 	Status      *string
 	Current     *int
 	Error       *string
-	// Ended setzt ended_at auf jetzt.
+	// Ended sets ended_at to now.
 	Ended bool
 }
 
-// UpdateRun ändert die gesetzten Felder.
+// UpdateRun changes the set fields.
 func (s *Store) UpdateRun(ctx context.Context, id string, u RunUpdate) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE runs SET
 		workspace_id = COALESCE(?1, workspace_id),
@@ -358,24 +358,24 @@ func (s *Store) UpdateRun(ctx context.Context, id string, u RunUpdate) error {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return apperr.NotFound("Run %s nicht gefunden", id)
+		return apperr.NotFound("run %s not found", id)
 	}
 	return nil
 }
 
-// StepUpdate sind Änderungen an einem Schritt; nil-Felder bleiben unverändert.
+// StepUpdate are changes to a step; nil fields stay unchanged.
 type StepUpdate struct {
 	Status     *string
 	SessionID  *string
 	ApprovalID *string
 	Error      *string
 	Fixes      *int
-	// Started bzw. Ended setzen started_at bzw. ended_at auf jetzt.
+	// Started and Ended set started_at and ended_at to now.
 	Started bool
 	Ended   bool
 }
 
-// UpdateRunStep ändert die gesetzten Felder einer Ausführung (row: RunStep.Row).
+// UpdateRunStep changes the set fields of an execution (row: RunStep.Row).
 func (s *Store) UpdateRunStep(ctx context.Context, runID string, row int, u StepUpdate) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE run_steps SET
 		status      = COALESCE(?1, status),
@@ -390,7 +390,7 @@ func (s *Store) UpdateRunStep(ctx context.Context, runID string, row int, u Step
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return apperr.NotFound("Schritt %d von Run %s nicht gefunden", row, runID)
+		return apperr.NotFound("step %d of run %s not found", row, runID)
 	}
 	if _, err := s.db.ExecContext(ctx, `UPDATE runs SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`, runID); err != nil {
 		return err
@@ -398,7 +398,7 @@ func (s *Store) UpdateRunStep(ctx context.Context, runID string, row int, u Step
 	return nil
 }
 
-// RunOfSession liefert den Run, zu dem eine Session gehört (leer: keiner).
+// RunOfSession returns the run a session belongs to (empty: none).
 func (s *Store) RunOfSession(ctx context.Context, sessionID string) (string, error) {
 	var id string
 	err := s.db.QueryRowContext(ctx, `SELECT run_id FROM run_steps WHERE session_id = ? LIMIT 1`, sessionID).Scan(&id)
@@ -408,7 +408,7 @@ func (s *Store) RunOfSession(ctx context.Context, sessionID string) (string, err
 	return id, err
 }
 
-// RunOfApproval liefert den Run, zu dem eine Freigabe (Gate) gehört (leer: keiner).
+// RunOfApproval returns the run an approval (gate) belongs to (empty: none).
 func (s *Store) RunOfApproval(ctx context.Context, approvalID string) (string, error) {
 	var id string
 	err := s.db.QueryRowContext(ctx, `SELECT run_id FROM run_steps WHERE approval_id = ? LIMIT 1`, approvalID).Scan(&id)

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// EgressEvent ist eine Anfrage aus einem Sandbox-Container an den Egress-Proxy.
+// EgressEvent is a request from a sandbox container to the egress proxy.
 type EgressEvent struct {
 	ID          int64     `json:"id"`
 	WorkspaceID string    `json:"workspace_id"`
@@ -26,11 +26,11 @@ type EgressEvent struct {
 	Error       string    `json:"error,omitempty"`
 }
 
-// EgressKeep ist die Zahl der Events, die je Workspace aufbewahrt werden.
+// EgressKeep is the number of events kept per workspace.
 const EgressKeep = 2000
 
-// AppendEgress speichert Events eines Workspaces und löscht die ältesten über EgressKeep.
-// Events eines nicht (mehr) vorhandenen Workspaces werden verworfen.
+// AppendEgress stores events of a workspace and deletes the oldest beyond EgressKeep.
+// Events of a workspace that does not exist (any more) are discarded.
 func (s *Store) AppendEgress(ctx context.Context, workspaceID string, evs []EgressEvent) error {
 	if len(evs) == 0 {
 		return nil
@@ -54,7 +54,7 @@ func (s *Store) AppendEgress(ctx context.Context, workspaceID string, evs []Egre
 	for _, e := range evs {
 		if _, err := stmt.ExecContext(ctx, workspaceID, e.TS.UTC().Format(timeLayout), e.Kind, e.Method, e.Host, e.Port, e.Path,
 			e.Provider, e.Allowed, e.Reason, e.Status, e.BytesOut, e.BytesIn, e.DurationMS, e.Error); err != nil {
-			return fmt.Errorf("Egress-Event speichern: %w", err)
+			return fmt.Errorf("store egress event: %w", err)
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM egress_events WHERE workspace_id = ? AND id <= (
@@ -65,15 +65,15 @@ func (s *Store) AppendEgress(ctx context.Context, workspaceID string, evs []Egre
 	return tx.Commit()
 }
 
-// EgressFilter schränkt ListEgress ein.
+// EgressFilter restricts ListEgress.
 type EgressFilter struct {
-	// BlockedOnly: nur geblockte Anfragen.
+	// BlockedOnly: only blocked requests.
 	BlockedOnly bool
-	// Limit (Standard 200, höchstens EgressKeep).
+	// Limit (default 200, at most EgressKeep).
 	Limit int
 }
 
-// ListEgress liefert die neuesten Events eines Workspaces (neueste zuerst).
+// ListEgress returns the newest events of a workspace (newest first).
 func (s *Store) ListEgress(ctx context.Context, workspaceID string, f EgressFilter) ([]EgressEvent, error) {
 	if f.Limit <= 0 {
 		f.Limit = 200
@@ -104,7 +104,7 @@ func (s *Store) ListEgress(ctx context.Context, workspaceID string, f EgressFilt
 	return out, rows.Err()
 }
 
-// EgressHost fasst die Events eines Workspaces für einen Host zusammen.
+// EgressHost summarizes the events of a workspace for one host.
 type EgressHost struct {
 	Host     string    `json:"host"`
 	Allowed  int       `json:"allowed"`
@@ -112,12 +112,12 @@ type EgressHost struct {
 	BytesOut int64     `json:"bytes_out"`
 	BytesIn  int64     `json:"bytes_in"`
 	Last     time.Time `json:"last"`
-	// Reason ist der Grund der letzten geblockten Anfrage.
+	// Reason is the reason of the last blocked request.
 	Reason string `json:"reason,omitempty"`
 }
 
-// EgressHosts fasst die aufbewahrten Events eines Workspaces je Host zusammen (zuletzt
-// genutzte zuerst).
+// EgressHosts summarizes the kept events of a workspace per host (most recently used
+// first).
 func (s *Store) EgressHosts(ctx context.Context, workspaceID string) ([]EgressHost, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT host,
 			SUM(allowed), SUM(1 - allowed), SUM(bytes_out), SUM(bytes_in), MAX(ts),

@@ -12,15 +12,15 @@ import (
 	"github.com/DavidW475/ade/internal/apperr"
 )
 
-// Arten von Freigaben.
+// Kinds of approvals.
 const (
-	ApprovalTool   = "tool"   // Werkzeug-Aufruf eines Agenten (PreToolUse-Hook)
-	ApprovalEgress = "egress" // geblockte Anfrage an den Egress-Proxy
-	ApprovalBudget = "budget" // Budget überschritten, Session pausiert (M8)
-	ApprovalGate   = "gate"   // Gate eines Fabrik-Runs (gate: human, M9)
+	ApprovalTool   = "tool"   // an agent's tool call (PreToolUse hook)
+	ApprovalEgress = "egress" // blocked request to the egress proxy
+	ApprovalBudget = "budget" // budget exceeded, session paused (M8)
+	ApprovalGate   = "gate"   // gate of a factory run (gate: human, M9)
 )
 
-// Status einer Freigabe.
+// Status of an approval.
 const (
 	ApprovalPending  = "pending"
 	ApprovalApproved = "approved"
@@ -29,15 +29,15 @@ const (
 	ApprovalCanceled = "canceled"
 )
 
-// Entscheidungen.
+// Decisions.
 const (
-	DecisionAllow          = "allow"           // diese Anfrage erlauben
-	DecisionAllowWorkspace = "allow_workspace" // Ziel für diesen Workspace erlauben (egress)
-	DecisionAllowProject   = "allow_project"   // Ziel für das Projekt erlauben (egress)
+	DecisionAllow          = "allow"           // allow this request
+	DecisionAllowWorkspace = "allow_workspace" // allow the target for this workspace (egress)
+	DecisionAllowProject   = "allow_project"   // allow the target for the project (egress)
 	DecisionDeny           = "deny"
 )
 
-// Approval ist eine Freigabe-Anfrage.
+// Approval is an approval request.
 type Approval struct {
 	ID          string          `json:"id"`
 	Kind        string          `json:"kind"`
@@ -71,7 +71,7 @@ func scanApproval(row interface{ Scan(...any) error }) (*Approval, error) {
 	return &a, nil
 }
 
-// CreateApproval speichert eine neue, offene Freigabe.
+// CreateApproval stores a new, pending approval.
 func (s *Store) CreateApproval(ctx context.Context, a *Approval) error {
 	detail := string(a.Detail)
 	if detail == "" {
@@ -83,10 +83,10 @@ func (s *Store) CreateApproval(ctx context.Context, a *Approval) error {
 		a.ID, a.Kind, a.ProjectID, a.WorkspaceID, a.SessionID, a.Title, detail, a.Sandbox, ApprovalPending,
 		a.ExpiresAt.UTC().Format(timeLayout))
 	if isForeignKeyViolation(err) {
-		return apperr.NotFound("Workspace %s nicht gefunden", a.WorkspaceID)
+		return apperr.NotFound("workspace %s not found", a.WorkspaceID)
 	}
 	if err != nil {
-		return fmt.Errorf("Freigabe speichern: %w", err)
+		return fmt.Errorf("store approval: %w", err)
 	}
 	got, err := s.GetApproval(ctx, a.ID)
 	if err != nil {
@@ -96,25 +96,25 @@ func (s *Store) CreateApproval(ctx context.Context, a *Approval) error {
 	return nil
 }
 
-// GetApproval liefert eine Freigabe.
+// GetApproval returns an approval.
 func (s *Store) GetApproval(ctx context.Context, id string) (*Approval, error) {
 	a, err := scanApproval(s.db.QueryRowContext(ctx, `SELECT `+approvalCols+` FROM approvals WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, apperr.NotFound("Freigabe %s nicht gefunden", id)
+		return nil, apperr.NotFound("approval %s not found", id)
 	}
 	return a, err
 }
 
-// ApprovalFilter schränkt ListApprovals ein.
+// ApprovalFilter restricts ListApprovals.
 type ApprovalFilter struct {
 	Status      string
 	SessionID   string
 	WorkspaceID string
-	// Limit (Standard 100, höchstens 500).
+	// Limit (default 100, at most 500).
 	Limit int
 }
 
-// ListApprovals liefert Freigaben, neueste zuerst.
+// ListApprovals returns approvals, newest first.
 func (s *Store) ListApprovals(ctx context.Context, f ApprovalFilter) ([]*Approval, error) {
 	var where []string
 	var args []any
@@ -132,7 +132,7 @@ func (s *Store) ListApprovals(ctx context.Context, f ApprovalFilter) ([]*Approva
 	}
 	q := `SELECT ` + approvalCols + ` FROM approvals`
 	if len(where) > 0 {
-		q += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // G202: nur feste Bedingungen, Werte als Parameter
+		q += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // G202: only fixed conditions, values as parameters
 	}
 	q += " ORDER BY created_at DESC, id LIMIT ?"
 	args = append(args, min(f.Limit, 500))
@@ -152,8 +152,8 @@ func (s *Store) ListApprovals(ctx context.Context, f ApprovalFilter) ([]*Approva
 	return out, rows.Err()
 }
 
-// ResolveApproval setzt Status, Entscheidung und Begründung einer offenen Freigabe. Ist sie
-// nicht mehr offen, liefert es apperr.Conflict.
+// ResolveApproval sets status, decision and reason of a pending approval. If it is no
+// longer pending, it returns apperr.Conflict.
 func (s *Store) ResolveApproval(ctx context.Context, id, status, decision, reason string) (*Approval, error) {
 	res, err := s.db.ExecContext(ctx, `UPDATE approvals SET status = ?, decision = ?, reason = ?,
 		decided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = ?`,
@@ -166,13 +166,13 @@ func (s *Store) ResolveApproval(ctx context.Context, id, status, decision, reaso
 		if err != nil {
 			return nil, err
 		}
-		return a, apperr.Conflict("Freigabe %s ist bereits entschieden (%s)", id, a.Status)
+		return a, apperr.Conflict("approval %s has already been decided (%s)", id, a.Status)
 	}
 	return s.GetApproval(ctx, id)
 }
 
-// ExpirePendingApprovals schließt alle offenen Freigaben (nach einem Daemon-Neustart wartet
-// niemand mehr auf sie). Liefert die Anzahl.
+// ExpirePendingApprovals closes all pending approvals (after a daemon restart nobody waits
+// for them any more). Returns the count.
 func (s *Store) ExpirePendingApprovals(ctx context.Context, reason string) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `UPDATE approvals SET status = ?, reason = ?,
 		decided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE status = ?`, ApprovalExpired, reason, ApprovalPending)
@@ -182,27 +182,27 @@ func (s *Store) ExpirePendingApprovals(ctx context.Context, reason string) (int6
 	return res.RowsAffected()
 }
 
-// EgressGrant ist eine Egress-Ausnahme aus einer Freigabe (ergänzt .ade/sandbox.yaml).
+// EgressGrant is an egress exception from an approval (extends .ade/sandbox.yaml).
 type EgressGrant struct {
 	ID        int64  `json:"id"`
 	ProjectID string `json:"project_id"`
-	// WorkspaceID ist leer, wenn die Ausnahme für alle Workspaces des Projekts gilt.
+	// WorkspaceID is empty if the exception applies to all workspaces of the project.
 	WorkspaceID string    `json:"workspace_id,omitempty"`
 	Rule        string    `json:"rule"`
 	ApprovalID  string    `json:"approval_id,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// AddEgressGrant speichert eine Ausnahme; eine vorhandene gleiche bleibt unverändert.
+// AddEgressGrant stores an exception; an existing equal one stays unchanged.
 func (s *Store) AddEgressGrant(ctx context.Context, g *EgressGrant) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO egress_grants (project_id, workspace_id, rule, approval_id)
 		VALUES (?, ?, ?, ?) ON CONFLICT (project_id, workspace_id, rule) DO NOTHING`,
 		g.ProjectID, g.WorkspaceID, g.Rule, g.ApprovalID)
 	if isForeignKeyViolation(err) {
-		return apperr.NotFound("Projekt %s nicht gefunden", g.ProjectID)
+		return apperr.NotFound("project %s not found", g.ProjectID)
 	}
 	if err != nil {
-		return fmt.Errorf("Egress-Ausnahme speichern: %w", err)
+		return fmt.Errorf("store egress exception: %w", err)
 	}
 	row := s.db.QueryRowContext(ctx, `SELECT id, project_id, workspace_id, rule, approval_id, created_at FROM egress_grants
 		WHERE project_id = ? AND workspace_id = ? AND rule = ?`, g.ProjectID, g.WorkspaceID, g.Rule)
@@ -214,8 +214,8 @@ func (s *Store) AddEgressGrant(ctx context.Context, g *EgressGrant) error {
 	return nil
 }
 
-// ListEgressGrants liefert die Ausnahmen, die für einen Workspace eines Projekts gelten
-// (projektweite und die des Workspaces). Ohne workspaceID nur die projektweiten.
+// ListEgressGrants returns the exceptions that apply to a workspace of a project
+// (project-wide ones and the workspace's). Without workspaceID only the project-wide ones.
 func (s *Store) ListEgressGrants(ctx context.Context, projectID, workspaceID string) ([]EgressGrant, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, project_id, workspace_id, rule, approval_id, created_at FROM egress_grants
 		WHERE project_id = ? AND (workspace_id = '' OR workspace_id = ?) ORDER BY id`, projectID, workspaceID)
@@ -236,14 +236,14 @@ func (s *Store) ListEgressGrants(ctx context.Context, projectID, workspaceID str
 	return out, rows.Err()
 }
 
-// GetEgressGrant liefert eine Ausnahme.
+// GetEgressGrant returns an exception.
 func (s *Store) GetEgressGrant(ctx context.Context, id int64) (*EgressGrant, error) {
 	var g EgressGrant
 	var created string
 	err := s.db.QueryRowContext(ctx, `SELECT id, project_id, workspace_id, rule, approval_id, created_at FROM egress_grants WHERE id = ?`, id).
 		Scan(&g.ID, &g.ProjectID, &g.WorkspaceID, &g.Rule, &g.ApprovalID, &created)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, apperr.NotFound("Egress-Ausnahme %d nicht gefunden", id)
+		return nil, apperr.NotFound("egress exception %d not found", id)
 	}
 	if err != nil {
 		return nil, err
@@ -252,14 +252,14 @@ func (s *Store) GetEgressGrant(ctx context.Context, id int64) (*EgressGrant, err
 	return &g, nil
 }
 
-// DeleteEgressGrant entfernt eine Ausnahme.
+// DeleteEgressGrant removes an exception.
 func (s *Store) DeleteEgressGrant(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM egress_grants WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return apperr.NotFound("Egress-Ausnahme %d nicht gefunden", id)
+		return apperr.NotFound("egress exception %d not found", id)
 	}
 	return nil
 }

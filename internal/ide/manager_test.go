@@ -22,8 +22,8 @@ import (
 	"github.com/DavidW475/ade/internal/apperr"
 )
 
-// Die Test-Binary spielt openvscode-server, wenn ADE_FAKE_IDE gesetzt ist. Sie prüft den
-// Connection-Token wie das Original (Cookie vscode-tkn) und meldet die Argumente.
+// The test binary plays openvscode-server if ADE_FAKE_IDE is set. It checks the connection
+// token like the original (cookie vscode-tkn) and reports the arguments.
 func TestMain(m *testing.M) {
 	if mode := os.Getenv("ADE_FAKE_IDE"); mode != "" {
 		fakeServer(mode)
@@ -92,11 +92,11 @@ func newFixture(t *testing.T, mode string, mutate ...func(*Options)) *fixture {
 		Binary:       exe,
 		StartTimeout: 10 * time.Second,
 		StopTimeout:  2 * time.Second,
-		Env:          []string{"PATH=" + os.Getenv("PATH"), "GH_TOKEN=geheim", "ADE_FAKE_IDE=gefiltert"},
+		Env:          []string{"PATH=" + os.Getenv("PATH"), "GH_TOKEN=secret", "ADE_FAKE_IDE=filtered"},
 		ExtraEnv:     []string{"ADE_FAKE_IDE=" + mode},
 		Workspaces: func(_ context.Context, id string) (string, error) {
-			if id == "fehlt" {
-				return "", apperr.NotFound("Workspace %s nicht gefunden", id)
+			if id == "missing" {
+				return "", apperr.NotFound("workspace %s not found", id)
 			}
 			return workdir, nil
 		},
@@ -144,7 +144,7 @@ func TestStartAcquireStop(t *testing.T) {
 	ctx := context.Background()
 
 	if st := f.m.Status("ws1"); st.State != StateStopped {
-		t.Fatalf("Status vor Start = %+v", st)
+		t.Fatalf("status before start = %+v", st)
 	}
 	if _, err := f.m.Start(ctx, "ws1"); err != nil {
 		t.Fatal(err)
@@ -156,36 +156,36 @@ func TestStartAcquireStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	if code, _ := get(t, up, ""); code != http.StatusForbidden {
-		t.Errorf("ohne Token: %d, want 403", code)
+		t.Errorf("without token: %d, want 403", code)
 	}
 	code, body := get(t, up, up.Token)
 	if code != http.StatusOK {
-		t.Fatalf("mit Token: %d %s", code, body)
+		t.Fatalf("with token: %d %s", code, body)
 	}
 	if want := "folder=" + f.workdir + " env=ws1 secret="; body != want {
-		t.Errorf("Antwort = %q, want %q (Arbeitsordner, Workspace-ID, kein GH_TOKEN)", body, want)
+		t.Errorf("answer = %q, want %q (working folder, workspace ID, no GH_TOKEN)", body, want)
 	}
 	if st := f.m.Status("ws1"); st.Connections != 1 {
 		t.Errorf("Connections = %d, want 1", st.Connections)
 	}
 	up.Release()
-	up.Release() // doppelt ist harmlos
+	up.Release() // twice is harmless
 	if st := f.m.Status("ws1"); st.Connections != 0 {
-		t.Errorf("Connections nach Release = %d", st.Connections)
+		t.Errorf("Connections after Release = %d", st.Connections)
 	}
 
-	// Token liegt nur in einer Datei, nicht auf der Kommandozeile.
+	// The token is only in a file, not on the command line.
 	data, err := os.ReadFile(filepath.Join(f.m.dataDir("ws1"), "connection-token"))
 	if err != nil || string(data) != up.Token {
-		t.Errorf("Token-Datei = %q, %v", data, err)
+		t.Errorf("token file = %q, %v", data, err)
 	}
 
 	f.m.Stop("ws1")
 	if st := f.m.Status("ws1"); st.State != StateStopped {
-		t.Errorf("Status nach Stop = %+v", st)
+		t.Errorf("status after Stop = %+v", st)
 	}
 	if code, _, err := tryGet(up); err == nil {
-		t.Errorf("IDE antwortet nach Stop noch (%d)", code)
+		t.Errorf("IDE still answers after Stop (%d)", code)
 	}
 }
 
@@ -231,13 +231,13 @@ func TestStartIsIdempotent(t *testing.T) {
 	}
 	defer b.Release()
 	if a.URL.String() != b.URL.String() || a.Token != b.Token {
-		t.Error("zweiter Start hat eine neue IDE gestartet")
+		t.Error("second start started a new IDE")
 	}
 }
 
 func TestUnknownWorkspace(t *testing.T) {
 	f := newFixture(t, "ok")
-	if _, err := f.m.Start(context.Background(), "fehlt"); !errors.Is(err, apperr.ErrNotFound) {
+	if _, err := f.m.Start(context.Background(), "missing"); !errors.Is(err, apperr.ErrNotFound) {
 		t.Fatalf("err = %v, want NotFound", err)
 	}
 }
@@ -249,7 +249,7 @@ func TestCrashReportsError(t *testing.T) {
 	}
 	st := waitState(t, f.m, "ws1", StateError)
 	if !strings.Contains(st.Error, "kaputt") {
-		t.Errorf("Fehler = %q, want Ausgabe des Servers", st.Error)
+		t.Errorf("error = %q, want the server's output", st.Error)
 	}
 }
 
@@ -259,7 +259,7 @@ func TestStartTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := waitState(t, f.m, "ws1", StateError)
-	if !strings.Contains(st.Error, "antwortet nach") {
+	if !strings.Contains(st.Error, "does not answer after") {
 		t.Errorf("Fehler = %q", st.Error)
 	}
 }
@@ -275,7 +275,7 @@ func TestStopDuringStart(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("Stop hängt")
+		t.Fatal("Stop hangs")
 	}
 	if st := f.m.Status("ws1"); st.State != StateStopped {
 		t.Errorf("Status = %+v", st)
@@ -289,10 +289,10 @@ func TestIdleStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Mit offener Verbindung bleibt die IDE an.
+	// With an open connection the IDE stays on.
 	time.Sleep(500 * time.Millisecond)
 	if st := f.m.Status("ws1"); st.State != StateRunning {
-		t.Fatalf("IDE mit offener Verbindung gestoppt: %+v", st)
+		t.Fatalf("IDE with an open connection stopped: %+v", st)
 	}
 	up.Release()
 	waitState(t, f.m, "ws1", StateStopped)
@@ -307,7 +307,7 @@ func TestBeforeWorkspaceDeleteRemovesData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(f.m.dataDir("ws1")); !os.IsNotExist(err) {
-		t.Errorf("Datenverzeichnis existiert noch: %v", err)
+		t.Errorf("data directory still exists: %v", err)
 	}
 	if st := f.m.Status("ws1"); st.State != StateStopped {
 		t.Errorf("Status = %+v", st)
@@ -315,12 +315,12 @@ func TestBeforeWorkspaceDeleteRemovesData(t *testing.T) {
 }
 
 func TestMissingBinary(t *testing.T) {
-	f := newFixture(t, "ok", func(o *Options) { o.Binary = "/gibt/es/nicht" })
+	f := newFixture(t, "ok", func(o *Options) { o.Binary = "/does/not/exist" })
 	if _, err := f.m.Start(context.Background(), "ws1"); err != nil {
 		t.Fatal(err)
 	}
 	st := waitState(t, f.m, "ws1", StateError)
-	if !strings.Contains(st.Error, "nicht gefunden") {
+	if !strings.Contains(st.Error, "not found") {
 		t.Errorf("Fehler = %q", st.Error)
 	}
 }
@@ -343,15 +343,15 @@ func TestKillOwned(t *testing.T) {
 		t.Errorf("killOwned = %d, want 1", n)
 	}
 	if err := cmd.Wait(); err == nil {
-		t.Error("eigener Prozess lief weiter")
+		t.Error("own process kept running")
 	}
 	if err := other.Process.Signal(syscall.Signal(0)); err != nil {
-		t.Errorf("fremder Prozess wurde beendet: %v", err)
+		t.Errorf("foreign process was ended: %v", err)
 	}
 }
 
-// fakeSandbox spielt den Container: Pfade unter /home/ade landen in dir, der Port wird auf
-// einen freien Port umgeschrieben, Signal trifft die gestarteten Prozesse.
+// fakeSandbox plays the container: paths under /home/ade end up in dir, the port is rewritten
+// to a free port, Signal hits the started processes.
 type fakeSandbox struct {
 	exe, dir string
 	port     int
@@ -418,7 +418,7 @@ func TestSandboxIDE(t *testing.T) {
 	}
 	sb := &fakeSandbox{exe: exe, dir: t.TempDir(), port: port}
 	f := newFixture(t, "ok", func(o *Options) {
-		o.Binary = "/gibt/es/nicht" // darf im Sandbox-Modus nicht gebraucht werden
+		o.Binary = "/does/not/exist" // must not be needed in sandbox mode
 		o.Sandbox = func(_ context.Context, id string) (Sandbox, error) {
 			if id == "lokal" {
 				return nil, nil
@@ -440,12 +440,12 @@ func TestSandboxIDE(t *testing.T) {
 		t.Errorf("Antwort %d %q", code, body)
 	}
 	if code, _ := get(t, up, "falsch"); code != http.StatusForbidden {
-		t.Errorf("falscher Token: %d", code)
+		t.Errorf("wrong token: %d", code)
 	}
 	up.Release()
 	f.m.Stop("box")
 	if st := f.m.Status("box"); st.State != StateStopped {
-		t.Errorf("nach Stop: %+v", st)
+		t.Errorf("after Stop: %+v", st)
 	}
 	sb.mu.Lock()
 	defer sb.mu.Unlock()

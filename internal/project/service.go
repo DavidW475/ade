@@ -17,33 +17,33 @@ import (
 	"github.com/DavidW475/ade/internal/store"
 )
 
-// View ist ein Projekt mit seiner aktuell gelesenen Konfiguration.
+// View is a project with its currently read configuration.
 type View struct {
 	*store.Project
-	// BaseBranch ist der wirksame Basis-Branch (project.yaml vor default_branch).
+	// BaseBranch is the effective base branch (project.yaml before default_branch).
 	BaseBranch string  `json:"base_branch"`
 	Config     *Config `json:"config"`
-	// ConfigError ist gesetzt, wenn .ade/project.yaml ungültig ist.
+	// ConfigError is set if .ade/project.yaml is invalid.
 	ConfigError string `json:"config_error,omitempty"`
-	// Sandbox ist die wirksame Konfiguration aus .ade/sandbox.yaml (mit Voreinstellungen).
+	// Sandbox is the effective configuration from .ade/sandbox.yaml (with defaults).
 	Sandbox *sandbox.Config `json:"sandbox"`
-	// SandboxError ist gesetzt, wenn .ade/sandbox.yaml ungültig ist.
+	// SandboxError is set if .ade/sandbox.yaml is invalid.
 	SandboxError string `json:"sandbox_error,omitempty"`
-	// Warnings sind Hinweise wie "liegt unter /mnt".
+	// Warnings are notices like "is under /mnt".
 	Warnings []string `json:"warnings,omitempty"`
-	// Approvals sind die wirksamen Freigabe-Regeln (bei ungültiger project.yaml leer: alles
-	// braucht eine Freigabe).
+	// Approvals are the effective approval rules (empty for an invalid project.yaml: everything
+	// needs an approval).
 	Approvals Approvals `json:"approvals"`
 }
 
-// Approvals sind die wirksamen Regeln je Umgebung.
+// Approvals are the effective rules per environment.
 type Approvals struct {
 	Sandbox approval.RuleSet `json:"sandbox"`
 	Local   approval.RuleSet `json:"local"`
 }
 
-// ApprovalConfig liefert den Abschnitt approvals der project.yaml eines Projekts; bei einer
-// ungültigen Datei einen Fehler (dann erlaubt keine Regel etwas).
+// ApprovalConfig returns the approvals section of a project's project.yaml; for an invalid
+// file an error (then no rule allows anything).
 func (s *Service) ApprovalConfig(ctx context.Context, id string) (*approval.Config, error) {
 	v, err := s.Get(ctx, id)
 	if err != nil {
@@ -55,43 +55,43 @@ func (s *Service) ApprovalConfig(ctx context.Context, id string) (*approval.Conf
 	return v.Config.Approvals, nil
 }
 
-// Service registriert und liest Projekte.
+// Service registers and reads projects.
 type Service struct {
 	store *store.Store
 }
 
-// NewService erzeugt einen Service.
+// NewService creates a service.
 func NewService(st *store.Store) *Service { return &Service{store: st} }
 
-// NewID erzeugt eine kurze, zufällige ID aus Kleinbuchstaben und Ziffern. Sie taugt als
-// DNS-Label (ws-<id>.localhost) und als Teil eines Branch-Namens.
+// NewID creates a short random ID from lowercase letters and digits. It works as a
+// DNS label (ws-<id>.localhost) and as part of a branch name.
 func NewID() string {
 	b := make([]byte, 5)
 	_, _ = rand.Read(b)
 	return strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b))
 }
 
-// Add registriert das Git-Repository, in dem path liegt.
+// Add registers the Git repository that path is in.
 func (s *Service) Add(ctx context.Context, path string) (*View, error) {
 	if path == "" || !filepath.IsAbs(path) {
-		return nil, apperr.Invalid("Pfad %q muss absolut sein", path)
+		return nil, apperr.Invalid("path %q must be absolute", path)
 	}
 	st, err := os.Stat(path)
 	if err != nil {
-		return nil, apperr.Invalid("Pfad %s existiert nicht", path)
+		return nil, apperr.Invalid("path %s does not exist", path)
 	}
 	if !st.IsDir() {
-		return nil, apperr.Invalid("%s ist kein Verzeichnis", path)
+		return nil, apperr.Invalid("%s is not a directory", path)
 	}
 	if !git.Available() {
-		return nil, errors.New("git ist nicht installiert")
+		return nil, errors.New("git is not installed")
 	}
 	info, err := git.Inspect(ctx, path)
 	if err != nil {
-		return nil, apperr.Invalid("%s ist kein Git-Repository", path)
+		return nil, apperr.Invalid("%s is not a Git repository", path)
 	}
 	if info.Bare {
-		return nil, apperr.Invalid("%s ist ein Bare-Repository; ADE braucht ein Repository mit Arbeitsverzeichnis", path)
+		return nil, apperr.Invalid("%s is a bare repository; ADE needs a repository with a working tree", path)
 	}
 	top, err := filepath.EvalSymlinks(info.TopLevel)
 	if err != nil {
@@ -117,7 +117,7 @@ func (s *Service) Add(ctx context.Context, path string) (*View, error) {
 	return s.view(p, cfg, cfgErr), nil
 }
 
-// Get liefert ein Projekt mit aktueller Konfiguration.
+// Get returns a project with its current configuration.
 func (s *Service) Get(ctx context.Context, id string) (*View, error) {
 	p, err := s.store.GetProject(ctx, id)
 	if err != nil {
@@ -126,7 +126,7 @@ func (s *Service) Get(ctx context.Context, id string) (*View, error) {
 	return s.load(ctx, p), nil
 }
 
-// Find sucht ein Projekt über ID, Name oder Repo-Pfad.
+// Find looks up a project by ID, name or repository path.
 func (s *Service) Find(ctx context.Context, ref string) (*View, error) {
 	p, err := s.store.FindProject(ctx, ref)
 	if err != nil {
@@ -135,7 +135,7 @@ func (s *Service) Find(ctx context.Context, ref string) (*View, error) {
 	return s.load(ctx, p), nil
 }
 
-// List liefert alle Projekte.
+// List returns all projects.
 func (s *Service) List(ctx context.Context) ([]*View, error) {
 	ps, err := s.store.ListProjects(ctx)
 	if err != nil {
@@ -148,7 +148,7 @@ func (s *Service) List(ctx context.Context) ([]*View, error) {
 	return out, nil
 }
 
-// Remove meldet ein Projekt ab. Das Repository selbst bleibt unverändert.
+// Remove unregisters a project. The repository itself stays unchanged.
 func (s *Service) Remove(ctx context.Context, id string) error {
 	return s.store.DeleteProject(ctx, id)
 }
@@ -156,7 +156,7 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 func (s *Service) load(ctx context.Context, p *store.Project) *View {
 	cfg, err := LoadConfig(ctx, p.RepoPath)
 	if _, statErr := os.Stat(p.RepoPath); statErr != nil {
-		err = fmt.Errorf("Repository %s ist nicht mehr vorhanden", p.RepoPath)
+		err = fmt.Errorf("repository %s no longer exists", p.RepoPath)
 	}
 	return s.view(p, cfg, err)
 }
@@ -178,7 +178,7 @@ func (s *Service) view(p *store.Project, cfg *Config, cfgErr error) *View {
 	}
 	if strings.HasPrefix(p.RepoPath, "/mnt/") {
 		v.Warnings = append(v.Warnings,
-			"Das Repository liegt im Windows-Dateisystem (/mnt/…). Zugriffe sind dort sehr langsam; besser nach ~/ in die WSL verschieben.")
+			"The repository is on the Windows file system (/mnt/…). Access there is very slow; better move it to ~/ in WSL.")
 	}
 	return v
 }

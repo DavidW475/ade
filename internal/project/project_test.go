@@ -58,7 +58,7 @@ func TestAddAndList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Unterverzeichnis registriert das ganze Repo.
+	// A subdirectory registers the whole repository.
 	v, err := s.Add(ctx, filepath.Join(repo, "sub"))
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +72,7 @@ func TestAddAndList(t *testing.T) {
 	}
 
 	if _, err := s.Add(ctx, repo); !errors.Is(err, apperr.ErrConflict) {
-		t.Errorf("doppelt: err = %v", err)
+		t.Errorf("duplicate: err = %v", err)
 	}
 
 	list, err := s.List(ctx)
@@ -80,7 +80,7 @@ func TestAddAndList(t *testing.T) {
 		t.Fatalf("List = %v, %v", list, err)
 	}
 	if _, err := s.Find(ctx, v.Name); err != nil {
-		t.Errorf("Find per Name: %v", err)
+		t.Errorf("Find by name: %v", err)
 	}
 	if err := s.Remove(ctx, v.ID); err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestAddAndList(t *testing.T) {
 func TestAddRejectsNonGit(t *testing.T) {
 	ctx := context.Background()
 	s := newService(t)
-	for _, p := range []string{t.TempDir(), "relativ/pfad", "/gibt/es/nicht", ""} {
+	for _, p := range []string{t.TempDir(), "relative/path", "/does/not/exist", ""} {
 		if _, err := s.Add(ctx, p); !errors.Is(err, apperr.ErrInvalid) {
 			t.Errorf("%q: err = %v, want ErrInvalid", p, err)
 		}
@@ -118,8 +118,8 @@ func TestProjectConfig(t *testing.T) {
 		t.Errorf("View = %#v, Config = %#v", v, v.Config)
 	}
 
-	// Ungültige Datei: Projekt bleibt lesbar, Fehler wird gemeldet.
-	writeConfig(t, repo, "adapter: gibtsnicht\n")
+	// Invalid file: the project stays readable, the error is reported.
+	writeConfig(t, repo, "adapter: doesnotexist\n")
 	v, err = s.Get(ctx, v.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +128,7 @@ func TestProjectConfig(t *testing.T) {
 		t.Errorf("ConfigError = %q", v.ConfigError)
 	}
 
-	// base_branch aus der Datei gewinnt.
+	// base_branch from the file wins.
 	writeConfig(t, repo, "base_branch: release\n")
 	v, _ = s.Get(ctx, v.ID)
 	if v.BaseBranch != "release" || v.DefaultBranch != "main" {
@@ -145,18 +145,18 @@ func TestParseConfig(t *testing.T) {
 		}
 	}
 	invalid := map[string]string{
-		"unbekannt: 1\n":          "unbekannt",
-		"base_branch: \"a b\"\n":  "base_branch",
-		"adapter: vim\n":          "adapter",
-		"setup: [\"\"]\n":         "setup[0]",
-		"setup: \"kein array\"\n": "",
-		"name: [1, 2\n":           "",
+		"unknown: 1\n":              "unknown",
+		"base_branch: \"a b\"\n":    "base_branch",
+		"adapter: vim\n":            "adapter",
+		"setup: [\"\"]\n":           "setup[0]",
+		"setup: \"not an array\"\n": "",
+		"name: [1, 2\n":             "",
 	}
 	for c, want := range invalid {
 		_, err := ParseConfig(ctx, []byte(c))
 		var ce *ConfigError
 		if !errors.As(err, &ce) || !strings.Contains(err.Error(), want) {
-			t.Errorf("%q: err = %v, want ConfigError mit %q", c, err, want)
+			t.Errorf("%q: err = %v, want ConfigError with %q", c, err, want)
 		}
 	}
 }
@@ -186,11 +186,11 @@ func TestBudgetConfig(t *testing.T) {
 	}
 	var none *Config
 	if none.SessionBudget() != 0 || (&Config{}).MonthlyBudget() != 0 {
-		t.Error("ohne Budget")
+		t.Error("without budget")
 	}
 	for _, bad := range []string{"budget:\n  session_usd: -1\n", "budget:\n  monthly_usd: 1e9\n", "budget:\n  daily_usd: 1\n"} {
 		if _, err := ParseConfig(context.Background(), []byte(bad)); err == nil {
-			t.Errorf("%q: kein Fehler", bad)
+			t.Errorf("%q: no error", bad)
 		}
 	}
 }
@@ -222,7 +222,7 @@ func TestTriggersConfig(t *testing.T) {
   - name: nightly
     factory: deps
     sandbox: false
-    inputs: { task: "Abhängigkeiten aktualisieren" }
+    inputs: { task: "Update dependencies" }
     schedule: { cron: "0 3 * * 1-5" }
 `))
 	if err != nil {
@@ -230,23 +230,23 @@ func TestTriggersConfig(t *testing.T) {
 	}
 	g, s := cfg.Triggers[0], cfg.Triggers[1]
 	if g.Kind() != "github_issues" || g.GitHubIssues.IssueInterval() != 10*time.Minute || g.GitHubIssues.Comments() || !g.SandboxOn() {
-		t.Fatalf("Issue-Auslöser %+v", g)
+		t.Fatalf("issue trigger %+v", g)
 	}
 	if s.Kind() != "schedule" || s.SandboxOn() || !s.Schedule.CatchUpOn() || s.Inputs["task"] == "" {
 		t.Fatalf("Zeitplan %+v", s)
 	}
 	for bad, want := range map[string]string{
 		"triggers:\n  - { name: X, factory: f, schedule: { cron: '@daily' } }\n":                                                            "name",
-		"triggers:\n  - { name: a, factory: f }\n":                                                                                          "genau eins",
-		"triggers:\n  - { name: a, factory: f, schedule: { cron: '1 2 3' } }\n":                                                             "5 Felder",
-		"triggers:\n  - { name: a, factory: f, github_issues: { label: 'a,b' } }\n":                                                         "ohne Komma",
+		"triggers:\n  - { name: a, factory: f }\n":                                                                                          "exactly one",
+		"triggers:\n  - { name: a, factory: f, schedule: { cron: '1 2 3' } }\n":                                                             "5 fields",
+		"triggers:\n  - { name: a, factory: f, github_issues: { label: 'a,b' } }\n":                                                         "without a comma",
 		"triggers:\n  - { name: a, factory: f, github_issues: { label: x, interval: 10s } }\n":                                              "interval",
-		"triggers:\n  - { name: a, factory: f, github_issues: { label: x }, inputs: { task: y } }\n":                                        "aus dem Issue",
-		"triggers:\n  - { name: a, factory: f, github_issues: { label: x, authors: ['a b'] } }\n":                                           "GitHub-Name",
-		"triggers:\n  - { name: a, factory: f, schedule: { cron: '@daily' } }\n  - { name: a, factory: g, schedule: { cron: '@daily' } }\n": "gibt es schon",
+		"triggers:\n  - { name: a, factory: f, github_issues: { label: x }, inputs: { task: y } }\n":                                        "from the issue",
+		"triggers:\n  - { name: a, factory: f, github_issues: { label: x, authors: ['a b'] } }\n":                                           "GitHub name",
+		"triggers:\n  - { name: a, factory: f, schedule: { cron: '@daily' } }\n  - { name: a, factory: g, schedule: { cron: '@daily' } }\n": "already exists",
 	} {
 		if _, err := ParseConfig(ctx, []byte(bad)); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%q: %v, erwartet %q", bad, err, want)
+			t.Errorf("%q: %v, want %q", bad, err, want)
 		}
 	}
 }
