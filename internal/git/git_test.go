@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// NewTestRepo legt ein Repo mit einem Commit auf main an.
+// NewTestRepo creates a repository with one commit on main.
 func newTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -66,15 +66,15 @@ func TestInspectAndDefaultBranch(t *testing.T) {
 
 	run(t, repo, "switch", "-q", "-c", "feature")
 	if b, _ := DefaultBranch(ctx, repo); b != "feature" {
-		t.Errorf("DefaultBranch auf feature = %q", b)
+		t.Errorf("DefaultBranch on feature = %q", b)
 	}
 	run(t, repo, "switch", "-q", "--detach", "HEAD")
 	if b, _ := DefaultBranch(ctx, repo); b != "main" {
-		t.Errorf("DefaultBranch losgelöst = %q, want main", b)
+		t.Errorf("DefaultBranch detached = %q, want main", b)
 	}
 
 	if _, err := Inspect(ctx, t.TempDir()); err == nil {
-		t.Error("Inspect auf Nicht-Repo: Fehler erwartet")
+		t.Error("Inspect on a non-repository: expected an error")
 	}
 
 	bare := t.TempDir()
@@ -103,19 +103,19 @@ func TestWorktreeDiff(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Leer: keine Änderungen.
+	// Empty: no changes.
 	d, err := WorktreeDiff(ctx, Local(repo), base, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(d.Files) != 0 || d.Head != base {
-		t.Fatalf("leerer Diff = %#v", d)
+		t.Fatalf("empty diff = %#v", d)
 	}
 
-	// Committete Änderung.
+	// Committed change.
 	write(t, repo, "src/a.txt", "eins\nZWEI\ndrei\nvier\n")
-	run(t, repo, "commit", "-q", "-am", "ändern")
-	// Ungestagte Änderung, neue Datei, Löschung, Umbenennung, Binärdatei, ignorierte Datei.
+	run(t, repo, "commit", "-q", "-am", "change")
+	// Unstaged change, new file, deletion, rename, binary file, ignored file.
 	write(t, repo, "README.md", "hallo welt\n")
 	write(t, repo, "neu.txt", "neu\n")
 	write(t, repo, ".gitignore", "*.log\n")
@@ -155,17 +155,17 @@ func TestWorktreeDiff(t *testing.T) {
 			t.Errorf("%s: Status = %q, want %q", p, got[p].Status, s)
 		}
 		if got[p].Patch == "" || !strings.HasPrefix(got[p].Patch, "diff --git ") {
-			t.Errorf("%s: Patch fehlt oder falsch: %q", p, got[p].Patch)
+			t.Errorf("%s: patch missing or wrong: %q", p, got[p].Patch)
 		}
 	}
 	if f := got["src/a.txt"]; f.Additions != 2 || f.Deletions != 1 {
 		t.Errorf("src/a.txt: +%d -%d, want +2 -1", f.Additions, f.Deletions)
 	}
 	if f := got["neu-name.txt"]; f.OldPath != "alt.txt" {
-		t.Errorf("Umbenennung: OldPath = %q", f.OldPath)
+		t.Errorf("rename: OldPath = %q", f.OldPath)
 	}
 	if !got["bild.bin"].Binary {
-		t.Error("bild.bin nicht als binär erkannt")
+		t.Error("bild.bin not detected as binary")
 	}
 	if !strings.Contains(got["README.md"].Patch, "+hallo welt") {
 		t.Errorf("README-Patch = %q", got["README.md"].Patch)
@@ -173,21 +173,21 @@ func TestWorktreeDiff(t *testing.T) {
 
 	indexAfter, _ := os.ReadFile(filepath.Join(repo, ".git", "index"))
 	if string(indexBefore) != string(indexAfter) {
-		t.Error("WorktreeDiff hat den Index des Repos verändert")
+		t.Error("WorktreeDiff changed the repository's index")
 	}
 
-	// Ohne Patches.
+	// Without patches.
 	d, err = WorktreeDiff(ctx, Local(repo), base, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range d.Files {
 		if f.Patch != "" {
-			t.Errorf("%s: Patch trotz withPatch=false", f.Path)
+			t.Errorf("%s: patch despite withPatch=false", f.Path)
 		}
 	}
 	if d.Additions == 0 {
-		t.Error("Summe der Zeilen fehlt")
+		t.Error("sum of lines missing")
 	}
 }
 
@@ -206,7 +206,7 @@ func TestParseFormats(t *testing.T) {
 		t.Fatalf("files = %#v", files)
 	}
 	if _, err := parseNameStatus([]byte("R100\x00nur-einer\x00")); err == nil {
-		t.Error("unvollständige Umbenennung: Fehler erwartet")
+		t.Error("incomplete rename: expected an error")
 	}
 }
 

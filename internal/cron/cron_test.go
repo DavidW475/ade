@@ -7,7 +7,7 @@ import (
 )
 
 func TestNext(t *testing.T) {
-	base := time.Date(2026, 11, 27, 14, 7, 30, 0, time.UTC) // Freitag
+	base := time.Date(2026, 11, 27, 14, 7, 30, 0, time.UTC) // Friday
 	for expr, want := range map[string]string{
 		"* * * * *":        "2026-11-27 14:08",
 		"*/15 * * * *":     "2026-11-27 14:15",
@@ -17,7 +17,7 @@ func TestNext(t *testing.T) {
 		"0 0 1 * *":        "2026-12-01 00:00",
 		"0 12 * jan *":     "2027-01-01 12:00",
 		"0 0 * * 7":        "2026-11-29 00:00",
-		"0 0 13 * 5":       "2026-12-04 00:00", // Tag ODER Wochentag
+		"0 0 13 * 5":       "2026-12-04 00:00", // day OR weekday
 		"5-10/5 14 * * *":  "2026-11-27 14:10",
 		"@daily":           "2026-11-28 00:00",
 		"@hourly":          "2026-11-27 15:00",
@@ -29,25 +29,25 @@ func TestNext(t *testing.T) {
 			continue
 		}
 		if got := s.Next(base).Format("2006-01-02 15:04"); got != want {
-			t.Errorf("%s: %s, erwartet %s", expr, got, want)
+			t.Errorf("%s: %s, want %s", expr, got, want)
 		}
 	}
 	if s, _ := Parse("0 0 31 2 *"); !s.Next(base).IsZero() {
-		t.Error("31. Februar hat einen Termin")
+		t.Error("February 31 has a date")
 	}
 }
 
 func TestParseErrors(t *testing.T) {
 	for expr, want := range map[string]string{
-		"* * * *":      "5 Felder",
-		"60 * * * *":   "Minute",
-		"* 24 * * *":   "Stunde",
-		"* * 0 * *":    "Tag",
-		"* * * foo *":  "Monat",
-		"* * * * 8":    "Wochentag",
-		"*/0 * * * *":  "Schrittweite",
-		"10-5 * * * *": "rückwärts",
-		"@sometimes":   "unbekannt",
+		"* * * *":      "5 fields",
+		"60 * * * *":   "minute",
+		"* 24 * * *":   "hour",
+		"* * 0 * *":    "day",
+		"* * * foo *":  "month",
+		"* * * * 8":    "weekday",
+		"*/0 * * * *":  "step",
+		"10-5 * * * *": "backwards",
+		"@sometimes":   "unknown",
 	} {
 		if _, err := Parse(expr); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: %v, erwartet %q", expr, err, want)

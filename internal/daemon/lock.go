@@ -11,12 +11,12 @@ import (
 	"github.com/DavidW475/ade/internal/config"
 )
 
-// ErrAlreadyRunning bedeutet, dass bereits ein Daemon dasselbe Datenverzeichnis benutzt.
-var ErrAlreadyRunning = errors.New("ADE-Daemon läuft bereits")
+// ErrAlreadyRunning means that a daemon already uses the same data directory.
+var ErrAlreadyRunning = errors.New("ADE daemon is already running")
 
-// lockFile hält eine exklusive flock-Sperre auf daemon.lock, solange der Daemon läuft.
-// Der Kernel gibt die Sperre beim Prozessende frei, auch nach einem Absturz; eine
-// liegengebliebene Datei blockiert daher nichts.
+// lockFile holds an exclusive flock lock on daemon.lock as long as the daemon runs.
+// The kernel releases the lock when the process ends, even after a crash; a leftover file
+// therefore blocks nothing.
 type lockFile struct {
 	f *os.File
 }
@@ -24,7 +24,7 @@ type lockFile struct {
 func acquireLock(path string) (*lockFile, error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("Lock-Datei öffnen: %w", err)
+		return nil, fmt.Errorf("open lock file: %w", err)
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = f.Close()
@@ -34,7 +34,7 @@ func acquireLock(path string) (*lockFile, error) {
 			}
 			return nil, fmt.Errorf("%w (Lock %s)", ErrAlreadyRunning, path)
 		}
-		return nil, fmt.Errorf("Lock-Datei sperren: %w", err)
+		return nil, fmt.Errorf("lock lock file: %w", err)
 	}
 	if err := f.Truncate(0); err != nil {
 		_ = f.Close()
@@ -47,7 +47,7 @@ func acquireLock(path string) (*lockFile, error) {
 	return &lockFile{f: f}, nil
 }
 
-// release gibt die Sperre frei und leert die PID.
+// release releases the lock and clears the PID.
 func (l *lockFile) release() {
 	_ = l.f.Truncate(0)
 	_ = syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
@@ -63,5 +63,5 @@ func readPID(path string) int {
 	return pid
 }
 
-// RunningPID liefert die PID aus der Lock-Datei (0, wenn keine eingetragen ist).
+// RunningPID returns the PID from the lock file (0 if none is recorded).
 func RunningPID(cfg *config.Config) int { return readPID(cfg.LockPath()) }

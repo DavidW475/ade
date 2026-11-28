@@ -1,4 +1,4 @@
-// Package browser öffnet URLs im Browser – unter WSL im Windows-Browser.
+// Package browser opens URLs in the browser – under WSL in the Windows browser.
 package browser
 
 import (
@@ -8,17 +8,17 @@ import (
 	"strings"
 )
 
-// ErrNoOpener bedeutet, dass kein Programm zum Öffnen einer URL gefunden wurde.
-var ErrNoOpener = errors.New("kein Programm zum Öffnen des Browsers gefunden")
+// ErrNoOpener means that no program to open a URL was found.
+var ErrNoOpener = errors.New("no program to open the browser found")
 
 type opener struct {
 	name string
 	args []string
-	// ignoreExit: explorer.exe liefert auch bei Erfolg Exit-Code 1.
+	// ignoreExit: explorer.exe returns exit code 1 even on success.
 	ignoreExit bool
 }
 
-// IsWSL meldet, ob das Programm in einer WSL-Distribution läuft.
+// IsWSL reports whether the program runs in a WSL distribution.
 func IsWSL() bool {
 	if os.Getenv("WSL_DISTRO_NAME") != "" {
 		return true
@@ -31,8 +31,8 @@ func candidates(wsl bool) []opener {
 	if wsl {
 		return []opener{
 			{name: "wslview"},
-			// rundll32 übergibt die URL samt Query-String an den Standardbrowser;
-			// explorer.exe verliert sie je nach Windows-Version.
+			// rundll32 passes the URL including the query string to the default browser;
+			// explorer.exe loses it depending on the Windows version.
 			{name: "rundll32.exe", args: []string{"url.dll,FileProtocolHandler"}},
 			{name: "explorer.exe", ignoreExit: true},
 			{name: "xdg-open"},
@@ -41,8 +41,8 @@ func candidates(wsl bool) []opener {
 	return []opener{{name: "xdg-open"}}
 }
 
-// Open öffnet url im Standardbrowser. Unter WSL wird der Windows-Browser verwendet
-// (wslview, sonst rundll32.exe bzw. explorer.exe).
+// Open opens url in the default browser. Under WSL the Windows browser is used
+// (wslview, otherwise rundll32.exe or explorer.exe).
 func Open(url string) error {
 	return open(url, candidates(IsWSL()), exec.LookPath, run)
 }

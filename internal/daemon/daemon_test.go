@@ -39,15 +39,15 @@ func TestRunServesAndCleansUp(t *testing.T) {
 	go func() { done <- Run(ctx, cfg, "test", slog.New(slog.NewTextHandler(io.Discard, nil))) }()
 
 	c := NewClient(cfg)
-	// Großzügig: Unter -race und mit parallelen Paketen braucht der Start in der CI teils über 5 s.
+	// Generous: under -race and with parallel packages the start sometimes takes over 5 s in CI.
 	waitCtx, waitCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer waitCancel()
 	h, err := c.WaitHealthy(waitCtx)
 	if err != nil {
-		// Endete Run vorzeitig, dessen Fehler melden statt nur den Timeout.
+		// If Run ended early, report its error instead of only the timeout.
 		select {
 		case runErr := <-done:
-			t.Fatalf("Daemon beendet: %v (%v)", runErr, err)
+			t.Fatalf("daemon ended: %v (%v)", runErr, err)
 		default:
 		}
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestRunServesAndCleansUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	if st.Mode().Perm() != 0o600 {
-		t.Errorf("Secret-Rechte = %v", st.Mode().Perm())
+		t.Errorf("secret permissions = %v", st.Mode().Perm())
 	}
 
 	login, err := c.LoginURL(ctx)
@@ -72,7 +72,7 @@ func TestRunServesAndCleansUp(t *testing.T) {
 		t.Fatalf("LoginURL = %q", login)
 	}
 
-	// Ticket über die echte Verbindung einlösen.
+	// Redeem the ticket over the real connection.
 	req, _ := http.NewRequest("GET", strings.Replace(login, "localhost", "127.0.0.1", 1), nil)
 	req.Host = "localhost:" + cfg.Port()
 	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -82,25 +82,25 @@ func TestRunServesAndCleansUp(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("Login: HTTP %d", resp.StatusCode)
+		t.Fatalf("login: HTTP %d", resp.StatusCode)
 	}
 
 	if pid := readPID(cfg.LockPath()); pid != os.Getpid() {
-		t.Errorf("PID in Lock-Datei = %d, want %d", pid, os.Getpid())
+		t.Errorf("PID in lock file = %d, want %d", pid, os.Getpid())
 	}
 
-	// Ein zweiter Daemon auf demselben Datenverzeichnis – auch auf anderem Port – startet
-	// nicht und überschreibt das Secret nicht.
+	// A second daemon on the same data directory – even on another port – does not start
+	// and does not overwrite the secret.
 	before, _ := os.ReadFile(cfg.SecretPath())
 	other := *cfg
 	other.Listen = testConfig(t).Listen
 	err = Run(ctx, &other, "test", slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if !errors.Is(err, ErrAlreadyRunning) {
-		t.Fatalf("zweiter Daemon: err = %v, want ErrAlreadyRunning", err)
+		t.Fatalf("second daemon: err = %v, want ErrAlreadyRunning", err)
 	}
 	after, _ := os.ReadFile(cfg.SecretPath())
 	if string(before) != string(after) {
-		t.Fatal("zweiter Daemon hat das Secret überschrieben")
+		t.Fatal("second daemon overwrote the secret")
 	}
 
 	cancel()
@@ -110,16 +110,16 @@ func TestRunServesAndCleansUp(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("Daemon beendet sich nicht")
+		t.Fatal("daemon does not stop")
 	}
 	if _, err := os.Stat(cfg.SecretPath()); !os.IsNotExist(err) {
-		t.Errorf("Secret nach Shutdown noch vorhanden: %v", err)
+		t.Errorf("secret still exists after shutdown: %v", err)
 	}
 
-	// Nach dem Beenden ist die Sperre frei.
+	// After stopping, the lock is free.
 	l, err := acquireLock(cfg.LockPath())
 	if err != nil {
-		t.Fatalf("Lock nach Shutdown: %v", err)
+		t.Fatalf("lock after shutdown: %v", err)
 	}
 	l.release()
 }
@@ -127,7 +127,7 @@ func TestRunServesAndCleansUp(t *testing.T) {
 func TestHealthNotRunning(t *testing.T) {
 	cfg := testConfig(t)
 	if _, err := NewClient(cfg).Health(context.Background()); err == nil {
-		t.Fatal("Fehler erwartet")
+		t.Fatal("expected an error")
 	}
 }
 
@@ -136,7 +136,7 @@ func TestPrivateDirTightensPermissions(t *testing.T) {
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(dir, 0o755); err != nil { // umask umgehen
+	if err := os.Chmod(dir, 0o755); err != nil { // bypass the umask
 		t.Fatal(err)
 	}
 	if err := privateDir(dir, slog.New(slog.DiscardHandler)); err != nil {
@@ -147,6 +147,6 @@ func TestPrivateDirTightensPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if m := fi.Mode().Perm(); m != 0o700 {
-		t.Fatalf("Rechte %o, want 700", m)
+		t.Fatalf("permissions %o, want 700", m)
 	}
 }

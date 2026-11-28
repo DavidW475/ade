@@ -1,15 +1,15 @@
-// Package cron liest Zeitpläne im Cron-Format (5 Felder) und berechnet Termine.
+// Package cron parses schedules in cron format (5 fields) and computes dates.
 //
-//	┌ Minute (0–59)
-//	│ ┌ Stunde (0–23)
-//	│ │ ┌ Tag des Monats (1–31)
-//	│ │ │ ┌ Monat (1–12 oder jan–dec)
-//	│ │ │ │ ┌ Wochentag (0–7 oder sun–sat, 0 und 7 = Sonntag)
+//	┌ minute (0–59)
+//	│ ┌ hour (0–23)
+//	│ │ ┌ day of month (1–31)
+//	│ │ │ ┌ month (1–12 or jan–dec)
+//	│ │ │ │ ┌ day of week (0–7 or sun–sat, 0 and 7 = Sunday)
 //	* * * * *
 //
-// Felder: *, Zahlen, Listen (1,15), Bereiche (1-5), Schritte (*/15, 0-30/5). Sind Tag des
-// Monats und Wochentag beide eingeschränkt, genügt einer von beiden (wie bei cron üblich).
-// Kurzformen: @hourly, @daily (@midnight), @weekly, @monthly, @yearly (@annually).
+// Fields: *, numbers, lists (1,15), ranges (1-5), steps (*/15, 0-30/5). If both day of month
+// and day of week are restricted, either one is enough (as usual for cron).
+// Short forms: @hourly, @daily (@midnight), @weekly, @monthly, @yearly (@annually).
 package cron
 
 import (
@@ -19,10 +19,10 @@ import (
 	"time"
 )
 
-// Schedule ist ein übersetzter Zeitplan.
+// Schedule is a parsed schedule.
 type Schedule struct {
 	src                       string
-	minute, hour, dom, month  uint64 // Bitmasken
+	minute, hour, dom, month  uint64 // bit masks
 	dow                       uint64
 	domRestricted, dowRestric bool
 }
@@ -40,43 +40,43 @@ var macros = map[string]string{
 var monthNames = []string{"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"}
 var dayNames = []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
 
-// Parse übersetzt einen Zeitplan.
+// Parse parses a schedule.
 func Parse(src string) (*Schedule, error) {
 	expr := strings.TrimSpace(src)
 	if m, ok := macros[strings.ToLower(expr)]; ok {
 		expr = m
 	} else if strings.HasPrefix(expr, "@") {
-		return nil, fmt.Errorf("%q ist unbekannt (erlaubt: %s)", expr, "@hourly, @daily, @weekly, @monthly, @yearly")
+		return nil, fmt.Errorf("%q is unknown (allowed: %s)", expr, "@hourly, @daily, @weekly, @monthly, @yearly")
 	}
 	fields := strings.Fields(expr)
 	if len(fields) != 5 {
-		return nil, fmt.Errorf("%q: erwartet 5 Felder (Minute Stunde Tag Monat Wochentag), gefunden %d", src, len(fields))
+		return nil, fmt.Errorf("%q: expected 5 fields (minute hour day month weekday), found %d", src, len(fields))
 	}
 	s := &Schedule{src: src}
 	var err error
-	if s.minute, err = field(fields[0], 0, 59, nil, "Minute"); err != nil {
+	if s.minute, err = field(fields[0], 0, 59, nil, "minute"); err != nil {
 		return nil, err
 	}
-	if s.hour, err = field(fields[1], 0, 23, nil, "Stunde"); err != nil {
+	if s.hour, err = field(fields[1], 0, 23, nil, "hour"); err != nil {
 		return nil, err
 	}
-	if s.dom, err = field(fields[2], 1, 31, nil, "Tag"); err != nil {
+	if s.dom, err = field(fields[2], 1, 31, nil, "day"); err != nil {
 		return nil, err
 	}
-	if s.month, err = field(fields[3], 1, 12, monthNames, "Monat"); err != nil {
+	if s.month, err = field(fields[3], 1, 12, monthNames, "month"); err != nil {
 		return nil, err
 	}
-	if s.dow, err = field(fields[4], 0, 7, dayNames, "Wochentag"); err != nil {
+	if s.dow, err = field(fields[4], 0, 7, dayNames, "weekday"); err != nil {
 		return nil, err
 	}
-	if s.dow&(1<<7) != 0 { // 7 = Sonntag
+	if s.dow&(1<<7) != 0 { // 7 = Sunday
 		s.dow |= 1
 	}
 	s.domRestricted, s.dowRestric = fields[2] != "*", fields[4] != "*"
 	return s, nil
 }
 
-// String liefert den Quelltext.
+// String returns the source text.
 func (s *Schedule) String() string { return s.src }
 
 func field(f string, lo, hi int, names []string, what string) (uint64, error) {
@@ -87,7 +87,7 @@ func field(f string, lo, hi int, names []string, what string) (uint64, error) {
 		if hasStep {
 			n, err := strconv.Atoi(stepStr)
 			if err != nil || n < 1 || n > hi {
-				return 0, fmt.Errorf("%s: ungültige Schrittweite %q", what, stepStr)
+				return 0, fmt.Errorf("%s: invalid step %q", what, stepStr)
 			}
 			step = n
 		}
@@ -104,7 +104,7 @@ func field(f string, lo, hi int, names []string, what string) (uint64, error) {
 					return 0, err
 				}
 				if to < from {
-					return 0, fmt.Errorf("%s: Bereich %q ist rückwärts", what, rng)
+					return 0, fmt.Errorf("%s: range %q is backwards", what, rng)
 				}
 			} else if hasStep {
 				to = hi
@@ -125,7 +125,7 @@ func value(s string, lo, hi int, names []string, what string) (int, error) {
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n < lo || n > hi {
-		return 0, fmt.Errorf("%s: %q liegt nicht zwischen %d und %d", what, s, lo, hi)
+		return 0, fmt.Errorf("%s: %q is not between %d and %d", what, s, lo, hi)
 	}
 	return n, nil
 }
@@ -139,8 +139,8 @@ func (s *Schedule) dayMatches(t time.Time) bool {
 	return dom && dow
 }
 
-// Next liefert den ersten Termin nach t (in der Zeitzone von t). Gibt es in den nächsten
-// fünf Jahren keinen (z. B. 31. Februar), ist das Ergebnis die Nullzeit.
+// Next returns the first date after t (in t's time zone). If there is none within the next
+// five years (e.g. February 31), the result is the zero time.
 func (s *Schedule) Next(t time.Time) time.Time {
 	t = t.Truncate(time.Minute).Add(time.Minute)
 	limit := t.AddDate(5, 0, 0)

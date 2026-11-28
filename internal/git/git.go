@@ -1,4 +1,4 @@
-// Package git ruft das git-Binary auf. Es kapselt nur die Befehle, die ADE braucht.
+// Package git calls the git binary. It only wraps the commands ADE needs.
 package git
 
 import (
@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// Error ist ein fehlgeschlagener git-Aufruf mit dessen Fehlerausgabe.
+// Error is a failed git call with its error output.
 type Error struct {
 	Args   []string
 	Stderr string
@@ -28,39 +28,39 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.Err }
 
-// Cmd beschreibt einen git-Aufruf.
+// Cmd describes a git call.
 type Cmd struct {
 	Dir  string
 	Args []string
-	// Env wird an die Umgebung angehängt (KEY=VALUE).
+	// Env is appended to the environment (KEY=VALUE).
 	Env []string
-	// Runner führt den Aufruf anderswo aus (z. B. im Sandbox-Container); Dir gilt dann nicht.
+	// Runner runs the call elsewhere (e.g. in the sandbox container); Dir does not apply then.
 	Runner Runner
 }
 
-// Runner baut den Prozess für argv (argv[0] ist das Programm, z. B. git) mit den
-// zusätzlichen Variablen env an einem anderen Ort, etwa per docker exec im Container eines
-// Workspaces. Der Prozess läuft dort im Workspace-Verzeichnis.
+// Runner builds the process for argv (argv[0] is the program, e.g. git) with the additional
+// variables env in another place, for example via docker exec in a workspace's container.
+// The process runs there in the workspace directory.
 type Runner func(ctx context.Context, env, argv []string) *exec.Cmd
 
-// Worktree ist ein Workspace, in dem der Daemon git ausführt.
+// Worktree is a workspace in which the daemon runs git.
 type Worktree struct {
-	// Path ist das Verzeichnis auf dem Host.
+	// Path is the directory on the host.
 	Path string
-	// Runner ist gesetzt, wenn git nicht auf dem Host laufen darf (Sandbox, Issue #41):
-	// Die Repo-Konfiguration gehört dem Agenten; Filter oder fsmonitor aus ihr sollen nur
-	// im Container wirken.
+	// Runner is set if git must not run on the host (sandbox, issue #41): the repository
+	// configuration belongs to the agent; filters or fsmonitor from it should only take effect
+	// in the container.
 	Runner Runner
 }
 
-// Local liefert einen Worktree, in dem git auf dem Host läuft.
+// Local returns a worktree in which git runs on the host.
 func Local(path string) Worktree { return Worktree{Path: path} }
 
 func (w Worktree) cmd(env []string, args ...string) Cmd {
 	return Cmd{Dir: w.Path, Env: env, Args: args, Runner: w.Runner}
 }
 
-// baseEnv sorgt für reproduzierbare, nicht-interaktive Ausgaben.
+// baseEnv makes output reproducible and non-interactive.
 var baseEnv = []string{
 	"LC_ALL=C",
 	"GIT_TERMINAL_PROMPT=0",
@@ -68,7 +68,7 @@ var baseEnv = []string{
 	"GIT_CONFIG_NOSYSTEM=1",
 }
 
-// Run führt git aus und liefert stdout.
+// Run runs git and returns stdout.
 func Run(ctx context.Context, c Cmd) ([]byte, error) {
 	var cmd *exec.Cmd
 	if c.Runner != nil {
@@ -86,13 +86,13 @@ func Run(ctx context.Context, c Cmd) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
-// Output führt git im Verzeichnis dir aus und liefert stdout ohne abschließende Leerzeichen.
+// Output runs git in the directory dir and returns stdout without trailing whitespace.
 func Output(ctx context.Context, dir string, args ...string) (string, error) {
 	out, err := Run(ctx, Cmd{Dir: dir, Args: args})
 	return strings.TrimSpace(string(out)), err
 }
 
-// ExitCode liefert den Exit-Code eines fehlgeschlagenen Aufrufs oder -1.
+// ExitCode returns the exit code of a failed call or -1.
 func ExitCode(err error) int {
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
@@ -101,21 +101,21 @@ func ExitCode(err error) int {
 	return -1
 }
 
-// Available meldet, ob git installiert ist.
+// Available reports whether git is installed.
 func Available() bool {
 	_, err := exec.LookPath("git")
 	return err == nil
 }
 
-// RepoInfo beschreibt ein Repository.
+// RepoInfo describes a repository.
 type RepoInfo struct {
-	// TopLevel ist das Wurzelverzeichnis des Arbeitsbaums.
+	// TopLevel is the root directory of the working tree.
 	TopLevel string
-	// Bare ist true für Repositories ohne Arbeitsbaum.
+	// Bare is true for repositories without a working tree.
 	Bare bool
 }
 
-// Inspect prüft, ob dir in einem Git-Repository liegt.
+// Inspect checks whether dir is in a Git repository.
 func Inspect(ctx context.Context, dir string) (*RepoInfo, error) {
 	bare, err := Output(ctx, dir, "rev-parse", "--is-bare-repository")
 	if err != nil {
@@ -131,8 +131,8 @@ func Inspect(ctx context.Context, dir string) (*RepoInfo, error) {
 	return &RepoInfo{TopLevel: top}, nil
 }
 
-// DefaultBranch ermittelt den Basis-Branch: origin/HEAD, sonst den aktuellen Branch,
-// sonst "main" bzw. "master", falls vorhanden.
+// DefaultBranch determines the base branch: origin/HEAD, otherwise the current branch,
+// otherwise "main" or "master" if present.
 func DefaultBranch(ctx context.Context, repo string) (string, error) {
 	if ref, err := Output(ctx, repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil && ref != "" {
 		b := strings.TrimPrefix(ref, "origin/")
@@ -148,21 +148,21 @@ func DefaultBranch(ctx context.Context, repo string) (string, error) {
 			return b, nil
 		}
 	}
-	return "", errors.New("kein Basis-Branch gefunden (HEAD ist losgelöst und weder main noch master existiert)")
+	return "", errors.New("no base branch found (HEAD is detached and neither main nor master exists)")
 }
 
-// BranchExists meldet, ob der lokale Branch existiert und auf einen Commit zeigt.
+// BranchExists reports whether the local branch exists and points to a commit.
 func BranchExists(ctx context.Context, repo, branch string) bool {
 	_, err := Output(ctx, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}")
 	return err == nil
 }
 
-// ResolveCommit liefert die Commit-ID von rev.
+// ResolveCommit returns the commit ID of rev.
 func ResolveCommit(ctx context.Context, repo, rev string) (string, error) {
 	return Output(ctx, repo, "rev-parse", "--verify", "--end-of-options", rev+"^{commit}")
 }
 
-// ValidBranchName prüft einen Branch-Namen mit git check-ref-format.
+// ValidBranchName checks a branch name with git check-ref-format.
 func ValidBranchName(ctx context.Context, name string) bool {
 	if name == "" || strings.HasPrefix(name, "-") {
 		return false
