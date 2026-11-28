@@ -18,31 +18,31 @@ import (
 	"github.com/DavidW475/ade/internal/store"
 )
 
-// Review und Übernahme (architecture.md 4.2): Der Daemon committet offene Änderungen im
-// Workspace, holt den Branch per fetch ins Haupt-Repo und mergt oder veröffentlicht ihn
-// von dort. Der Agent selbst hat weder Zugriff auf das Haupt-Repo noch Push-Rechte.
+// Review and delivery (architecture.md 4.2): the daemon commits open changes in the workspace,
+// fetches the branch into the main repository and merges or publishes it from there. The
+// agent itself has neither access to the main repository nor push rights.
 
-// Remote ist das Remote des Haupt-Repos, zu dem Pull Requests gepusht werden.
+// Remote is the main repository's remote that pull requests are pushed to.
 const Remote = "origin"
 
-// Zeitgrenzen für Netzwerkschritte.
+// Time limits for network steps.
 const (
 	PushTimeout = 3 * time.Minute
 	GHTimeout   = 2 * time.Minute
 )
 
-// RoleFeedback kennzeichnet Sessions, die aus „Feedback geben“ entstanden sind.
+// RoleFeedback marks sessions that came from “Give feedback”.
 const RoleFeedback = "feedback"
 
-// SetBusyCheck registriert eine Prüfung, die vor Mergen und PR läuft (z. B. „arbeitet
-// gerade ein Agent?“). Liefert sie einen Fehler, wird abgebrochen.
+// SetBusyCheck registers a check that runs before merge and PR (e.g. "is an agent working
+// right now?"). If it returns an error, the action is aborted.
 func (m *Manager) SetBusyCheck(fn func(ctx context.Context, id string) error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.busyCheck = fn
 }
 
-// SetGitHubCLI setzt den Pfad zum gh-Binary (Standard: gh im PATH).
+// SetGitHubCLI sets the path to the gh binary (default: gh in PATH).
 func (m *Manager) SetGitHubCLI(path string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -59,7 +59,7 @@ func (m *Manager) checkBusy(ctx context.Context, id string) error {
 	return fn(ctx, id)
 }
 
-// lockWorkspace serialisiert Commit, Fetch, Merge und Push eines Workspaces.
+// lockWorkspace serializes commit, fetch, merge and push of a workspace.
 func (m *Manager) lockWorkspace(id string) func() {
 	m.mu.Lock()
 	l := m.locks[id]
@@ -86,8 +86,8 @@ type wsLock struct {
 	refs int
 }
 
-// Collect committet offene Änderungen im Workspace („ade: wip <label>“) und holt den
-// Branch ade/<id> ins Haupt-Repo. label ist z. B. die ID der beendeten Session.
+// Collect commits open changes in the workspace (“ade: wip <label>”) and fetches the branch
+// ade/<id> into the main repository. label is e.g. the ID of the ended session.
 func (m *Manager) Collect(ctx context.Context, id, label string) (*store.Workspace, error) {
 	unlock := m.lockWorkspace(id)
 	defer unlock()
@@ -100,7 +100,7 @@ func (m *Manager) collect(ctx context.Context, id, label string) (*store.Workspa
 		return nil, err
 	}
 	if !hasWorktree(w) {
-		return nil, apperr.Conflict("Workspace %s hat keinen Arbeitsbaum (Status %s)", id, w.Status)
+		return nil, apperr.Conflict("workspace %s has no working tree (status %s)", id, w.Status)
 	}
 	p, err := m.store.GetProject(ctx, w.ProjectID)
 	if err != nil {
@@ -115,10 +115,10 @@ func (m *Manager) collect(ctx context.Context, id, label string) (*store.Workspa
 	}
 	committed, err := git.CommitAll(ctx, *wt, "ade: wip "+label)
 	if err != nil {
-		return nil, fmt.Errorf("WIP-Commit: %w", err)
+		return nil, fmt.Errorf("WIP commit: %w", err)
 	}
 	if err := git.FetchBranch(ctx, p.RepoPath, w.Path, w.Branch); err != nil {
-		return nil, fmt.Errorf("Branch ins Projekt-Repo holen: %w", err)
+		return nil, fmt.Errorf("fetch branch into the project repository: %w", err)
 	}
 	head, err := git.ResolveCommit(ctx, p.RepoPath, "refs/heads/"+w.Branch)
 	if err != nil {
@@ -128,27 +128,27 @@ func (m *Manager) collect(ctx context.Context, id, label string) (*store.Workspa
 		return nil, err
 	}
 	if committed || head != w.HeadCommit {
-		m.log.Info("Workspace übernommen", "id", id, "commit", head, "wip_commit", committed)
+		m.log.Info("workspace collected", "id", id, "commit", head, "wip_commit", committed)
 	}
 	return m.store.GetWorkspace(ctx, id)
 }
 
-// MergeConflictError meldet Konflikte beim Mergen in den Basis-Branch.
+// MergeConflictError reports conflicts when merging into the base branch.
 type MergeConflictError struct {
 	Branch string
 	Files  []string
 }
 
 func (e *MergeConflictError) Error() string {
-	return fmt.Sprintf("Merge in %s hat Konflikte in %d Datei(en): %s – Feedback geben oder im Workspace auflösen",
+	return fmt.Sprintf("merge into %s has conflicts in %d file(s): %s – give feedback or resolve them in the workspace",
 		e.Branch, len(e.Files), strings.Join(e.Files, ", "))
 }
 
 func (e *MergeConflictError) Unwrap() error { return apperr.ErrConflict }
 
-// Merge übernimmt den Branch des Workspaces mit einem Merge-Commit in den Basis-Branch des
-// Haupt-Repos. Ist der Basis-Branch dort ausgecheckt, läuft git merge in dessen
-// Arbeitsbaum, sonst wird der Merge ohne Arbeitsbaum berechnet. Konflikte ändern nichts.
+// Merge takes the workspace's branch into the main repository's base branch with a merge
+// commit. If the base branch is checked out there, git merge runs in its working tree,
+// otherwise the merge is computed without a working tree. Conflicts change nothing.
 func (m *Manager) Merge(ctx context.Context, id string) (*store.Workspace, error) {
 	if err := m.checkBusy(ctx, id); err != nil {
 		return nil, err
@@ -165,20 +165,20 @@ func (m *Manager) Merge(ctx context.Context, id string) (*store.Workspace, error
 	}
 	repo := p.RepoPath
 	if w.HeadCommit == w.BaseCommit {
-		return nil, apperr.Invalid("keine Änderungen zum Mergen")
+		return nil, apperr.Invalid("no changes to merge")
 	}
 	base, err := git.ResolveCommit(ctx, repo, "refs/heads/"+w.BaseBranch)
 	if err != nil {
-		return nil, apperr.Conflict("Basis-Branch %s gibt es im Projekt-Repo nicht mehr", w.BaseBranch)
+		return nil, apperr.Conflict("base branch %s no longer exists in the project repository", w.BaseBranch)
 	}
 	if done, err := git.IsAncestor(ctx, repo, w.HeadCommit, base); err != nil {
 		return nil, err
 	} else if done {
-		return nil, apperr.Conflict("%s ist bereits vollständig in %s enthalten", w.Branch, w.BaseBranch)
+		return nil, apperr.Conflict("%s is already fully contained in %s", w.Branch, w.BaseBranch)
 	}
 	tree, conflicts, err := git.MergeTree(ctx, repo, base, w.HeadCommit)
 	if err != nil {
-		return nil, fmt.Errorf("Merge berechnen: %w", err)
+		return nil, fmt.Errorf("compute merge: %w", err)
 	}
 	if len(conflicts) > 0 {
 		return nil, &MergeConflictError{Branch: w.BaseBranch, Files: conflicts}
@@ -193,35 +193,35 @@ func (m *Manager) Merge(ctx context.Context, id string) (*store.Workspace, error
 	if wt != "" {
 		commit, err = git.MergeInWorktree(ctx, wt, "refs/heads/"+w.Branch, msg)
 		if err != nil {
-			return nil, apperr.Conflict("Merge im Arbeitsbaum %s fehlgeschlagen (Änderungen dort? Dann erst committen oder stashen): %v", wt, err)
+			return nil, apperr.Conflict("merge in the working tree %s failed (changes there? Then commit or stash them first): %v", wt, err)
 		}
 	} else {
 		commit, err = git.MergeCommit(ctx, repo, w.BaseBranch, base, w.HeadCommit, tree, msg)
 		if err != nil {
-			return nil, fmt.Errorf("Merge-Commit anlegen: %w", err)
+			return nil, fmt.Errorf("create merge commit: %w", err)
 		}
 	}
 	if err := m.store.UpdateWorkspace(ctx, id, store.WorkspaceUpdate{MergeCommit: &commit}); err != nil {
 		return nil, err
 	}
-	m.log.Info("Workspace gemergt", "id", id, "basis", w.BaseBranch, "commit", commit, "arbeitsbaum", wt)
+	m.log.Info("workspace merged", "id", id, "base", w.BaseBranch, "commit", commit, "worktree", wt)
 	return m.store.GetWorkspace(ctx, id)
 }
 
-// PRDraft ist der Vorschlag für einen Pull Request.
+// PRDraft is the suggestion for a pull request.
 type PRDraft struct {
 	Title  string `json:"title"`
 	Body   string `json:"body"`
 	Base   string `json:"base"`
 	Head   string `json:"head"`
 	Remote string `json:"remote"`
-	// RemoteURL ist leer, wenn das Projekt-Repo kein Remote hat.
+	// RemoteURL is empty if the project repository has no remote.
 	RemoteURL string `json:"remote_url,omitempty"`
-	// URL ist der bestehende PR (dann aktualisiert ein Push ihn nur).
+	// URL is the existing PR (then a push only updates it).
 	URL string `json:"url,omitempty"`
 }
 
-// PullRequestDraft erzeugt Titel und Beschreibung für einen PR aus Aufgabe, Feedback und Diff.
+// PullRequestDraft creates title and description for a PR from task, feedback and diff.
 func (m *Manager) PullRequestDraft(ctx context.Context, id string) (*PRDraft, error) {
 	w, err := m.store.GetWorkspace(ctx, id)
 	if err != nil {
@@ -239,7 +239,7 @@ func (m *Manager) PullRequestDraft(ctx context.Context, id string) (*PRDraft, er
 	var task string
 	var feedback []string
 	var cost float64
-	for i := len(sessions) - 1; i >= 0; i-- { // älteste zuerst
+	for i := len(sessions) - 1; i >= 0; i-- { // oldest first
 		s := sessions[i]
 		cost += s.CostUSD
 		switch {
@@ -250,7 +250,7 @@ func (m *Manager) PullRequestDraft(ctx context.Context, id string) (*PRDraft, er
 		}
 	}
 	if task != "" {
-		b.WriteString("## Aufgabe\n\n" + task + "\n\n")
+		b.WriteString("## Task\n\n" + task + "\n\n")
 	}
 	if len(feedback) > 0 {
 		b.WriteString("## Feedback\n\n")
@@ -260,10 +260,10 @@ func (m *Manager) PullRequestDraft(ctx context.Context, id string) (*PRDraft, er
 		b.WriteString("\n")
 	}
 	if diff, err := m.Diff(ctx, id, false); err == nil && len(diff.Files) > 0 {
-		fmt.Fprintf(&b, "## Änderungen\n\n%d Datei(en), +%d −%d\n\n", len(diff.Files), diff.Additions, diff.Deletions)
+		fmt.Fprintf(&b, "## Changes\n\n%d file(s), +%d −%d\n\n", len(diff.Files), diff.Additions, diff.Deletions)
 		for i, f := range diff.Files {
 			if i == 50 {
-				fmt.Fprintf(&b, "- … und %d weitere\n", len(diff.Files)-50)
+				fmt.Fprintf(&b, "- … and %d more\n", len(diff.Files)-50)
 				break
 			}
 			fmt.Fprintf(&b, "- `%s` (%s)\n", f.Path, statusLabel(f.Status))
@@ -271,12 +271,12 @@ func (m *Manager) PullRequestDraft(ctx context.Context, id string) (*PRDraft, er
 		b.WriteString("\n")
 	}
 	b.WriteString("---\n")
-	fmt.Fprintf(&b, "Erstellt mit [ADE](https://github.com/DavidW475/ade) · Workspace `%s`", w.ID)
+	fmt.Fprintf(&b, "Created with [ADE](https://github.com/DavidW475/ade) · workspace `%s`", w.ID)
 	if len(sessions) > 0 {
-		fmt.Fprintf(&b, " · %d Agent-Session(s)", len(sessions))
+		fmt.Fprintf(&b, " · %d agent session(s)", len(sessions))
 	}
 	if cost > 0 {
-		fmt.Fprintf(&b, " · Kosten %.2f $", cost)
+		fmt.Fprintf(&b, " · costs $%.2f", cost)
 	}
 	b.WriteString("\n")
 	d.Body = b.String()
@@ -284,8 +284,8 @@ func (m *Manager) PullRequestDraft(ctx context.Context, id string) (*PRDraft, er
 }
 
 var statusLabels = map[string]string{
-	"added": "neu", "modified": "geändert", "deleted": "gelöscht", "renamed": "umbenannt",
-	"copied": "kopiert", "type_changed": "Typ geändert", "unmerged": "Konflikt",
+	"added": "new", "modified": "modified", "deleted": "deleted", "renamed": "renamed",
+	"copied": "copied", "type_changed": "type changed", "unmerged": "conflict",
 }
 
 func statusLabel(s string) string {
@@ -295,7 +295,7 @@ func statusLabel(s string) string {
 	return s
 }
 
-// title ist die erste Zeile der ersten Aufgabe im Workspace (höchstens 72 Zeichen).
+// title is the first line of the first task in the workspace (at most 72 characters).
 func (m *Manager) title(ctx context.Context, w *store.Workspace) string {
 	sessions, _ := m.store.ListSessions(ctx, store.SessionFilter{WorkspaceID: w.ID, Limit: 1000})
 	for i := len(sessions) - 1; i >= 0; i-- {
@@ -313,27 +313,27 @@ func (m *Manager) title(ctx context.Context, w *store.Workspace) string {
 		}
 		return t
 	}
-	return "Änderungen aus " + w.Branch
+	return "Changes from " + w.Branch
 }
 
-// PRRequest ist der Body von POST /api/workspaces/{id}/pull-request.
+// PRRequest is the body of POST /api/workspaces/{id}/pull-request.
 type PRRequest struct {
 	Title string `json:"title,omitempty"`
 	Body  string `json:"body,omitempty"`
 	Draft bool   `json:"draft,omitempty"`
 }
 
-// PullRequest pusht den Branch vom Host zum Remote und erstellt mit gh einen Pull Request.
-// Gibt es schon einen, wird er durch den Push nur aktualisiert.
+// PullRequest pushes the branch from the host to the remote and creates a pull request with gh.
+// If one already exists, the push only updates it.
 func (m *Manager) PullRequest(ctx context.Context, id string, req PRRequest) (*store.Workspace, error) {
 	if err := m.checkBusy(ctx, id); err != nil {
 		return nil, err
 	}
 	if len(req.Title) > 256 || len(req.Body) > 64<<10 {
-		return nil, apperr.Invalid("Titel oder Beschreibung zu lang")
+		return nil, apperr.Invalid("title or description too long")
 	}
 	if strings.ContainsRune(req.Title, '\n') {
-		return nil, apperr.Invalid("der Titel darf keinen Zeilenumbruch enthalten")
+		return nil, apperr.Invalid("the title must not contain a line break")
 	}
 	unlock := m.lockWorkspace(id)
 	defer unlock()
@@ -346,17 +346,17 @@ func (m *Manager) PullRequest(ctx context.Context, id string, req PRRequest) (*s
 		return nil, err
 	}
 	if _, err := git.RemoteURL(ctx, p.RepoPath, Remote); err != nil {
-		return nil, apperr.Invalid("das Projekt-Repo hat kein Remote %q – PRs brauchen ein GitHub-Remote", Remote)
+		return nil, apperr.Invalid("the project repository has no remote %q – PRs need a GitHub remote", Remote)
 	}
 	if w.HeadCommit == w.BaseCommit {
-		return nil, apperr.Invalid("keine Änderungen für einen Pull Request")
+		return nil, apperr.Invalid("no changes for a pull request")
 	}
 	m.mu.Lock()
 	gh := m.gh
 	m.mu.Unlock()
 	if w.PRURL == "" {
 		if _, err := exec.LookPath(gh); err != nil {
-			return nil, apperr.Invalid("GitHub CLI (gh) nicht gefunden – installieren und `gh auth login` ausführen")
+			return nil, apperr.Invalid("GitHub CLI (gh) not found – install it and run `gh auth login`")
 		}
 	}
 
@@ -364,9 +364,9 @@ func (m *Manager) PullRequest(ctx context.Context, id string, req PRRequest) (*s
 	err = git.Push(pctx, p.RepoPath, Remote, w.Branch)
 	cancel()
 	if err != nil {
-		return nil, apperr.Conflict("Push nach %s fehlgeschlagen: %v", Remote, err)
+		return nil, apperr.Conflict("push to %s failed: %v", Remote, err)
 	}
-	m.log.Info("Branch gepusht", "id", id, "remote", Remote, "branch", w.Branch)
+	m.log.Info("branch pushed", "id", id, "remote", Remote, "branch", w.Branch)
 	if w.PRURL != "" {
 		return w, nil
 	}
@@ -390,7 +390,7 @@ func (m *Manager) PullRequest(ctx context.Context, id string, req PRRequest) (*s
 	if err := m.store.UpdateWorkspace(ctx, id, store.WorkspaceUpdate{PRURL: &url}); err != nil {
 		return nil, err
 	}
-	m.log.Info("Pull Request erstellt", "id", id, "url", url)
+	m.log.Info("pull request created", "id", id, "url", url)
 	return m.store.GetWorkspace(ctx, id)
 }
 
@@ -408,20 +408,20 @@ func (m *Manager) createPR(ctx context.Context, gh, repo string, w *store.Worksp
 		if msg == "" {
 			msg = err.Error()
 		}
-		return "", apperr.Conflict("gh pr create fehlgeschlagen: %s", msg)
+		return "", apperr.Conflict("gh pr create failed: %s", msg)
 	}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if l := strings.TrimSpace(line); strings.HasPrefix(l, "https://") || strings.HasPrefix(l, "http://") {
 			return l, nil
 		}
 	}
-	return "", fmt.Errorf("gh lieferte keine PR-URL: %q", out)
+	return "", fmt.Errorf("gh returned no PR URL: %q", out)
 }
 
 func runGH(ctx context.Context, gh, dir, stdin string, args ...string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, GHTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, gh, args...) //nolint:gosec // G204: feste Argumente, Werte vom angemeldeten Nutzer
+	cmd := exec.CommandContext(ctx, gh, args...) //nolint:gosec // G204: fixed arguments, values from the logged-in user
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "NO_COLOR=1", "GIT_TERMINAL_PROMPT=0")
 	cmd.Stdin = strings.NewReader(stdin)
@@ -431,7 +431,7 @@ func runGH(ctx context.Context, gh, dir, stdin string, args ...string) (string, 
 	return stdout.String(), stderr.String(), err
 }
 
-// FileSide ist eine Seite einer geänderten Datei.
+// FileSide is one side of a changed file.
 type FileSide struct {
 	Exists   bool   `json:"exists"`
 	Binary   bool   `json:"binary,omitempty"`
@@ -439,7 +439,7 @@ type FileSide struct {
 	Text     string `json:"text,omitempty"`
 }
 
-// FileContents sind Basis- und aktueller Stand einer Datei für den Diff-Editor.
+// FileContents are the base and current version of a file for the diff editor.
 type FileContents struct {
 	Path     string   `json:"path"`
 	OldPath  string   `json:"old_path,omitempty"`
@@ -447,8 +447,8 @@ type FileContents struct {
 	Modified FileSide `json:"modified"`
 }
 
-// File liefert eine Datei im Basis-Commit (unter oldPath, falls umbenannt) und im
-// Arbeitsbaum des Workspaces.
+// File returns a file in the base commit (under oldPath if renamed) and in the workspace's
+// working tree.
 func (m *Manager) File(ctx context.Context, id, file, oldPath string) (*FileContents, error) {
 	if err := checkRelPath(file); err != nil {
 		return nil, err
@@ -463,7 +463,7 @@ func (m *Manager) File(ctx context.Context, id, file, oldPath string) (*FileCont
 		return nil, err
 	}
 	if !hasWorktree(w) {
-		return nil, apperr.Conflict("Workspace %s hat keinen Arbeitsbaum (Status %s)", id, w.Status)
+		return nil, apperr.Conflict("workspace %s has no working tree (status %s)", id, w.Status)
 	}
 	fc := &FileContents{Path: file}
 	if oldPath != file {
@@ -498,22 +498,22 @@ func side(data []byte, ok bool, err error) (FileSide, error) {
 	return FileSide{Exists: true, Text: string(data)}, nil
 }
 
-// checkRelPath lässt nur relative Pfade innerhalb des Repos zu.
+// checkRelPath only allows relative paths within the repository.
 func checkRelPath(p string) error {
 	if p == "" || strings.ContainsRune(p, 0) || strings.HasPrefix(p, "/") || path.Clean(p) != p ||
 		p == ".." || strings.HasPrefix(p, "../") || len(p) > 4096 {
-		return apperr.Invalid("ungültiger Dateipfad %q", p)
+		return apperr.Invalid("invalid file path %q", p)
 	}
 	return nil
 }
 
-// SensitivePaths sind Pfade, deren Änderung vor einem Push ein Mensch sehen muss: Workflows
-// und Actions laufen in der CI mit den Secrets des Repos, .ade/ steuert ADE selbst (#103).
-// Ein Eintrag mit / am Ende ist ein Verzeichnis.
+// SensitivePaths are paths whose changes a human must see before a push: workflows and
+// actions run in CI with the repository's secrets, .ade/ controls ADE itself (#103).
+// An entry ending in / is a directory.
 var SensitivePaths = []string{".github/workflows/", ".github/actions/", ".ade/"}
 
-// Sensitive liefert die geänderten Dateien des Diffs unter SensitivePaths (auch alte Pfade
-// umbenannter Dateien), sortiert und ohne Doppelte.
+// Sensitive returns the changed files of the diff under SensitivePaths (also old paths of
+// renamed files), sorted and without duplicates.
 func Sensitive(d *git.Diff) []string {
 	var out []string
 	for _, f := range d.Files {
@@ -527,7 +527,7 @@ func Sensitive(d *git.Diff) []string {
 	return out
 }
 
-// IsSensitive meldet, ob der Pfad (relativ zum Repo) unter SensitivePaths liegt.
+// IsSensitive reports whether the path (relative to the repository) is under SensitivePaths.
 func IsSensitive(p string) bool {
 	p = strings.TrimPrefix(path.Clean("/"+p), "/")
 	for _, s := range SensitivePaths {

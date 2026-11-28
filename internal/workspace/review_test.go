@@ -29,7 +29,7 @@ func TestCollectCommitsAndFetches(t *testing.T) {
 	ctx := context.Background()
 	w := e.create()
 
-	// Ohne Änderungen: Branch zeigt auf den Basis-Commit, kein Commit.
+	// Without changes: the branch points to the base commit, no commit.
 	got, err := e.m.Collect(ctx, w.ID, "s1")
 	if err != nil {
 		t.Fatal(err)
@@ -45,36 +45,36 @@ func TestCollectCommitsAndFetches(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.HeadCommit == w.BaseCommit {
-		t.Fatal("kein WIP-Commit")
+		t.Fatal("no WIP commit")
 	}
 	if msg := gitRun(t, e.repo, "log", "-1", "--format=%s", w.Branch); msg != "ade: wip s1" {
-		t.Errorf("Commit-Nachricht = %q", msg)
+		t.Errorf("commit message = %q", msg)
 	}
 	if head := gitRun(t, e.repo, "rev-parse", w.Branch); head != got.HeadCommit {
-		t.Errorf("Branch im Repo = %s, want %s", head, got.HeadCommit)
+		t.Errorf("branch in the repository = %s, want %s", head, got.HeadCommit)
 	}
 	if files := gitRun(t, e.repo, "diff", "--name-only", w.BaseCommit, w.Branch); files != "README.md\nneu.txt" {
-		t.Errorf("Dateien im Branch = %q", files)
+		t.Errorf("files in the branch = %q", files)
 	}
 	if st := gitRun(t, w.Path, "status", "--porcelain"); st != "" {
-		t.Errorf("Workspace nicht sauber: %q", st)
+		t.Errorf("workspace not clean: %q", st)
 	}
-	// Das Haupt-Repo bekommt nur den Branch, sonst nichts.
+	// The main repository only gets the branch, nothing else.
 	if st := gitRun(t, e.repo, "status", "--porcelain"); st != "" {
-		t.Errorf("Arbeitsbaum des Repos verändert: %q", st)
+		t.Errorf("working tree of the repository changed: %q", st)
 	}
 	if r := gitRun(t, w.Path, "remote"); r != "" {
-		t.Errorf("Workspace hat Remotes: %q", r)
+		t.Errorf("workspace has remotes: %q", r)
 	}
 }
 
 func TestCollectIgnoresWorkspaceHooks(t *testing.T) {
 	e := setup(t, "")
 	w := e.create()
-	marker := filepath.Join(t.TempDir(), "hook-lief")
+	marker := filepath.Join(t.TempDir(), "hook-ran")
 	hook := filepath.Join(w.Path, ".git", "hooks", "pre-commit")
 	writeFile(t, hook, "#!/bin/sh\ntouch "+marker+"\nexit 1\n")
-	if err := os.Chmod(hook, 0o755); err != nil { //nolint:gosec // G302: Hook muss ausführbar sein
+	if err := os.Chmod(hook, 0o755); err != nil { //nolint:gosec // G302: the hook must be executable
 		t.Fatal(err)
 	}
 	gitRun(t, w.Path, "config", "core.hooksPath", filepath.Join(w.Path, ".git", "hooks"))
@@ -83,7 +83,7 @@ func TestCollectIgnoresWorkspaceHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(marker); err == nil {
-		t.Error("Hook des Workspaces wurde ausgeführt")
+		t.Error("the workspace's hook was run")
 	}
 }
 
@@ -107,16 +107,16 @@ func TestMergeIntoCheckedOutBase(t *testing.T) {
 	if len(parents) != 2 || parents[0] != w.BaseCommit || parents[1] != got.HeadCommit {
 		t.Errorf("Eltern = %v", parents)
 	}
-	// main ist ausgecheckt: Der Arbeitsbaum zieht mit.
+	// main is checked out: the working tree follows.
 	if data, err := os.ReadFile(filepath.Join(e.repo, "neu.txt")); err != nil || string(data) != "neu\n" {
-		t.Errorf("neu.txt im Repo: %q, %v", data, err)
+		t.Errorf("neu.txt in the repository: %q, %v", data, err)
 	}
 	if st := gitRun(t, e.repo, "status", "--porcelain"); st != "" {
-		t.Errorf("Repo nicht sauber: %q", st)
+		t.Errorf("repository not clean: %q", st)
 	}
-	// Ein zweites Mal gibt es nichts zu mergen.
+	// A second time there is nothing to merge.
 	if _, err := e.m.Merge(ctx, w.ID); !errors.Is(err, apperr.ErrConflict) {
-		t.Errorf("zweiter Merge: %v", err)
+		t.Errorf("second merge: %v", err)
 	}
 }
 
@@ -136,14 +136,14 @@ func TestMergeWithoutWorktree(t *testing.T) {
 		t.Errorf("main = %s, want %s", head, got.MergeCommit)
 	}
 	if files := gitRun(t, e.repo, "ls-tree", "--name-only", "main"); files != "README.md\nneu.txt" {
-		t.Errorf("Dateien in main = %q", files)
+		t.Errorf("files in main = %q", files)
 	}
-	// Ausgecheckter Branch und ungespeicherte Änderungen bleiben unberührt.
+	// The checked-out branch and unsaved changes stay untouched.
 	if b := gitRun(t, e.repo, "branch", "--show-current"); b != "anderer" {
 		t.Errorf("ausgecheckt = %s", b)
 	}
 	if _, err := os.Stat(filepath.Join(e.repo, "neu.txt")); !os.IsNotExist(err) {
-		t.Errorf("neu.txt im Arbeitsbaum: %v", err)
+		t.Errorf("neu.txt in the working tree: %v", err)
 	}
 	if st := gitRun(t, e.repo, "status", "--porcelain"); st != "?? lokal.txt" {
 		t.Errorf("status = %q", st)
@@ -168,10 +168,10 @@ func TestMergeConflict(t *testing.T) {
 		t.Errorf("Konflikte = %v", mc.Files)
 	}
 	if after := gitRun(t, e.repo, "rev-parse", "main"); after != before {
-		t.Error("main wurde trotz Konflikt verändert")
+		t.Error("main was changed despite the conflict")
 	}
 	if st := gitRun(t, e.repo, "status", "--porcelain"); st != "" {
-		t.Errorf("Repo nicht sauber: %q", st)
+		t.Errorf("repository not clean: %q", st)
 	}
 }
 
@@ -180,26 +180,26 @@ func TestMergeRequiresChangesAndIdleAgent(t *testing.T) {
 	ctx := context.Background()
 	w := e.create()
 	if _, err := e.m.Merge(ctx, w.ID); !errors.Is(err, apperr.ErrInvalid) {
-		t.Errorf("Merge ohne Änderungen: %v", err)
+		t.Errorf("merge without changes: %v", err)
 	}
-	e.m.SetBusyCheck(func(context.Context, string) error { return apperr.Conflict("beschäftigt") })
+	e.m.SetBusyCheck(func(context.Context, string) error { return apperr.Conflict("busy") })
 	writeFile(t, filepath.Join(w.Path, "neu.txt"), "neu\n")
 	if _, err := e.m.Merge(ctx, w.ID); !errors.Is(err, apperr.ErrConflict) {
-		t.Errorf("Merge bei laufendem Agenten: %v", err)
+		t.Errorf("merge while an agent is running: %v", err)
 	}
 	if _, err := e.m.PullRequest(ctx, w.ID, PRRequest{}); !errors.Is(err, apperr.ErrConflict) {
-		t.Errorf("PR bei laufendem Agenten: %v", err)
+		t.Errorf("PR while an agent is running: %v", err)
 	}
 }
 
-// fakeGH schreibt ein gh-Skript, das seine Argumente und stdin protokolliert.
+// fakeGH writes a gh script that logs its arguments and stdin.
 func fakeGH(t *testing.T, script string) (path, log string) {
 	t.Helper()
 	dir := t.TempDir()
 	log = filepath.Join(dir, "calls")
 	path = filepath.Join(dir, "gh")
 	writeFile(t, path, "#!/bin/sh\necho \"$@\" >> "+log+"\n"+script)
-	if err := os.Chmod(path, 0o755); err != nil { //nolint:gosec // G302: Skript muss ausführbar sein
+	if err := os.Chmod(path, 0o755); err != nil { //nolint:gosec // G302: the script must be executable
 		t.Fatal(err)
 	}
 	return path, log
@@ -225,7 +225,7 @@ func TestPullRequest(t *testing.T) {
 		t.Errorf("Entwurf = %#v", d)
 	}
 
-	got, err := e.m.PullRequest(ctx, w.ID, PRRequest{Title: "Neue Datei", Body: "Beschreibung"})
+	got, err := e.m.PullRequest(ctx, w.ID, PRRequest{Title: "New file", Body: "Description"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,27 +233,27 @@ func TestPullRequest(t *testing.T) {
 		t.Errorf("PRURL = %q", got.PRURL)
 	}
 	if head := gitRun(t, remote, "rev-parse", w.Branch); head != got.HeadCommit {
-		t.Errorf("Remote-Branch = %s, want %s", head, got.HeadCommit)
+		t.Errorf("remote branch = %s, want %s", head, got.HeadCommit)
 	}
 	log, _ := os.ReadFile(calls)
-	if want := "pr create --head " + w.Branch + " --base main --title Neue Datei --body-file -\n"; string(log) != want {
-		t.Errorf("gh-Aufruf = %q, want %q", log, want)
+	if want := "pr create --head " + w.Branch + " --base main --title New file --body-file -\n"; string(log) != want {
+		t.Errorf("gh call = %q, want %q", log, want)
 	}
-	if b, _ := os.ReadFile(body); string(b) != "Beschreibung" {
+	if b, _ := os.ReadFile(body); string(b) != "Description" {
 		t.Errorf("Body = %q", b)
 	}
 
-	// Weitere Änderungen: Push aktualisiert den PR, gh wird nicht erneut aufgerufen.
+	// More changes: the push updates the PR, gh is not called again.
 	writeFile(t, filepath.Join(w.Path, "zwei.txt"), "zwei\n")
 	got, err = e.m.PullRequest(ctx, w.ID, PRRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if head := gitRun(t, remote, "rev-parse", w.Branch); head != got.HeadCommit {
-		t.Errorf("Remote-Branch nach Update = %s, want %s", head, got.HeadCommit)
+		t.Errorf("remote branch after update = %s, want %s", head, got.HeadCommit)
 	}
 	if log2, _ := os.ReadFile(calls); string(log2) != string(log) {
-		t.Errorf("gh erneut aufgerufen: %q", log2)
+		t.Errorf("gh called again: %q", log2)
 	}
 }
 
@@ -262,19 +262,19 @@ func TestPullRequestErrors(t *testing.T) {
 	ctx := context.Background()
 	w := e.create()
 	writeFile(t, filepath.Join(w.Path, "neu.txt"), "neu\n")
-	if _, err := e.m.PullRequest(ctx, w.ID, PRRequest{}); !errors.Is(err, apperr.ErrInvalid) || !strings.Contains(err.Error(), "Remote") {
-		t.Errorf("ohne Remote: %v", err)
+	if _, err := e.m.PullRequest(ctx, w.ID, PRRequest{}); !errors.Is(err, apperr.ErrInvalid) || !strings.Contains(err.Error(), "remote") {
+		t.Errorf("without remote: %v", err)
 	}
 	remote := filepath.Join(t.TempDir(), "remote.git")
 	gitRun(t, e.repo, "init", "-q", "--bare", remote)
 	gitRun(t, e.repo, "remote", "add", "origin", remote)
-	gh, _ := fakeGH(t, "echo 'GraphQL: kaputt' >&2\nexit 1\n")
+	gh, _ := fakeGH(t, "echo 'GraphQL: broken' >&2\nexit 1\n")
 	e.m.SetGitHubCLI(gh)
-	if _, err := e.m.PullRequest(ctx, w.ID, PRRequest{}); !errors.Is(err, apperr.ErrConflict) || !strings.Contains(err.Error(), "kaputt") {
-		t.Errorf("gh-Fehler: %v", err)
+	if _, err := e.m.PullRequest(ctx, w.ID, PRRequest{}); !errors.Is(err, apperr.ErrConflict) || !strings.Contains(err.Error(), "broken") {
+		t.Errorf("gh error: %v", err)
 	}
 	if _, err := e.m.PullRequest(ctx, w.ID, PRRequest{Title: "a\nb"}); !errors.Is(err, apperr.ErrInvalid) {
-		t.Errorf("Titel mit Umbruch: %v", err)
+		t.Errorf("title with a line break: %v", err)
 	}
 }
 
@@ -288,13 +288,13 @@ func TestDeleteRemovesBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !git.BranchExists(ctx, e.repo, w.Branch) {
-		t.Fatal("Branch fehlt im Repo")
+		t.Fatal("branch missing in the repository")
 	}
 
-	// Ausgecheckt im Repo: nicht löschen.
+	// Checked out in the repository: do not delete.
 	gitRun(t, e.repo, "switch", "-q", w.Branch)
 	if err := e.m.Delete(ctx, w.ID); !errors.Is(err, apperr.ErrConflict) {
-		t.Fatalf("Delete bei ausgechecktem Branch: %v", err)
+		t.Fatalf("Delete with a checked-out branch: %v", err)
 	}
 	gitRun(t, e.repo, "switch", "-q", "main")
 
@@ -302,13 +302,13 @@ func TestDeleteRemovesBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	if git.BranchExists(ctx, e.repo, w.Branch) {
-		t.Error("Branch existiert noch")
+		t.Error("branch still exists")
 	}
 	if after := repoState(t, e.repo); after != before {
-		t.Errorf("Repo nicht rückstandsfrei:\nvorher:\n%s\nnachher:\n%s", before, after)
+		t.Errorf("repository not free of leftovers:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 	if entries, _ := os.ReadDir(e.dir); len(entries) != 0 {
-		t.Errorf("Workspace-Verzeichnis nicht leer: %v", entries)
+		t.Errorf("workspace directory not empty: %v", entries)
 	}
 }
 
@@ -335,9 +335,9 @@ func TestFileContents(t *testing.T) {
 		t.Fatal(err)
 	}
 	if fc.Original.Exists || !fc.Modified.Exists || !fc.Modified.Binary {
-		t.Errorf("binär = %#v", fc)
+		t.Errorf("binary = %#v", fc)
 	}
-	// Symlinks werden nicht verfolgt: Inhalt ist das Linkziel.
+	// Symlinks are not followed: the content is the link target.
 	fc, err = e.m.File(ctx, w.ID, "link", "")
 	if err != nil {
 		t.Fatal(err)
@@ -350,9 +350,9 @@ func TestFileContents(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !fc.Original.Exists || fc.Modified.Exists {
-		t.Errorf("gelöscht = %#v", fc)
+		t.Errorf("deleted = %#v", fc)
 	}
-	// Index des Workspaces bleibt unverändert.
+	// The workspace's index stays unchanged.
 	if st := gitRun(t, w.Path, "status", "--porcelain"); !strings.Contains(st, "?? bin.dat") {
 		t.Errorf("status = %q", st)
 	}
@@ -370,7 +370,7 @@ func TestCloneAcrossFilesystems(t *testing.T) {
 
 	e := setup(t, "")
 	w := e.create()
-	// Ohne Hardlinks hat jede Objektdatei genau einen Link.
+	// Without hardlinks every object file has exactly one link.
 	objects := filepath.Join(w.Path, ".git", "objects")
 	n := 0
 	err := filepath.WalkDir(objects, func(p string, d os.DirEntry, err error) error {
@@ -382,7 +382,7 @@ func TestCloneAcrossFilesystems(t *testing.T) {
 			return err
 		}
 		if links := st.Sys().(*syscall.Stat_t).Nlink; links != 1 {
-			t.Errorf("%s hat %d Links", p, links)
+			t.Errorf("%s has %d links", p, links)
 		}
 		n++
 		return nil
@@ -405,6 +405,6 @@ func TestSensitive(t *testing.T) {
 	got := Sensitive(d)
 	want := []string{".ade", ".ade/project.yaml", ".github/actions/a/action.yml", ".github/workflows/ci.yml"}
 	if !slices.Equal(got, want) {
-		t.Fatalf("Sensitive = %v, erwartet %v", got, want)
+		t.Fatalf("Sensitive = %v, want %v", got, want)
 	}
 }
