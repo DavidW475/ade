@@ -8,7 +8,7 @@ import { SandboxBadge } from "../components/sandbox";
 import { Notice } from "../components/ui";
 import { errorMessage, formatDuration, formatTime, formatUSD } from "../format";
 
-/** Zeitlimit kompakt: 2 h, 1 h 30 min, 45 min. */
+/** Compact time limit: 2 h, 1 h 30 min, 45 min. */
 function formatHours(ms: number): string {
   const min = Math.round(ms / 60_000);
   if (min < 60) return formatDuration(ms);
@@ -28,10 +28,10 @@ export function RunPage() {
     queryFn: () => api.project(run.data?.project_id ?? ""),
     enabled: !!run.data,
   });
-  // Gewählter Schritt in der URL (?step=<name>), damit er sich verlinken lässt.
+  // Selected step in the URL (?step=<name>), so it can be linked.
   const [params, setParams] = useSearchParams();
 
-  if (run.isPending) return <p className="muted">Lade Run …</p>;
+  if (run.isPending) return <p className="muted">Loading run …</p>;
   if (run.isError) return <Notice tone="bad">{errorMessage(run.error)}</Notice>;
   const r = run.data;
   const named = r.steps.find((s) => s.name === params.get("step"));
@@ -55,13 +55,13 @@ export function RunPage() {
       </div>
 
       {r.error && (
-        <Notice tone={r.status === "canceled" ? "info" : "bad"} title={r.status === "canceled" ? "Abgebrochen" : "Fehlgeschlagen"}>
+        <Notice tone={r.status === "canceled" ? "info" : "bad"} title={r.status === "canceled" ? "Canceled" : "Failed"}>
           {r.error}
         </Notice>
       )}
       {r.status === "done" && r.pr_url && (
-        <Notice tone="info" title="Fertig">
-          Pull Request:{" "}
+        <Notice tone="info" title="Done">
+          Pull request:{" "}
           <a href={r.pr_url} target="_blank" rel="noreferrer">
             {r.pr_url}
           </a>
@@ -69,24 +69,24 @@ export function RunPage() {
       )}
 
       <dl className="facts panel">
-        <dt>Fabrik</dt>
+        <dt>Factory</dt>
         <dd>
           <code>{r.factory}</code>{" "}
-          <span className="muted">{r.source === "builtin" ? "(mitgelieferte Vorlage)" : "(.ade/factories im Projekt)"}</span>
+          <span className="muted">{r.source === "builtin" ? "(built-in template)" : "(.ade/factories in the project)"}</span>
         </dd>
         {r.trigger && (
           <>
-            <dt>Ausgelöst von</dt>
+            <dt>Triggered by</dt>
             <dd>
               <RunTrigger run={r} />
-              {r.closes ? <span className="muted"> · der Pull Request schließt das Issue</span> : null}
+              {r.closes ? <span className="muted"> · the pull request closes the issue</span> : null}
             </dd>
           </>
         )}
         <dt>Workspace</dt>
         <dd>
           {r.workspace_gone ? (
-            <span className="muted">verworfen</span>
+            <span className="muted">discarded</span>
           ) : r.workspace_id ? (
             <>
               <Link to={`/workspaces/${r.workspace_id}`} className="mono">
@@ -98,20 +98,20 @@ export function RunPage() {
             "–"
           )}
         </dd>
-        <dt>Kosten</dt>
+        <dt>Costs</dt>
         <dd>
           {formatUSD(r.cost_usd)}
-          {r.budget_usd ? <span className="muted"> von {formatUSD(r.budget_usd)} (budget.max_cost_usd)</span> : null}
-          {r.max_duration_ns ? <span className="muted"> · Arbeitszeit höchstens {formatHours(r.max_duration_ns / 1e6)}</span> : null}
+          {r.budget_usd ? <span className="muted"> of {formatUSD(r.budget_usd)} (budget.max_cost_usd)</span> : null}
+          {r.max_duration_ns ? <span className="muted"> · working time at most {formatHours(r.max_duration_ns / 1e6)}</span> : null}
         </dd>
-        <dt>Gestartet</dt>
+        <dt>Started</dt>
         <dd>
           {formatTime(r.created_at)}
-          {r.ended_at && <span className="muted"> · beendet {formatTime(r.ended_at)}</span>}
+          {r.ended_at && <span className="muted"> · ended {formatTime(r.ended_at)}</span>}
         </dd>
         {r.pr_url && (
           <>
-            <dt>Pull Request</dt>
+            <dt>Pull request</dt>
             <dd>
               <a href={r.pr_url} target="_blank" rel="noreferrer">
                 {r.pr_url}
@@ -122,7 +122,7 @@ export function RunPage() {
       </dl>
 
       <div className="sectionhead">
-        <h2>Ablauf</h2>
+        <h2>Flow</h2>
       </div>
       <Pipeline run={r} selected={idx} onSelect={setSelected} />
       {step && (
@@ -136,24 +136,24 @@ export function RunPage() {
 
       {r.task && (
         <details className="panel taskdetails">
-          <summary>Aufgabe</summary>
+          <summary>Task</summary>
           <pre className="artifact">{r.task}</pre>
         </details>
       )}
 
       <div className="sectionhead">
-        <h2>Artefakte</h2>
+        <h2>Artifacts</h2>
       </div>
       {r.artifacts.length === 0 ? (
         <div className="empty">
-          <p className="muted">Noch keine. Die letzte Antwort einer Rolle wird ihr Artefakt (z. B. plan.md) und geht an die folgenden Rollen.</p>
+          <p className="muted">None yet. The last answer of a role becomes its artifact (e.g. plan.md) and goes to the following roles.</p>
         </div>
       ) : (
         r.artifacts.map((a) => (
           <details key={a.name} className="panel artifactbox" open={r.artifacts.length === 1}>
             <summary>
-              <code>{a.name}</code> <span className="muted">von {a.role} (Schritt {a.step})</span>
-              {(a.iterations?.length ?? 0) > 1 && <span className="muted"> · {a.iterations?.length} Durchläufe</span>}
+              <code>{a.name}</code> <span className="muted">by {a.role} (step {a.step})</span>
+              {(a.iterations?.length ?? 0) > 1 && <span className="muted"> · {a.iterations?.length} passes</span>}
             </summary>
             <ArtifactVersions runId={r.id} artifact={a} />
           </details>
@@ -163,7 +163,7 @@ export function RunPage() {
   );
 }
 
-/** Alle Ausführungen einer Position (frühere Durchläufe aus history, dann die jüngste). */
+/** All executions of a position (earlier passes from history, then the latest). */
 function executions(run: Run, index: number): RunStep[] {
   const all = [...(run.history ?? []).filter((h) => h.index === index), ...run.steps.filter((s) => s.index === index)];
   return all.sort((a, b) => a.iteration - b.iteration || a.row - b.row);
@@ -171,7 +171,7 @@ function executions(run: Run, index: number): RunStep[] {
 
 function StepDetail({ run, step, iteration, onIteration }: { run: Run; step: RunStep; iteration?: number; onIteration: (n: number) => void }) {
   const execs = executions(run, step.index);
-  // Gewählter Durchlauf (?iteration=), sonst der jüngste.
+  // Selected pass (?iteration=), otherwise the latest.
   const ex = execs.filter((e) => e.iteration === iteration).pop() ?? step;
   return (
     <div className="panel stepdetail">
@@ -181,10 +181,10 @@ function StepDetail({ run, step, iteration, onIteration }: { run: Run; step: Run
         <PlanNote step={step} plan={run.plan?.[step.index]} />
       </div>
       {execs.length > 1 && (
-        <div className="itertabs" role="group" aria-label="Durchlauf">
+        <div className="itertabs" role="group" aria-label="Pass">
           {execs.map((e) => (
             <button key={e.row} type="button" className={e.row === ex.row ? "active" : ""} onClick={() => onIteration(e.iteration)}>
-              Durchlauf {e.iteration} <StepStatusBadge status={e.status} />
+              Pass {e.iteration} <StepStatusBadge status={e.status} />
             </button>
           ))}
         </div>
@@ -194,7 +194,7 @@ function StepDetail({ run, step, iteration, onIteration }: { run: Run; step: Run
   );
 }
 
-/** Eine Ausführung eines Schritts: Status, Session, Artefakt dieses Durchlaufs, Fehler. */
+/** One execution of a step: status, session, artifact of this pass, error. */
 function Execution({ run, step, latest }: { run: Run; step: RunStep; latest: boolean }) {
   const pending = usePendingApprovals();
   const gate = step.approval_id ? pending.data?.find((a) => a.id === step.approval_id) : undefined;
@@ -205,8 +205,8 @@ function Execution({ run, step, latest }: { run: Run; step: RunStep; latest: boo
   return (
     <>
       <p className="hint">
-        <StepStatusBadge status={step.status} /> Durchlauf {step.iteration}
-        {plan?.goto && plan.max_iterations ? ` von höchstens ${plan.max_iterations}` : ""}
+        <StepStatusBadge status={step.status} /> Pass {step.iteration}
+        {plan?.goto && plan.max_iterations ? ` of at most ${plan.max_iterations}` : ""}
         {step.started_at && (
           <>
             {" "}
@@ -217,18 +217,18 @@ function Execution({ run, step, latest }: { run: Run; step: RunStep; latest: boo
       </p>
       {step.kind === "role" && (
         <p className="hint">
-          Rolle <code>{step.role}</code>
-          {step.read_only ? " mit Lesezugriff (kann den Workspace nicht ändern)" : " mit Schreibzugriff"}
+          Role <code>{step.role}</code>
+          {step.read_only ? " with read access (cannot change the workspace)" : " with write access"}
           {step.output && (
             <>
               {" "}
-              · Ausgabe <code>{step.output}</code>
+              · output <code>{step.output}</code>
             </>
           )}
           {step.session_id && (
             <>
               {" "}
-              · <Link to={`/sessions/${step.session_id}`}>Session ansehen</Link>
+              · <Link to={`/sessions/${step.session_id}`}>View session</Link>
             </>
           )}
         </p>
@@ -240,15 +240,15 @@ function Execution({ run, step, latest }: { run: Run; step: RunStep; latest: boo
               <ApprovalCard a={gate} showContext={false} />
             </ul>
           ) : step.status === "pending" ? (
-            <p className="hint">Hier wartet der Run auf deine Freigabe im Dashboard.</p>
+            <p className="hint">Here the run waits for your approval in the dashboard.</p>
           ) : step.status === "done" ? (
-            <p className="hint">Freigegeben.</p>
+            <p className="hint">Approved.</p>
           ) : null}
         </>
       )}
       {step.kind === "action" && (
         <p className="hint">
-          Pusht den Branch und erstellt einen Pull Request (wie „PR erstellen“ im Workspace).{" "}
+          Pushes the branch and creates a pull request (like “Create PR” in the workspace).{" "}
           {run.pr_url && (
             <a href={run.pr_url} target="_blank" rel="noreferrer">
               {run.pr_url}
@@ -258,12 +258,12 @@ function Execution({ run, step, latest }: { run: Run; step: RunStep; latest: boo
       )}
       {step.kind === "decision" && (
         <p className="hint">
-          Entscheidung: springt zurück zu <code>{plan?.goto ?? "?"}</code>, wenn die Bedingung wahr ist
-          {plan?.max_iterations ? ` (höchstens ${plan.max_iterations} Durchläufe, danach ${plan.on_exhausted === "continue" ? "weiter" : "Fehler"})` : ""}.
+          Decision: jumps back to <code>{plan?.goto ?? "?"}</code> if the condition is true
+          {plan?.max_iterations ? ` (at most ${plan.max_iterations} passes, then ${plan.on_exhausted === "continue" ? "continue" : "error"})` : ""}.
         </p>
       )}
       {validating && step.status !== "done" && step.error ? (
-        <Notice tone={step.status === "running" ? "warn" : "bad"} title={`Prüffehler im Artefakt ${step.output ?? ""} – Korrektur ${step.fixes ?? 0} von ${MAX_FIXES}`}>
+        <Notice tone={step.status === "running" ? "warn" : "bad"} title={`Check errors in artifact ${step.output ?? ""} – correction ${step.fixes ?? 0} of ${MAX_FIXES}`}>
           <code>{step.error}</code>
         </Notice>
       ) : (
@@ -275,13 +275,13 @@ function Execution({ run, step, latest }: { run: Run; step: RunStep; latest: boo
       )}
       {validating && step.status === "done" && (
         <p className="hint">
-          Das Artefakt entsprach erst nach {step.fixes === 1 ? "einer Korrektur" : `${step.fixes} Korrekturen`} dem Schema.
+          The artifact only matched the schema after {step.fixes === 1 ? "one correction" : `${step.fixes} corrections`}.
         </p>
       )}
       {artifact && hasVersion && (
         <details className="artifactbox" open>
           <summary>
-            <code>{artifact.name}</code> <span className="muted">aus Durchlauf {step.iteration}</span>
+            <code>{artifact.name}</code> <span className="muted">from pass {step.iteration}</span>
           </summary>
           <ArtifactView runId={run.id} name={artifact.name} iteration={artifact.iterations?.includes(step.iteration) ? step.iteration : undefined} />
         </details>
@@ -290,7 +290,7 @@ function Execution({ run, step, latest }: { run: Run; step: RunStep; latest: boo
   );
 }
 
-/** Korrektur-Runden für ein ungültiges strukturiertes Artefakt (factory.MaxFixes). */
+/** Correction rounds for an invalid structured artifact (factory.MaxFixes). */
 const MAX_FIXES = 2;
 
 function CancelRun({ run }: { run: Run }) {
@@ -309,9 +309,9 @@ function CancelRun({ run }: { run: Run }) {
         type="button"
         className="danger"
         disabled={cancel.isPending}
-        onClick={() => window.confirm("Run abbrechen? Die laufende Session wird gestoppt; der Workspace bleibt erhalten.") && cancel.mutate()}
+        onClick={() => window.confirm("Cancel the run? The running session is stopped; the workspace is kept.") && cancel.mutate()}
       >
-        {cancel.isPending ? "Breche ab …" : "Abbrechen"}
+        {cancel.isPending ? "Canceling …" : "Cancel"}
       </button>
       {cancel.isError && <Notice tone="bad">{errorMessage(cancel.error)}</Notice>}
     </div>

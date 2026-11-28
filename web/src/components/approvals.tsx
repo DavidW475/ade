@@ -17,18 +17,18 @@ import { SensitiveNotice } from "./review";
 import { Badge, Notice } from "./ui";
 
 const statusLabels: Record<ApprovalStatus, string> = {
-  pending: "offen",
-  approved: "erlaubt",
-  denied: "abgelehnt",
-  expired: "abgelaufen",
-  canceled: "abgebrochen",
+  pending: "pending",
+  approved: "allowed",
+  denied: "denied",
+  expired: "expired",
+  canceled: "canceled",
 };
 
 const decisionLabels: Record<ApprovalDecision, string> = {
-  allow: "einmal erlaubt",
-  allow_workspace: "für den Workspace erlaubt",
-  allow_project: "für das Projekt erlaubt",
-  deny: "abgelehnt",
+  allow: "allowed once",
+  allow_workspace: "allowed for the workspace",
+  allow_project: "allowed for the project",
+  deny: "denied",
 };
 
 export function ApprovalStatusBadge({ a }: { a: Approval }) {
@@ -38,7 +38,7 @@ export function ApprovalStatusBadge({ a }: { a: Approval }) {
   return <Badge tone={tone}>{label}</Badge>;
 }
 
-/** Restzeit bis zum Ablauf, sekündlich aktualisiert. */
+/** Remaining time until expiry, updated every second. */
 function Remaining({ until }: { until: string }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -47,9 +47,9 @@ function Remaining({ until }: { until: string }) {
   }, []);
   const s = Math.max(0, Math.round((new Date(until).getTime() - now) / 1000));
   const text =
-    s >= 3600 ? `noch ${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min` : `noch ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} min`;
+    s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min left` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} min left`;
   return (
-    <span className="muted" title={`läuft ab um ${formatTime(until)}, dann gilt sie als abgelehnt`}>
+    <span className="muted" title={`expires at ${formatTime(until)}, then it counts as denied`}>
       {text}
     </span>
   );
@@ -59,7 +59,7 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
-/** Inhalt eines Werkzeug-Aufrufs: Befehl, Datei, Änderung oder die rohe Eingabe. */
+/** Content of a tool call: command, file, change or the raw input. */
 function ToolInput({ d }: { d: ToolApprovalDetail }) {
   const i = d.input ?? {};
   if (d.tool === "Bash") {
@@ -91,7 +91,7 @@ function ToolInput({ d }: { d: ToolApprovalDetail }) {
   return <pre className="approvalcode">{JSON.stringify(i, null, 2)}</pre>;
 }
 
-/** Eine Freigabe mit Inhalt und – solange offen – den Aktionen. */
+/** An approval with its content and – while pending – the actions. */
 export function ApprovalCard({ a, showContext = true }: { a: Approval; showContext?: boolean }) {
   const qc = useQueryClient();
   const [reason, setReason] = useState("");
@@ -104,9 +104,9 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
   const egress = a.kind === "egress" ? (a.detail as EgressApprovalDetail) : undefined;
   const budget = a.kind === "budget" ? (a.detail as BudgetApprovalDetail) : undefined;
   const gate = a.kind === "gate" ? (a.detail as GateApprovalDetail) : undefined;
-  // Gate mit on_deny: Ablehnen schickt den Run mit Begründung zurück.
+  // Gate with on_deny: denying sends the run back with the reason.
   const back = gate?.on_deny;
-  const kindLabel = egress ? "Netzwerk" : budget ? "Budget" : gate ? "Fabrik" : (tool?.tool ?? "Werkzeug");
+  const kindLabel = egress ? "Network" : budget ? "Budget" : gate ? "Factory" : (tool?.tool ?? "Tool");
 
   return (
     <li className={`card approval ${pending ? "pending" : ""}`}>
@@ -115,7 +115,7 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
         <strong className="approvaltitle">
           {egress ? (
             <>
-              Agent will <code>{a.title}</code> erreichen
+              Agent wants to reach <code>{a.title}</code>
             </>
           ) : (
             a.title
@@ -126,14 +126,14 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
       </div>
       {showContext && (
         <div className="meta">
-          {a.sandbox ? "Sandbox" : "lokal"} · Workspace{" "}
+          {a.sandbox ? "sandbox" : "local"} · workspace{" "}
           <Link to={`/workspaces/${a.workspace_id}`} className="mono">
             {a.workspace_id}
           </Link>
           {a.session_id && (
             <>
               {" "}
-              · Session{" "}
+              · session{" "}
               <Link to={`/sessions/${a.session_id}`} className="mono">
                 {a.session_id}
               </Link>
@@ -145,80 +145,80 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
       {tool && pending && <ToolInput d={tool} />}
       {tool && !pending && (
         <details>
-          <summary className="muted">Eingabe</summary>
+          <summary className="muted">Input</summary>
           <ToolInput d={tool} />
         </details>
       )}
       {budget && (
         <p className="hint">
-          {budget.scope === "monthly" ? "Monatskosten des Projekts" : "Kosten der Session"}: {formatUSD(budget.spent_usd)} von{" "}
-          {formatUSD(budget.limit_usd)}. Der Agent ist pausiert.
-          {pending && ` „Budget erhöhen“ gibt weitere ${formatUSD(budget.step_usd)} frei und setzt ihn fort.`}
+          {budget.scope === "monthly" ? "Monthly costs of the project" : "Costs of the session"}: {formatUSD(budget.spent_usd)} of{" "}
+          {formatUSD(budget.limit_usd)}. The agent is paused.
+          {pending && ` “Raise budget” allows another ${formatUSD(budget.step_usd)} and resumes it.`}
         </p>
       )}
       {gate?.sensitive?.length ? <SensitiveNotice paths={gate.sensitive} /> : null}
       {gate?.unattended && (
         <p className="hint">
-          Run <Link to={`/runs/${gate.run_id}`} className="mono">{gate.run_id}</Link> will ohne Gate einen Pull Request öffnen und hat dabei die
-          oben genannten Dateien geändert. Vorher im{" "}
-          <Link to={`/workspaces/${a.workspace_id}`}>Workspace</Link> den Diff prüfen.
-          {pending && " Freigeben pusht und öffnet den PR, Ablehnen bricht den Run ab."}
+          Run <Link to={`/runs/${gate.run_id}`} className="mono">{gate.run_id}</Link> wants to open a pull request without a gate and changed the
+          files named above. Check the diff in the{" "}
+          <Link to={`/workspaces/${a.workspace_id}`}>workspace</Link> first.
+          {pending && " Approving pushes and opens the PR, denying cancels the run."}
         </p>
       )}
       {gate && !gate.unattended && (
         <p className="hint">
-          Run <Link to={`/runs/${gate.run_id}`} className="mono">{gate.run_id}</Link> wartet vor dem Schritt <code>{gate.step}</code>.
-          {gate.artifacts?.length ? <> Zu prüfen: {gate.artifacts.map((n) => <code key={n}>{n} </code>)}</> : null}
-          {gate.iteration && gate.max_iterations ? ` · Durchlauf ${gate.iteration} von höchstens ${gate.max_iterations}.` : ""}
+          Run <Link to={`/runs/${gate.run_id}`} className="mono">{gate.run_id}</Link> waits before step <code>{gate.step}</code>.
+          {gate.artifacts?.length ? <> To review: {gate.artifacts.map((n) => <code key={n}>{n} </code>)}</> : null}
+          {gate.iteration && gate.max_iterations ? ` · pass ${gate.iteration} of at most ${gate.max_iterations}.` : ""}
           {pending &&
             (back ? (
               <>
                 {" "}
-                Freigeben setzt den Run fort, ein Hinweis geht an die nächste Rolle. „Zurück zu {back}“ springt mit deiner Begründung als Feedback zurück –
-                die Begründung ist dafür Pflicht.
+                Approving continues the run, a note goes to the next role. “Back to {back}” jumps back with your reason as feedback –
+                the reason is required for that.
               </>
             ) : (
-              " Ein Hinweis im Begründungsfeld geht an die nächste Rolle; Ablehnen bricht den Run ab."
+              " A note in the reason field goes to the next role; denying cancels the run."
             ))}
         </p>
       )}
-      {!pending && a.reason && <p className="hint">Begründung: {a.reason}</p>}
+      {!pending && a.reason && <p className="hint">Reason: {a.reason}</p>}
       {pending && (
         <>
           <div className="inline-form approvalactions">
             <input
               placeholder={
-                back ? `Hinweis an die nächste Rolle – bzw. Feedback für ${back} (Pflicht beim Zurückschicken)` : tool || gate ? "Begründung / Hinweis an den Agenten (optional)" : "Begründung (optional)"
+                back ? `Note to the next role – or feedback for ${back} (required when sending back)` : tool || gate ? "Reason / note to the agent (optional)" : "Reason (optional)"
               }
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              aria-label="Begründung"
+              aria-label="Reason"
             />
             {tool || budget || gate ? (
               <button type="button" className="primary" disabled={decide.isPending} onClick={() => decide.mutate("allow")}>
-                {budget ? "Budget erhöhen" : gate ? "Freigeben" : "Erlauben"}
+                {budget ? "Raise budget" : gate ? "Approve" : "Allow"}
               </button>
             ) : (
               <>
-                <button type="button" disabled={decide.isPending} onClick={() => decide.mutate("allow")} title="Nur die wartenden Anfragen">
-                  Einmal
+                <button type="button" disabled={decide.isPending} onClick={() => decide.mutate("allow")} title="Only the waiting requests">
+                  Once
                 </button>
                 <button
                   type="button"
                   disabled={decide.isPending}
                   onClick={() => decide.mutate("allow_workspace")}
-                  title="Ziel für diesen Workspace erlauben"
+                  title="Allow the target for this workspace"
                 >
-                  Für diesen Workspace
+                  For this workspace
                 </button>
                 <button
                   type="button"
                   className="primary"
                   disabled={decide.isPending}
                   onClick={() => decide.mutate("allow_project")}
-                  title="Ziel für alle Workspaces des Projekts erlauben"
+                  title="Allow the target for all workspaces of the project"
                 >
-                  Immer (Projekt)
+                  Always (project)
                 </button>
               </>
             )}
@@ -226,10 +226,10 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
               type="button"
               className="danger"
               disabled={decide.isPending || (!!back && !reason.trim())}
-              title={back && !reason.trim() ? "Erst eine Begründung eingeben – sie geht als Feedback zurück" : undefined}
+              title={back && !reason.trim() ? "Enter a reason first – it goes back as feedback" : undefined}
               onClick={() => decide.mutate("deny")}
             >
-              {back ? `Zurück zu ${back}` : "Ablehnen"}
+              {back ? `Back to ${back}` : "Deny"}
             </button>
           </div>
           {decide.isError && <Notice tone="bad">{errorMessage(decide.error)}</Notice>}
@@ -239,17 +239,17 @@ export function ApprovalCard({ a, showContext = true }: { a: Approval; showConte
   );
 }
 
-/** Offene Freigaben einer Session (Session-Ansicht). */
+/** Pending approvals of a session (session view). */
 export function SessionApprovals({ sessionId }: { sessionId: string }) {
   const q = usePendingApprovals();
   const mine = (q.data ?? []).filter((a) => a.session_id === sessionId);
   if (!mine.length) return null;
   return (
     <div className="sessionapprovals">
-      <Notice tone="warn" title="Der Agent wartet auf eine Freigabe">
+      <Notice tone="warn" title="The agent is waiting for an approval">
         {mine.some((a) => a.kind === "budget")
-          ? "Budget erhöhen, damit der Agent weiterläuft, oder ablehnen, um ihn zu beenden."
-          : "Erlauben oder ablehnen – der Agent macht danach weiter."}
+          ? "Raise the budget so the agent continues, or deny to end it."
+          : "Allow or deny – the agent continues afterwards."}
       </Notice>
       <ul className="approvals">
         {mine.map((a) => (
@@ -265,8 +265,8 @@ function notificationsSupported(): boolean {
 }
 
 /**
- * Zahl offener Freigaben für die Navigation; setzt den Tab-Titel und meldet neue Freigaben als
- * Browser-Benachrichtigung (wenn der Nutzer zugestimmt hat und der Tab nicht im Vordergrund ist).
+ * Number of pending approvals for the navigation; sets the tab title and reports new approvals as
+ * browser notifications (if the user agreed and the tab is not in the foreground).
  */
 export function ApprovalsNavBadge() {
   const q = usePendingApprovals();
@@ -285,8 +285,8 @@ export function ApprovalsNavBadge() {
     if (!before || !notificationsSupported() || Notification.permission !== "granted" || !document.hidden) return;
     for (const a of q.data) {
       if (before.has(a.id)) continue;
-      const n = new Notification("ADE: Freigabe nötig", {
-        body: a.kind === "egress" ? `Agent will ${a.title} erreichen` : a.kind === "budget" ? `Agent pausiert: ${a.title}` : a.title,
+      const n = new Notification("ADE: approval needed", {
+        body: a.kind === "egress" ? `Agent wants to reach ${a.title}` : a.kind === "budget" ? `Agent paused: ${a.title}` : a.title,
         tag: `ade-approval-${a.id}`,
       });
       n.onclick = () => {
@@ -298,21 +298,21 @@ export function ApprovalsNavBadge() {
 
   if (!n) return null;
   return (
-    <span className="navbadge" aria-label={`${n} offene Freigaben`}>
+    <span className="navbadge" aria-label={`${n} pending approvals`}>
       {n}
     </span>
   );
 }
 
-/** Schalter für Browser-Benachrichtigungen. */
+/** Switch for browser notifications. */
 export function NotificationToggle() {
   const [perm, setPerm] = useState(() => (notificationsSupported() ? Notification.permission : "denied"));
   if (!notificationsSupported()) return null;
-  if (perm === "granted") return <span className="muted">Benachrichtigungen aktiv</span>;
-  if (perm === "denied") return <span className="muted">Benachrichtigungen im Browser blockiert</span>;
+  if (perm === "granted") return <span className="muted">Notifications active</span>;
+  if (perm === "denied") return <span className="muted">Notifications blocked in the browser</span>;
   return (
     <button type="button" onClick={() => void Notification.requestPermission().then(setPerm)}>
-      Benachrichtigungen aktivieren
+      Enable notifications
     </button>
   );
 }

@@ -18,8 +18,8 @@ export function SessionTable({ sessions, showWorkspace = true }: { sessions: Ses
             <th>Status</th>
             <th>Adapter</th>
             {showWorkspace && <th>Workspace</th>}
-            <th>Kosten</th>
-            <th>Gestartet</th>
+            <th>Costs</th>
+            <th>Started</th>
           </tr>
         </thead>
         <tbody>
@@ -56,12 +56,12 @@ export function SessionTable({ sessions, showWorkspace = true }: { sessions: Ses
 const adapterLabels: Record<string, string> = {
   claude: "claude – Claude Code",
   codex: "codex – Codex CLI (OpenAI)",
-  pty: "pty – Terminal (beliebiger Befehl)",
+  pty: "pty – terminal (any command)",
 };
 
 /**
- * Formular „Agent starten“. Mit workspaceId läuft der Agent in diesem Workspace, sonst wird
- * ein neuer angelegt (oder ein bestehender gewählt).
+ * Form “Start agent”. With workspaceId the agent runs in this workspace, otherwise a new one
+ * is created (or an existing one chosen).
  */
 export function StartAgentForm({
   projectId,
@@ -92,7 +92,7 @@ export function StartAgentForm({
   const sandboxInfo = useSandboxInfo();
   const [sandboxChoice, setSandbox] = useState<boolean | null>(null);
   const sandbox = sandboxChoice ?? sandboxDefault(sandboxInfo.data);
-  // Ein bestehender Workspace hat seinen Modus schon; nur neue Workspaces nehmen den Schalter.
+  // An existing workspace already has its mode; only new workspaces take the switch.
   const existing = useQuery({
     queryKey: ["workspace", ws],
     queryFn: () => api.workspace(ws),
@@ -156,7 +156,7 @@ export function StartAgentForm({
         <div className="field">
           <label htmlFor="sa-ws">Workspace</label>
           <select id="sa-ws" value={ws} onChange={(e) => setWs(e.target.value)}>
-            <option value="">Neuer Workspace</option>
+            <option value="">New workspace</option>
             {readyWorkspaces.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.branch}
@@ -171,7 +171,7 @@ export function StartAgentForm({
           existing.data && (
             <p className="hint">
               <SandboxBadge workspace={existing.data} />{" "}
-              {existing.data.sandbox ? "Läuft im Container dieses Workspaces." : "Dieser Workspace läuft ohne Sandbox."}
+              {existing.data.sandbox ? "Runs in this workspace's container." : "This workspace runs without a sandbox."}
             </p>
           )
         ) : (
@@ -181,26 +181,26 @@ export function StartAgentForm({
 
       {terminal ? (
         <div className="field wide">
-          <label htmlFor="sa-cmd">Befehl</label>
+          <label htmlFor="sa-cmd">Command</label>
           <input
             id="sa-cmd"
             className="mono"
-            placeholder="leer: Login-Shell (z. B. bash)"
+            placeholder="empty: login shell (e.g. bash)"
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             spellCheck={false}
           />
-          <p className="hint">Läuft interaktiv im Workspace-Verzeichnis (in der Sandbox: bash im Container), ohne Timeline.</p>
+          <p className="hint">Runs interactively in the workspace directory (in the sandbox: bash in the container), without a timeline.</p>
         </div>
       ) : (
         <>
           <div className="field wide">
-            <label htmlFor="sa-task">Aufgabe</label>
+            <label htmlFor="sa-task">Task</label>
             <textarea
               id="sa-task"
               rows={5}
               required
-              placeholder="Was soll der Agent tun?"
+              placeholder="What should the agent do?"
               value={task}
               onChange={(e) => setTask(e.target.value)}
               onKeyDown={(e) => {
@@ -209,11 +209,11 @@ export function StartAgentForm({
             />
           </div>
           <div className="field">
-            <label htmlFor="sa-model">Modell</label>
+            <label htmlFor="sa-model">Model</label>
             <input
               id="sa-model"
               list="sa-models"
-              placeholder={aliases.length ? "Alias oder Modell-ID" : "Standard der CLI"}
+              placeholder={aliases.length ? "alias or model ID" : "CLI default"}
               value={model}
               onChange={(e) => setModel(e.target.value)}
               spellCheck={false}
@@ -228,7 +228,7 @@ export function StartAgentForm({
           </div>
           {modes.length > 0 && (
             <div className="field">
-              <label htmlFor="sa-perm">{chosen === "codex" ? "Sandbox-Modus (lokal)" : "Berechtigungen"}</label>
+              <label htmlFor="sa-perm">{chosen === "codex" ? "Sandbox mode (local)" : "Permissions"}</label>
               <select id="sa-perm" value={mode} onChange={(e) => setPermission(e.target.value)}>
                 {modes.map((m) => (
                   <option key={m} value={m}>
@@ -240,18 +240,18 @@ export function StartAgentForm({
           )}
           {chosen === "codex" && (
             <p className="hint wide">
-              Codex arbeitet eine Anweisung je Prozess ab; Folgeanweisungen setzen die Unterhaltung fort. Codex fragt nicht vor
-              Werkzeug-Aufrufen nach (keine Freigaben). In der Sandbox läuft es ohne eigene Sandbox im Container; mit API-Key in{" "}
-              <code>providers.openai</code> fügt der Egress-Proxy ihn ein und zählt die Tokens.
+              Codex handles one instruction per process; follow-up instructions continue the conversation. Codex does not ask before
+              tool calls (no approvals). In the sandbox it runs without its own sandbox in the container; with an API key in{" "}
+              <code>providers.openai</code> the egress proxy inserts it and counts the tokens.
             </p>
           )}
           {chosen === "claude" && (
             <p className="hint wide">
-              Vor jedem Werkzeug-Aufruf fragt Claude Code bei ADE nach: Was die Regeln in <code>approvals</code>{" "}
-              (<code>.ade/project.yaml</code>) erlauben, läuft sofort, gesperrte Aufrufe werden abgelehnt, alles andere wartet auf eine{" "}
-              <Link to="/approvals">Freigabe</Link> im Dashboard. Voreinstellung: in der Sandbox alles erlaubt, lokal nur Lesen und
-              Dateiänderungen im Workspace. Der Berechtigungsmodus gilt nur, wenn der Hook nicht verfügbar ist. In der Sandbox braucht Claude Code einen
-              API-Key in der Konfiguration (<code>providers.anthropic</code>); der Egress-Proxy fügt ihn ein, der Container sieht ihn nicht.
+              Before every tool call Claude Code asks ADE: what the rules in <code>approvals</code>{" "}
+              (<code>.ade/project.yaml</code>) allow runs right away, denied calls are rejected, everything else waits for an{" "}
+              <Link to="/approvals">approval</Link> in the dashboard. Default: everything allowed in the sandbox, locally only reading and
+              editing files in the workspace. The permission mode only applies if the hook is not available. In the sandbox Claude Code needs an
+              API key in the configuration (<code>providers.anthropic</code>); the egress proxy inserts it, the container does not see it.
             </p>
           )}
         </>
@@ -262,12 +262,12 @@ export function StartAgentForm({
         <input
           id="sa-budget"
           inputMode="decimal"
-          placeholder="Projekt-Vorgabe"
+          placeholder="project default"
           value={budget}
           onChange={(e) => setBudget(e.target.value)}
           aria-invalid={budgetInvalid}
         />
-        <p className="hint">Leer: budget.session_usd aus .ade/project.yaml; 0: ohne Budget. Darüber pausiert der Agent und wartet auf eine Freigabe.</p>
+        <p className="hint">Empty: budget.session_usd from .ade/project.yaml; 0: no budget. Beyond it the agent pauses and waits for an approval.</p>
       </div>
 
       {start.isError && (
@@ -278,24 +278,24 @@ export function StartAgentForm({
       <div className="actions wide">
         {onCancel && (
           <button type="button" onClick={onCancel}>
-            Abbrechen
+            Cancel
           </button>
         )}
         <button type="submit" className="primary" disabled={start.isPending || budgetInvalid || (!terminal && !task.trim())}>
-          {start.isPending ? "Starte …" : terminal ? "Terminal öffnen" : "Agent starten"}
+          {start.isPending ? "Starting …" : terminal ? "Open terminal" : "Start agent"}
         </button>
       </div>
     </form>
   );
 }
 
-/** Button, der das Startformular aufklappt. */
+/** Button that expands the start form. */
 export function StartAgent(props: { projectId: string; workspaceId?: string; defaultAdapter?: string; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   if (!open)
     return (
       <button type="button" className="primary" disabled={props.disabled} onClick={() => setOpen(true)}>
-        Agent starten
+        Start agent
       </button>
     );
   return (

@@ -5,15 +5,15 @@ import { errorMessage, formatBytes, formatDuration, formatTime } from "../format
 import { Badge, Notice } from "./ui";
 
 const reasonLabels: Record<string, string> = {
-  allowlist: "Allowlist",
-  approval: "im Dashboard freigegeben",
-  provider: "API mit Key vom Proxy",
-  not_allowed: "nicht freigegeben",
-  denylist: "gesperrt (deny)",
-  internal_address: "interne Adresse",
-  no_policy: "keine Policy geladen",
-  upstream_error: "Ziel nicht erreichbar",
-  bad_request: "ungültige Anfrage",
+  allowlist: "allowlist",
+  approval: "approved in the dashboard",
+  provider: "API with key from the proxy",
+  not_allowed: "not allowed",
+  denylist: "blocked (deny)",
+  internal_address: "internal address",
+  no_policy: "no policy loaded",
+  upstream_error: "target not reachable",
+  bad_request: "invalid request",
 };
 
 function reasonLabel(r?: string): string {
@@ -33,7 +33,7 @@ function List({ items }: { items: string[] | null | undefined }) {
   );
 }
 
-/** Knöpfe, um einen geblockten Host dauerhaft zu erlauben (Ausnahme statt Eintrag in sandbox.yaml). */
+/** Buttons to allow a blocked host permanently (exception instead of an entry in sandbox.yaml). */
 function AllowButtons({ workspaceId, host, onError }: { workspaceId: string; host: string; onError: (msg: string) => void }) {
   const qc = useQueryClient();
   const grant = useMutation({
@@ -43,17 +43,17 @@ function AllowButtons({ workspaceId, host, onError }: { workspaceId: string; hos
   });
   return (
     <span className="rowactions">
-      <button type="button" className="small primary" disabled={grant.isPending} onClick={() => grant.mutate("project")} title="Für alle Workspaces des Projekts">
-        Erlauben (Projekt)
+      <button type="button" className="small primary" disabled={grant.isPending} onClick={() => grant.mutate("project")} title="For all workspaces of the project">
+        Allow (project)
       </button>
-      <button type="button" className="small" disabled={grant.isPending} onClick={() => grant.mutate("workspace")} title="Nur für diesen Workspace">
-        nur hier
+      <button type="button" className="small" disabled={grant.isPending} onClick={() => grant.mutate("workspace")} title="Only for this workspace">
+        only here
       </button>
     </span>
   );
 }
 
-/** Netzwerk-Ansicht eines Sandbox-Workspaces: Policy, Ziele und letzte Anfragen. */
+/** Network view of a sandbox workspace: policy, targets and latest requests. */
 export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
   const qc = useQueryClient();
   const [blockedOnly, setBlockedOnly] = useState(false);
@@ -76,70 +76,70 @@ export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
   const blockedCount = (data?.hosts ?? []).reduce((n, h) => n + h.blocked, 0);
   const grants = data?.grants ?? [];
   const granted = new Set(grants.map((g) => g.rule));
-  // Ein Host gilt als erlaubt, wenn ihn eine Ausnahme oder die Allowlist ohne Platzhalter nennt.
+  // A host counts as allowed if an exception or the allowlist names it without a wildcard.
   const allowed = new Set([...(pol?.effective_allow ?? []), ...granted]);
 
   return (
     <>
       <div className="sectionhead">
         <h2>
-          Netzwerk{" "}
+          Network{" "}
           {blockedCount > 0 && (
             <Badge tone="warn">
-              {blockedCount} geblockt
+              {blockedCount} blocked
             </Badge>
           )}
         </h2>
         <label className="checkbox">
-          <input type="checkbox" checked={blockedOnly} onChange={(e) => setBlockedOnly(e.target.checked)} /> nur geblockte
+          <input type="checkbox" checked={blockedOnly} onChange={(e) => setBlockedOnly(e.target.checked)} /> blocked only
         </label>
       </div>
       {q.isError && <Notice tone="bad">{errorMessage(q.error)}</Notice>}
       {pol && (
         <div className="panel netpolicy">
           {pol.error && (
-            <Notice tone="warn" title=".ade/sandbox.yaml ungültig">
-              {pol.error} – laufende Container behalten die zuletzt gültige Policy, neue starten erst nach der Korrektur.
+            <Notice tone="warn" title=".ade/sandbox.yaml invalid">
+              {pol.error} – running containers keep the last valid policy, new ones only start after it is fixed.
             </Notice>
           )}
           <dl className="facts">
             <dt>Presets</dt>
             <dd>
               <List items={pol.presets} />
-              {pol.default && <span className="muted"> (Voreinstellung – kein egress-Abschnitt in .ade/sandbox.yaml)</span>}
+              {pol.default && <span className="muted"> (default – no egress section in .ade/sandbox.yaml)</span>}
             </dd>
-            <dt>Eigene Einträge</dt>
+            <dt>Own entries</dt>
             <dd>
               <List items={pol.allow} />
             </dd>
-            <dt>Gesperrt</dt>
+            <dt>Blocked</dt>
             <dd>
               <List items={pol.deny} />
             </dd>
-            <dt>Geblockte Ziele</dt>
+            <dt>Blocked targets</dt>
             <dd>
               {pol.on_blocked === "ask" ? (
                 <>
-                  warten auf <a href="/approvals">Freigabe im Dashboard</a> (<code>on_blocked: ask</code>)
+                  wait for an <a href="/approvals">approval in the dashboard</a> (<code>on_blocked: ask</code>)
                 </>
               ) : (
                 <span>
-                  sofort abgelehnt (<code>on_blocked: deny</code>)
+                  rejected right away (<code>on_blocked: deny</code>)
                 </span>
               )}
             </dd>
-            <dt>Ausnahmen</dt>
+            <dt>Exceptions</dt>
             <dd>
               {grants.length ? (
                 <span className="netlist">
                   {grants.map((g) => (
-                    <span key={g.id} className="grant" title={g.workspace_id ? "nur dieser Workspace" : "alle Workspaces des Projekts"}>
+                    <span key={g.id} className="grant" title={g.workspace_id ? "only this workspace" : "all workspaces of the project"}>
                       <code>{g.rule}</code>
-                      <span className="muted">{g.workspace_id ? "Workspace" : "Projekt"}</span>
+                      <span className="muted">{g.workspace_id ? "workspace" : "project"}</span>
                       <button
                         type="button"
                         className="small danger"
-                        aria-label={`Ausnahme ${g.rule} entfernen`}
+                        aria-label={`Remove exception ${g.rule}`}
                         disabled={removeGrant.isPending}
                         onClick={() => removeGrant.mutate(g.id)}
                       >
@@ -149,24 +149,24 @@ export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
                   ))}
                 </span>
               ) : (
-                <span className="muted">keine – geblockte Ziele lassen sich unten mit einem Klick erlauben</span>
+                <span className="muted">none – blocked targets can be allowed below with one click</span>
               )}
             </dd>
-            <dt>API-Keys vom Proxy</dt>
+            <dt>API keys from the proxy</dt>
             <dd>
               {pol.providers.length ? (
                 <List items={pol.providers} />
               ) : (
-                <span className="muted">keine – CLIs nutzen ihre eigene Anmeldung (über die Allowlist)</span>
+                <span className="muted">none – CLIs use their own login (through the allowlist)</span>
               )}
             </dd>
           </dl>
           <details>
-            <summary>Alle erlaubten Ziele ({pol.effective_allow?.length ?? 0})</summary>
+            <summary>All allowed targets ({pol.effective_allow?.length ?? 0})</summary>
             <p className="hint">
-              Einträge ohne Port gelten für 80 und 443, <code>*.example.com</code> für alle Subdomains. Interne Adressen
-              (Host, andere Container, private Netze) sind immer gesperrt. Änderungen an <code>.ade/sandbox.yaml</code> im
-              Projekt-Repo wirken nach wenigen Sekunden.
+              Entries without a port apply to 80 and 443, <code>*.example.com</code> to all subdomains. Internal addresses
+              (host, other containers, private networks) are always blocked. Changes to <code>.ade/sandbox.yaml</code> in the
+              project repository take effect within seconds.
             </p>
             <List items={pol.effective_allow} />
           </details>
@@ -182,19 +182,19 @@ export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
         </Notice>
       )}
       {q.isPending ? (
-        <p className="muted">Lade Netzwerk-Ereignisse …</p>
+        <p className="muted">Loading network events …</p>
       ) : !hosts.length ? (
-        <p className="muted">{blockedOnly ? "Keine geblockten Anfragen." : "Noch keine Anfragen aus dem Container."}</p>
+        <p className="muted">{blockedOnly ? "No blocked requests." : "No requests from the container yet."}</p>
       ) : (
         <div className="tablewrap">
           <table>
             <thead>
               <tr>
-                <th>Ziel</th>
-                <th>Erlaubt</th>
-                <th>Geblockt</th>
-                <th>Daten ↑ / ↓</th>
-                <th>Zuletzt</th>
+                <th>Target</th>
+                <th>Allowed</th>
+                <th>Blocked</th>
+                <th>Data ↑ / ↓</th>
+                <th>Last</th>
                 <th />
               </tr>
             </thead>
@@ -220,7 +220,7 @@ export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
                     {h.blocked > 0 && h.reason === "not_allowed" && !allowed.has(h.host) ? (
                       <AllowButtons workspaceId={w.id} host={h.host} onError={setGrantError} />
                     ) : granted.has(h.host) ? (
-                      <Badge tone="ok">Ausnahme</Badge>
+                      <Badge tone="ok">exception</Badge>
                     ) : null}
                   </td>
                 </tr>
@@ -233,19 +233,19 @@ export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
       {!!data?.events.length && (
         <details className="panel netevents">
           <summary>
-            Letzte Anfragen ({data.events.length}
+            Latest requests ({data.events.length}
             {data.events.length >= 200 ? "+" : ""})
           </summary>
           <div className="tablewrap">
             <table>
               <thead>
                 <tr>
-                  <th>Zeit</th>
-                  <th>Art</th>
-                  <th>Ziel</th>
-                  <th>Ergebnis</th>
-                  <th>Daten ↑ / ↓</th>
-                  <th>Dauer</th>
+                  <th>Time</th>
+                  <th>Kind</th>
+                  <th>Target</th>
+                  <th>Result</th>
+                  <th>Data ↑ / ↓</th>
+                  <th>Duration</th>
                 </tr>
               </thead>
               <tbody>
@@ -260,7 +260,7 @@ export function NetworkPanel({ workspace: w }: { workspace: Workspace }) {
                       {e.path ?? ""}
                     </td>
                     <td title={e.error}>
-                      <Badge tone={e.allowed ? "ok" : "bad"}>{e.allowed ? (e.status ? String(e.status) : "ok") : "geblockt"}</Badge>{" "}
+                      <Badge tone={e.allowed ? "ok" : "bad"}>{e.allowed ? (e.status ? String(e.status) : "ok") : "blocked"}</Badge>{" "}
                       <span className="muted">{reasonLabel(e.reason)}</span>
                     </td>
                     <td className="muted">
