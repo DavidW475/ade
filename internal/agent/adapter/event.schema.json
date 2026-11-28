@@ -1,17 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/DavidW475/ade/internal/agent/adapter/event.schema.json",
-  "title": "ADE-Event",
-  "description": "Ein Ereignis einer Agent-Session. Alle Adapter erzeugen dieses Format; die UI kennt nur dieses. Siehe doc/architecture.md#event-schema.",
+  "title": "ADE event",
+  "description": "An event of an agent session. All adapters produce this format; the UI only knows this one. See doc/architecture.md#event-schema.",
   "type": "object",
   "required": ["seq", "session_id", "ts", "type", "payload"],
   "properties": {
-    "seq": { "type": "integer", "minimum": 1, "description": "Fortlaufend pro Session, ab 1, lückenlos." },
+    "seq": { "type": "integer", "minimum": 1, "description": "Consecutive per session, from 1, without gaps." },
     "session_id": { "type": "string" },
     "ts": { "type": "string", "format": "date-time" },
     "type": {
       "type": "string",
-      "description": "Weitere Typen kommen mit späteren Meilensteinen hinzu (approval_request, approval_decision, egress, …); Clients zeigen unbekannte Typen generisch an."
+      "description": "More types come with later milestones (approval_request, approval_decision, egress, …); clients show unknown types generically."
     },
     "payload": { "type": "object" }
   },
@@ -66,7 +66,7 @@
             "properties": {
               "id": { "type": "string" },
               "tool": { "type": "string" },
-              "input": { "description": "Eingabe des Werkzeugs, wie von der CLI geliefert." },
+              "input": { "description": "Input of the tool as delivered by the CLI." },
               "parent_id": { "type": "string" }
             }
           }
@@ -81,7 +81,7 @@
             "type": "object",
             "required": ["id", "output"],
             "properties": {
-              "id": { "type": "string", "description": "ID des zugehörigen tool_call." },
+              "id": { "type": "string", "description": "ID of the matching tool_call." },
               "output": { "type": "string" },
               "is_error": { "type": "boolean" },
               "truncated": { "type": "boolean" },
@@ -108,9 +108,9 @@
               "duration_ms": { "type": "integer" },
               "turns": { "type": "integer" },
               "model": { "type": "string" },
-              "estimated": { "type": "boolean", "description": "Die CLI meldet keine USD; ADE hat sie aus Tokens und Preistabelle berechnet." },
-              "metered": { "type": "boolean", "description": "turn_usd ist die vom Egress-Proxy gemessene Summe seit dem letzten Durchgang." },
-              "budget_usd": { "type": "number", "description": "Budget der Session (fehlt: keins)." }
+              "estimated": { "type": "boolean", "description": "The CLI reports no USD; ADE computed them from tokens and the price table." },
+              "metered": { "type": "boolean", "description": "turn_usd is the sum measured by the egress proxy since the last turn." },
+              "budget_usd": { "type": "number", "description": "Budget of the session (missing: none)." }
             }
           }
         }
@@ -122,7 +122,7 @@
         "properties": {
           "payload": {
             "type": "object",
-            "description": "Vom Egress-Proxy gemessene Nutzung einer API-Anfrage (M8); erzeugt der Manager, die Timeline zeigt sie nicht an.",
+            "description": "Usage of an API request measured by the egress proxy (M8); created by the manager, the timeline does not show it.",
             "required": ["input_tokens", "output_tokens", "cost_usd", "priced", "total_usd"],
             "properties": {
               "provider": { "type": "string" },

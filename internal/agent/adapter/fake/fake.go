@@ -1,13 +1,13 @@
-// Package fake ist ein Adapter für Tests. Er startet einen beliebigen Befehl (Standard: cat)
-// und liest dessen Ausgabe zeilenweise als JSON-Events {"type": …, "payload": {…}}.
+// Package fake is an adapter for tests. It starts any command (default: cat) and reads its
+// output line by line as JSON events {"type": …, "payload": {…}}.
 //
-// Besondere Zeilen:
+// Special lines:
 //
 //	{"type":"resume_id","payload":{"id":"…"}}  → Sink.SetResumeID
 //	{"type":"turn_done"}                       → Sink.TurnDone
 //
-// Folgeanweisungen werden als message-Event mit role "assistant" kodiert, so dass `cat` sie
-// zurückspiegelt und Tests den Weg Eingabe → Prozess → Event prüfen können.
+// Follow-up instructions are encoded as a message event with role "assistant", so that `cat`
+// mirrors them back and tests can check the path input → process → event.
 package fake
 
 import (
@@ -19,27 +19,27 @@ import (
 	"github.com/DavidW475/ade/internal/agent/adapter"
 )
 
-// Adapter ist der Fake-Adapter.
+// Adapter is the fake adapter.
 type Adapter struct {
-	// AdapterName überschreibt den Namen (Standard "fake").
+	// AdapterName overrides the name (default "fake").
 	AdapterName string
-	// Caps sind die gemeldeten Fähigkeiten (Standard: Input und Resume).
+	// Caps are the reported capabilities (default: Input and Resume).
 	Caps *adapter.Capabilities
-	// Argv ist der Befehl, wenn die Spec keinen nennt (Standard: cat).
+	// Argv is the command if the spec names none (default: cat).
 	Argv []string
 
 	mu    sync.Mutex
 	specs []adapter.Spec
 }
 
-// Specs liefert die Spec jedes bisherigen Command-Aufrufs.
+// Specs returns the spec of every Command call so far.
 func (a *Adapter) Specs() []adapter.Spec {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return append([]adapter.Spec(nil), a.specs...)
 }
 
-// Name implementiert adapter.Adapter.
+// Name implements adapter.Adapter.
 func (a *Adapter) Name() string {
 	if a.AdapterName != "" {
 		return a.AdapterName

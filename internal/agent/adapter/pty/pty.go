@@ -1,5 +1,5 @@
-// Package pty ist der Fallback-Adapter: ein beliebiger Befehl interaktiv in einem Terminal.
-// Es gibt keine Timeline, nur den Terminal-Stream (WS /ws/sessions/{id}/pty).
+// Package pty is the fallback adapter: any command interactively in a terminal.
+// There is no timeline, only the terminal stream (WS /ws/sessions/{id}/pty).
 package pty
 
 import (
@@ -10,23 +10,23 @@ import (
 	"github.com/DavidW475/ade/internal/agent/adapter"
 )
 
-// DefaultShell wird verwendet, wenn weder ein Befehl noch $SHELL gesetzt ist.
+// DefaultShell is used if neither a command nor $SHELL is set.
 const DefaultShell = "bash"
 
-// Adapter ist der PTY-Adapter.
+// Adapter is the PTY adapter.
 type Adapter struct{}
 
-// New erzeugt den Adapter.
+// New creates the adapter.
 func New() *Adapter { return &Adapter{} }
 
-// Name implementiert adapter.Adapter.
+// Name implements adapter.Adapter.
 func (*Adapter) Name() string { return "pty" }
 
 // Capabilities implementiert adapter.Adapter.
 func (*Adapter) Capabilities() adapter.Capabilities { return adapter.Capabilities{Terminal: true} }
 
-// Command implementiert adapter.Adapter. Ohne Befehl startet die Login-Shell des Nutzers,
-// in der Sandbox bash.
+// Command implements adapter.Adapter. Without a command the user's login shell starts,
+// in the sandbox bash.
 func (*Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 	argv := spec.Command
 	if len(argv) == 0 {
@@ -37,18 +37,18 @@ func (*Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 		argv = []string{sh}
 	}
 	if argv[0] == "" {
-		return nil, errors.New("leerer Befehl")
+		return nil, errors.New("empty command")
 	}
 	return &adapter.Cmd{Path: argv[0], Args: argv[1:]}, nil
 }
 
-// Parse implementiert adapter.Adapter; Terminal-Ausgabe wird nicht geparst.
+// Parse implements adapter.Adapter; terminal output is not parsed.
 func (*Adapter) Parse(r io.Reader, _ adapter.Sink) error {
 	_, err := io.Copy(io.Discard, r)
 	return err
 }
 
-// EncodeInput implementiert adapter.Adapter; Eingaben gehen direkt ins Terminal.
+// EncodeInput implements adapter.Adapter; input goes directly to the terminal.
 func (*Adapter) EncodeInput(string) ([]byte, error) {
-	return nil, errors.New("der pty-Adapter nimmt Eingaben nur über das Terminal an")
+	return nil, errors.New("the pty adapter only accepts input through the terminal")
 }

@@ -1,19 +1,19 @@
-// Package codex bindet die Codex CLI (OpenAI) im exec-Modus mit JSONL-Ausgabe an.
+// Package codex connects the Codex CLI (OpenAI) in exec mode with JSONL output.
 //
-// Aufruf (geprüft gegen Codex CLI 0.172):
+// Call (checked against Codex CLI 0.172):
 //
 //	codex exec --json --skip-git-repo-check [-m M] (-s MODE | --dangerously-bypass-approvals-and-sandbox)
 //	           [-c model_provider=ade -c model_providers.ade={…}] [resume ID] -
 //
-// Die Anweisung kommt über stdin („-“); Codex liest bis EOF, ADE schließt stdin danach. Ein
-// Prozess bearbeitet genau eine Anweisung. Folgeanweisungen setzen die Unterhaltung mit
-// `resume <thread_id>` in einem neuen Prozess fort.
+// The instruction comes through stdin (“-”); Codex reads until EOF, ADE closes stdin
+// afterwards. One process handles exactly one instruction. Follow-up instructions continue
+// the conversation with `resume <thread_id>` in a new process.
 //
-// Eine eigene Basis-URL (Secret-Injection über den Egress-Proxy) geht nur über einen
-// eigenen Provider in der Konfiguration; OPENAI_BASE_URL beachtet Codex nicht.
+// An own base URL (secret injection through the egress proxy) only works through an own
+// provider in the configuration; Codex ignores OPENAI_BASE_URL.
 //
-// Die Token-Zahlen in turn.completed sind pro Unterhaltung kumuliert: Beim Fortsetzen
-// enthalten sie die früheren Durchgänge, die der Parser über Sink.Baseline abzieht.
+// The token counts in turn.completed are cumulative per conversation: when resuming they
+// include the earlier turns, which the parser subtracts through Sink.Baseline.
 package codex
 
 import (
@@ -30,31 +30,31 @@ import (
 	"github.com/DavidW475/ade/internal/agent/adapter"
 )
 
-// Binary ist der Name des CLI-Programms.
+// Binary is the name of the CLI program.
 const Binary = "codex"
 
-// SandboxModes sind die Werte für -s, die ADE als permission_mode durchreicht.
+// SandboxModes are the values for -s that ADE passes on as permission_mode.
 var SandboxModes = []string{"read-only", "workspace-write", "danger-full-access"}
 
-// DefaultSandboxMode gilt ohne permission_mode außerhalb der ADE-Sandbox.
+// DefaultSandboxMode applies without permission_mode outside the ADE sandbox.
 const DefaultSandboxMode = "workspace-write"
 
-// providerID ist der Name des eigenen Providers in der Codex-Konfiguration.
+// providerID is the name of the own provider in the Codex configuration.
 const providerID = "ade"
 
-// Adapter ist der Codex-Adapter.
+// Adapter is the Codex adapter.
 type Adapter struct {
-	// Binary überschreibt den Programmnamen (Tests).
+	// Binary overrides the program name (tests).
 	Binary string
 }
 
-// New erzeugt den Adapter.
+// New creates the adapter.
 func New() *Adapter { return &Adapter{Binary: Binary} }
 
-// Name implementiert adapter.Adapter.
+// Name implements adapter.Adapter.
 func (a *Adapter) Name() string { return "codex" }
 
-// Capabilities implementiert adapter.Adapter: Folgeanweisungen nur über Fortsetzen.
+// Capabilities implements adapter.Adapter: follow-up instructions only by resuming.
 func (a *Adapter) Capabilities() adapter.Capabilities {
 	return adapter.Capabilities{Resume: true}
 }
@@ -66,24 +66,24 @@ func (a *Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 		bin = Binary
 	}
 	if _, err := exec.LookPath(bin); err != nil && !spec.Sandbox {
-		return nil, fmt.Errorf("%s nicht gefunden – Codex CLI installieren und anmelden (npm install -g @openai/codex)", bin)
+		return nil, fmt.Errorf("%s not found – install Codex CLI and log in (npm install -g @openai/codex)", bin)
 	}
 	args := []string{"exec", "--json", "--skip-git-repo-check", "--color", "never"}
 	if spec.Model != "" {
 		if strings.HasPrefix(spec.Model, "-") {
-			return nil, fmt.Errorf("ungültiges Modell %q", spec.Model)
+			return nil, fmt.Errorf("invalid model %q", spec.Model)
 		}
 		args = append(args, "--model", spec.Model)
 	}
 	switch {
 	case spec.PermissionMode != "" && !slices.Contains(SandboxModes, spec.PermissionMode):
-		return nil, fmt.Errorf("unbekannter Sandbox-Modus %q für codex (erlaubt: %s)", spec.PermissionMode, strings.Join(SandboxModes, ", "))
+		return nil, fmt.Errorf("unknown sandbox mode %q for codex (allowed: %s)", spec.PermissionMode, strings.Join(SandboxModes, ", "))
 	case spec.Sandbox:
-		// Der Container ist die Sandbox; die eigene (Landlock/seccomp) von Codex läuft darin
-		// nicht zuverlässig. Rückfragen gibt es im exec-Modus ohnehin nicht.
+		// The container is the sandbox; Codex's own one (Landlock/seccomp) does not work
+		// reliably inside it. There are no questions in exec mode anyway.
 		args = append(args, "--dangerously-bypass-approvals-and-sandbox")
 	case spec.ReadOnly:
-		// Lese-Rolle ohne ADE-Sandbox: Codex' eigene Sandbox nur lesend.
+		// Read-only role without the ADE sandbox: Codex's own sandbox read-only.
 		args = append(args, "--sandbox", "read-only")
 	case spec.PermissionMode != "":
 		args = append(args, "--sandbox", spec.PermissionMode)
@@ -99,7 +99,7 @@ func (a *Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 	}
 	if spec.ResumeID != "" {
 		if strings.HasPrefix(spec.ResumeID, "-") || strings.ContainsAny(spec.ResumeID, " \t\n") {
-			return nil, fmt.Errorf("ungültige Resume-ID %q", spec.ResumeID)
+			return nil, fmt.Errorf("invalid resume ID %q", spec.ResumeID)
 		}
 		args = append(args, "resume", spec.ResumeID)
 	}
@@ -113,27 +113,27 @@ func (a *Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 	return cmd, nil
 }
 
-// providerConfig baut den Provider-Eintrag als TOML-Inline-Tabelle.
+// providerConfig builds the provider entry as a TOML inline table.
 func providerConfig(p *adapter.ProviderAccess) (string, error) {
 	u, err := url.Parse(p.BaseURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || strings.ContainsAny(p.BaseURL, "\"\\\n") {
-		return "", fmt.Errorf("ungültige Basis-URL %q", p.BaseURL)
+		return "", fmt.Errorf("invalid base URL %q", p.BaseURL)
 	}
 	if p.KeyEnv == "" || strings.ContainsAny(p.KeyEnv, "\"\\\n =") {
-		return "", fmt.Errorf("ungültige Key-Variable %q", p.KeyEnv)
+		return "", fmt.Errorf("invalid key variable %q", p.KeyEnv)
 	}
 	return fmt.Sprintf(`{name="ADE", base_url="%s", env_key="%s", wire_api="responses"}`, p.BaseURL, p.KeyEnv), nil
 }
 
-// EncodeInput implementiert adapter.Adapter: die Anweisung als Text für stdin.
+// EncodeInput implements adapter.Adapter: the instruction as text for stdin.
 func (a *Adapter) EncodeInput(text string) ([]byte, error) {
 	if strings.TrimSpace(text) == "" {
-		return nil, errors.New("leere Anweisung")
+		return nil, errors.New("empty instruction")
 	}
 	return []byte(text), nil
 }
 
-// line ist eine Zeile der JSONL-Ausgabe.
+// line is a line of the JSONL output.
 type line struct {
 	Type     string          `json:"type"`
 	ThreadID string          `json:"thread_id"`
@@ -145,7 +145,7 @@ type line struct {
 	} `json:"error"`
 }
 
-// usage ist die Nutzung in turn.completed (OpenAI-Zählweise: input enthält cached).
+// usage is the usage in turn.completed (OpenAI counting: input includes cached).
 type usage struct {
 	Input       int64 `json:"input_tokens"`
 	Cached      int64 `json:"cached_input_tokens"`
@@ -175,7 +175,7 @@ type item struct {
 	Items json.RawMessage `json:"items"`
 }
 
-// maxLine begrenzt eine Ausgabezeile (große Befehlsausgaben).
+// maxLine limits an output line (large command output).
 const maxLine = 64 << 20
 
 // Parse implementiert adapter.Adapter.
@@ -193,8 +193,8 @@ func (a *Adapter) Parse(r io.Reader, sink adapter.Sink) error {
 
 type parser struct {
 	sink     adapter.Sink
-	started  map[string]bool // Werkzeug-Aufrufe, für die schon ein tool_call kam
-	last     usage           // kumulierte Nutzung bis zum vorigen Durchgang
+	started  map[string]bool // tool calls for which a tool_call was already sent
+	last     usage           // cumulative usage up to the previous turn
 	initDone bool
 }
 
@@ -215,7 +215,7 @@ func (p *parser) line(raw []byte) {
 		}
 		if !p.initDone {
 			p.initDone = true
-			p.sink.Emit(adapter.TypeStatus, adapter.Status{Status: "running", Reason: "Codex gestartet"})
+			p.sink.Emit(adapter.TypeStatus, adapter.Status{Status: "running", Reason: "Codex started"})
 		}
 	case "item.started", "item.updated":
 		var it item
@@ -236,7 +236,7 @@ func (p *parser) line(raw []byte) {
 		}
 		p.turnDone(l.Usage, msg)
 	case "error":
-		// Wiederholungsversuche meldet Codex als error; erst turn.failed ist endgültig.
+		// Codex reports retries as error; only turn.failed is final.
 		if l.Message != "" && !strings.HasPrefix(l.Message, "Reconnecting...") {
 			text, _ := adapter.Truncate(l.Message, adapter.MaxText)
 			p.sink.Emit(adapter.TypeError, adapter.Error{Message: text})
@@ -286,8 +286,8 @@ func (p *parser) itemCompleted(it *item) {
 	p.sink.Emit(adapter.TypeToolResult, adapter.ToolResult{ID: it.ID, Output: text, IsError: isErr, Truncated: cut})
 }
 
-// toolCall übersetzt ein Item in Werkzeug-Name und Eingabe (leer: kein Werkzeug). Die Namen
-// lehnen sich an Claude Code an, damit die Timeline sie gleich darstellt.
+// toolCall translates an item into tool name and input (empty: no tool). The names follow
+// Claude Code, so the timeline shows them the same way.
 func toolCall(it *item) (string, json.RawMessage) {
 	mustJSON := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 	switch it.Type {
@@ -356,8 +356,8 @@ func (p *parser) turnDone(u *usage, errMsg string) {
 			Input: max(cur.Input-p.last.Input, 0), Cached: max(cur.Cached-p.last.Cached, 0),
 			CacheWrite: max(cur.CacheWrite-p.last.CacheWrite, 0), Output: max(cur.Output-p.last.Output, 0),
 		}
-		// Kumulierte Zahlen, die kleiner sind als die Basis (andere Zählung als erwartet):
-		// dann sind es wohl schon die Zahlen dieses Durchgangs.
+		// Cumulative numbers smaller than the baseline (different counting than expected):
+		// then they are probably already the numbers of this turn.
 		if cur.Input < p.last.Input || cur.Output < p.last.Output {
 			d = cur
 		}

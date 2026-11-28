@@ -51,7 +51,7 @@ func parseFile(t *testing.T, name string) *recSink {
 	return s
 }
 
-// Aufgezeichnet mit Claude Code 2.1: Datei lesen (Read), Zeile anhängen und zählen (Bash).
+// Recorded with Claude Code 2.1: read a file (Read), append a line and count (Bash).
 func TestParseRecordedTask(t *testing.T) {
 	s := parseFile(t, "task.jsonl")
 
@@ -65,7 +65,7 @@ func TestParseRecordedTask(t *testing.T) {
 
 	read := s.events[1].payload.(adapter.ToolCall)
 	if read.Tool != "Read" || read.ID == "" || !strings.Contains(string(read.Input), "/workspace/a.txt") {
-		t.Errorf("Read-Aufruf = %+v", read)
+		t.Errorf("Read call = %+v", read)
 	}
 	readRes := s.events[2].payload.(adapter.ToolResult)
 	if readRes.ID != read.ID || !strings.Contains(readRes.Output, "hello") || readRes.IsError {
@@ -74,7 +74,7 @@ func TestParseRecordedTask(t *testing.T) {
 	bash := s.events[3].payload.(adapter.ToolCall)
 	var in struct{ Command string }
 	if err := json.Unmarshal(bash.Input, &in); err != nil || bash.Tool != "Bash" || !strings.Contains(in.Command, "wc -l a.txt") {
-		t.Errorf("Bash-Aufruf = %+v (%v)", bash, err)
+		t.Errorf("Bash call = %+v (%v)", bash, err)
 	}
 	if res := s.events[4].payload.(adapter.ToolResult); res.ID != bash.ID || res.Output != "2 a.txt" {
 		t.Errorf("Bash-Ergebnis = %+v", res)
@@ -84,7 +84,7 @@ func TestParseRecordedTask(t *testing.T) {
 	}
 	c := s.events[6].payload.(adapter.Cost)
 	if math.Abs(c.TurnUSD-0.00398777) > 1e-9 || c.OutputTokens != 683 || c.Turns != 3 || c.CacheReadTokens != 56267 {
-		t.Errorf("Kosten = %+v", c)
+		t.Errorf("costs = %+v", c)
 	}
 
 	if s.turns != 1 {
@@ -95,8 +95,8 @@ func TestParseRecordedTask(t *testing.T) {
 	}
 }
 
-// Fortsetzen mit --resume und zwei Anweisungen in einem Prozess: zwei Durchgänge, Kosten
-// als Differenz der kumulierten total_cost_usd.
+// Resuming with --resume and two instructions in one process: two turns, costs as the
+// difference of the cumulative total_cost_usd.
 func TestParseRecordedResumeWithFollowUp(t *testing.T) {
 	s := parseFile(t, "resume.jsonl")
 	want := []string{"status", "message", "cost", "message", "cost"}
@@ -108,28 +108,28 @@ func TestParseRecordedResumeWithFollowUp(t *testing.T) {
 	}
 	c1, c2 := s.events[2].payload.(adapter.Cost), s.events[4].payload.(adapter.Cost)
 	if math.Abs(c1.TurnUSD-0.00444588) > 1e-9 || math.Abs(c2.TurnUSD-(0.00511358-0.00444588)) > 1e-9 {
-		t.Errorf("Kosten = %v / %v", c1.TurnUSD, c2.TurnUSD)
+		t.Errorf("costs = %v / %v", c1.TurnUSD, c2.TurnUSD)
 	}
 	if m := s.events[3].payload.(adapter.Message); m.Text != "3" {
-		t.Errorf("zweite Antwort = %+v", m)
+		t.Errorf("second answer = %+v", m)
 	}
 	if len(s.resume) != 1 {
-		t.Errorf("Resume-ID mehrfach gemeldet: %v", s.resume)
+		t.Errorf("resume ID reported several times: %v", s.resume)
 	}
 }
 
 func TestParseErrorsAndOddLines(t *testing.T) {
 	in := strings.Join([]string{
-		`kein json`,
+		`not json`,
 		``,
-		`{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"überlege"},{"type":"text","text":"  "}]},"parent_tool_use_id":"toolu_parent"}`,
+		`{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"pondering"},{"type":"text","text":"  "}]},"parent_tool_use_id":"toolu_parent"}`,
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Task","input":{}}]},"parent_tool_use_id":"toolu_parent"}`,
 		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"a"},{"type":"image"}],"is_error":true}]}}`,
 		`{"type":"user","message":{"content":"normale Nutzernachricht"}}`,
-		// Claude Code 2.1: message ist hier ein String.
+		// Claude Code 2.1: message is a string here.
 		`{"type":"system","subtype":"permission_denied","tool_name":"Bash","tool_use_id":"t2","decision_reason_type":"subcommandResults","message":"This Bash command contains multiple operations.","session_id":"s"}`,
 		`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}`,
-		`{"type":"result","subtype":"error_max_turns","is_error":true,"errors":["zu viele Durchgänge"]}`,
+		`{"type":"result","subtype":"error_max_turns","is_error":true,"errors":["too many turns"]}`,
 	}, "\n")
 	s := &recSink{}
 	if err := New().Parse(strings.NewReader(in), s); err != nil {
@@ -139,17 +139,17 @@ func TestParseErrorsAndOddLines(t *testing.T) {
 	if got := s.types(); !slices.Equal(got, want) {
 		t.Fatalf("Events = %v, want %v", got, want)
 	}
-	if th := s.events[1].payload.(adapter.Thinking); th.Text != "überlege" {
+	if th := s.events[1].payload.(adapter.Thinking); th.Text != "pondering" {
 		t.Errorf("Thinking = %+v", th)
 	}
 	if tc := s.events[2].payload.(adapter.ToolCall); tc.ParentID != "toolu_parent" {
-		t.Errorf("ParentID fehlt: %+v", tc)
+		t.Errorf("ParentID missing: %+v", tc)
 	}
 	if tr := s.events[3].payload.(adapter.ToolResult); tr.Output != "a\n[Bild]" || !tr.IsError {
 		t.Errorf("ToolResult = %+v", tr)
 	}
-	if e := s.events[5].payload.(adapter.Error); e.Message != "zu viele Durchgänge" {
-		t.Errorf("Fehler = %+v", e)
+	if e := s.events[5].payload.(adapter.Error); e.Message != "too many turns" {
+		t.Errorf("error = %+v", e)
 	}
 	if s.turns != 1 {
 		t.Errorf("TurnDone = %d", s.turns)
@@ -157,7 +157,7 @@ func TestParseErrorsAndOddLines(t *testing.T) {
 }
 
 func TestParseTruncatesLargeToolResult(t *testing.T) {
-	big := strings.Repeat("ä", adapter.MaxText) // 2 Bytes je Zeichen
+	big := strings.Repeat("ä", adapter.MaxText) // 2 bytes per character (intentionally non-ASCII)
 	line, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{
 		"content": []any{map[string]any{"type": "tool_result", "tool_use_id": "x", "content": big}},
 	}})
@@ -167,12 +167,12 @@ func TestParseTruncatesLargeToolResult(t *testing.T) {
 	}
 	r := s.events[0].payload.(adapter.ToolResult)
 	if !r.Truncated || len(r.Output) > adapter.MaxText || !strings.HasSuffix(r.Output, "ä") {
-		t.Errorf("Kürzung: truncated=%v len=%d", r.Truncated, len(r.Output))
+		t.Errorf("truncation: truncated=%v len=%d", r.Truncated, len(r.Output))
 	}
 }
 
 func TestCommand(t *testing.T) {
-	a := &Adapter{Binary: "sh"} // sh gibt es überall; der Aufruf wird nur gebaut
+	a := &Adapter{Binary: "sh"} // sh exists everywhere; the call is only built
 	c, err := a.Command(adapter.Spec{Task: "Hallo", Model: "haiku", PermissionMode: "acceptEdits", ResumeID: "abc"})
 	if err != nil {
 		t.Fatal(err)
@@ -180,7 +180,7 @@ func TestCommand(t *testing.T) {
 	args := strings.Join(c.Args, " ")
 	for _, want := range []string{"-p", "--input-format stream-json", "--output-format stream-json", "--verbose", "--model haiku", "--permission-mode acceptEdits", "--resume abc"} {
 		if !strings.Contains(args, want) {
-			t.Errorf("Argumente %q enthalten nicht %q", args, want)
+			t.Errorf("arguments %q do not contain %q", args, want)
 		}
 	}
 	var msg struct {
@@ -197,14 +197,14 @@ func TestCommand(t *testing.T) {
 		{Task: "x", ResumeID: "-x"},
 	} {
 		if _, err := a.Command(spec); err == nil {
-			t.Errorf("Command(%+v) ohne Fehler", spec)
+			t.Errorf("Command(%+v) without an error", spec)
 		}
 	}
-	if _, err := (&Adapter{Binary: "gibt-es-nicht-ade"}).Command(adapter.Spec{Task: "x"}); err == nil {
-		t.Error("fehlendes Programm ohne Fehler")
+	if _, err := (&Adapter{Binary: "ade-does-not-exist"}).Command(adapter.Spec{Task: "x"}); err == nil {
+		t.Error("missing program without an error")
 	}
 	if _, err := a.EncodeInput("  "); err == nil {
-		t.Error("leere Anweisung ohne Fehler")
+		t.Error("empty instruction without an error")
 	}
 }
 
@@ -215,11 +215,11 @@ func TestCommandReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.Contains(c.Args, "--disallowedTools=Edit,Write,NotebookEdit") {
-		t.Fatalf("Schreibwerkzeuge nicht gesperrt: %v", c.Args)
+		t.Fatalf("write tools not blocked: %v", c.Args)
 	}
 	c, _ = a.Command(adapter.Spec{Task: "x"})
 	if strings.Contains(strings.Join(c.Args, " "), "disallowed") {
-		t.Fatalf("ohne ReadOnly gesperrt: %v", c.Args)
+		t.Fatalf("blocked without ReadOnly: %v", c.Args)
 	}
 }
 
@@ -231,7 +231,7 @@ func TestCommandWithHook(t *testing.T) {
 	}
 	i := slices.Index(c.Args, "--settings")
 	if i < 0 || i+1 >= len(c.Args) {
-		t.Fatalf("kein --settings in %q", c.Args)
+		t.Fatalf("no --settings in %q", c.Args)
 	}
 	var s struct {
 		Hooks struct {
@@ -253,6 +253,6 @@ func TestCommandWithHook(t *testing.T) {
 		t.Fatalf("Settings %s", c.Args[i+1])
 	}
 	if c, _ := a.Command(adapter.Spec{Task: "x"}); slices.Contains(c.Args, "--settings") {
-		t.Error("--settings ohne Hook")
+		t.Error("--settings without a hook")
 	}
 }
