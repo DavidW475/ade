@@ -1,46 +1,47 @@
-# Mitwirken an ADE
+# Contributing to ADE
 
-Danke für dein Interesse! ADE ist in einer frühen Phase; der Plan steht in [`doc/`](doc/README.md).
+Thanks for your interest! The plan is in [`doc/`](doc/README.md); how to use ADE is described in
+the [user guide](doc/guide.md).
 
-## Voraussetzungen
+## Requirements
 
-- Go (Version laut `go.mod`, aktuelle stabile empfohlen)
-- Node.js 22+ und npm
-- [golangci-lint](https://golangci-lint.run/) v2 für `make lint`
-- Entwicklung am besten in WSL2 oder Linux, Repo im Linux-Dateisystem (nicht unter `/mnt/c`)
+- Go (version as in `go.mod`, the current stable release is recommended)
+- Node.js 22+ and npm
+- [golangci-lint](https://golangci-lint.run/) v2 for `make lint`
+- Development preferably in WSL2 or Linux, with the repository on the Linux file system (not
+  under `/mnt/c`)
 
-## Bauen und testen
+## Building and testing
 
 ```sh
-make build   # Frontend bauen (web/ → internal/api/dist) und bin/ade erzeugen
-make test    # Go-Tests mit Race-Detector + TypeScript-Typprüfung
-make lint    # golangci-lint und ESLint
+make build   # build the frontend (web/ → internal/api/dist) and produce bin/ade
+make test    # Go tests with the race detector + TypeScript type check
+make lint    # golangci-lint and ESLint
 ```
 
-`go build` und `go test` funktionieren auch ohne Frontend-Build; dann zeigt das Dashboard
-nur einen Hinweis.
+`go build` and `go test` also work without a frontend build; the dashboard then only shows a
+notice.
 
-Tests gegen einen echten Docker-Daemon (Sandbox) laufen nur mit `ADE_TEST_DOCKER=1`; sie bauen
-ein kleines Debian-Image mit git (`ade-test-git:1`) oder nehmen `ADE_TEST_IMAGE`:
+Tests against a real Docker daemon (sandbox) only run with `ADE_TEST_DOCKER=1`; they build a
+small Debian image with git (`ade-test-git:1`) or use `ADE_TEST_IMAGE`:
 
 ```sh
 ADE_TEST_DOCKER=1 go test ./internal/sandbox/ ./internal/agent/
-make image   # Sandbox-Image ade-agent-base lokal bauen (Tag :dev)
+make image   # build the sandbox image ade-agent-base locally (tag :dev)
 ```
 
-## Lokal entwickeln
+## Developing locally
 
 ```sh
-make dev                # Daemon im Vordergrund (go run, Debug-Logging)
-cd web && npm run dev   # Vite-Dev-Server auf http://localhost:5173 (leitet /api an :7000 weiter)
-bin/ade start --no-browser   # gibt die Anmelde-URL aus
+make dev                # daemon in the foreground (go run, debug logging)
+cd web && npm run dev   # Vite dev server on http://localhost:5173 (forwards /api to :7000)
+bin/ade start --no-browser   # prints the login URL
 ```
 
-Die Anmelde-URL setzt das Session-Cookie für `localhost`; danach funktioniert auch der
-Vite-Dev-Server.
+The login URL sets the session cookie for `localhost`; after that the Vite dev server works too.
 
-Eine eigene Konfiguration (anderer Port, eigenes Datenverzeichnis) hält die Entwicklung von
-einer installierten ADE getrennt:
+An own configuration (different port, own data directory) keeps development separate from an
+installed ADE:
 
 ```sh
 cat > /tmp/ade-dev.yaml <<'YAML'
@@ -51,43 +52,44 @@ YAML
 go run ./cmd/ade serve --config /tmp/ade-dev.yaml --debug
 ```
 
-## Issues und Pull Requests
+Writing a new adapter for another agent CLI is described in [doc/adapters.md](doc/adapters.md).
 
-Der Ablauf (Branch pro Meilenstein, `Closes #N` pro erledigtem Issue im PR, Prüfen nach dem
-Merge) ist in [AGENTS.md](AGENTS.md#arbeitsablauf-meilensteine-issues-und-prs) beschrieben und
-gilt für Menschen genauso.
+## Issues and pull requests
+
+The workflow (a branch per milestone, `Closes #N` per completed issue in the PR, checking after
+the merge) is described in [AGENTS.md](AGENTS.md#workflow-milestones-issues-and-prs) and applies
+to humans just the same.
 
 ## Releases
 
-Releases macht der Maintainer, und zwar über `CHANGELOG.md` (ADR-024): Steht nach einem Merge auf
-`main` oben eine Version `## [X.Y.Z] – JJJJ-MM-TT` (oder `## [X.Y.Z-rc.N] – …` als Vorabversion),
-zu der es noch keinen Tag gibt, setzt
-[`auto-release.yml`](.github/workflows/auto-release.yml) den Tag `vX.Y.Z` auf diesen Commit und
-startet [`release.yml`](.github/workflows/release.yml):
+Releases are made by the maintainer, through `CHANGELOG.md` (ADR-024): if, after a merge to
+`main`, the top of the file has a version `## [X.Y.Z] – YYYY-MM-DD` (or `## [X.Y.Z-rc.N] – …`
+for a pre-release) that has no tag yet,
+[`auto-release.yml`](.github/workflows/auto-release.yml) sets the tag `vX.Y.Z` on that commit and
+starts [`release.yml`](.github/workflows/release.yml):
 
-- **GoReleaser** baut `ade_linux_amd64.tar.gz` und `ade_linux_arm64.tar.gz` (Version `vX.Y.Z` im
-  Binary), `checksums.txt` und je Archiv eine SPDX-SBOM, lädt `install.sh` mit hoch und übernimmt
-  den passenden Abschnitt aus `CHANGELOG.md` als Release-Notizen. Für alle Dateien in
-  `checksums.txt` entsteht eine Build-Provenance-Attestierung.
-- **Images** (`images.yml`, parallel): `ghcr.io/davidw475/ade-agent-base` und `ade-dev` mit dem Tag
-  `X.Y.Z` (ohne `v`; bei Vollversionen zusätzlich `X.Y`), SBOM und Provenance. Das Binary nutzt
-  standardmäßig genau `ade-agent-base:X.Y.Z` (`sandbox.DefaultImage`), deshalb werden die Images
-  bei jedem Release gebaut, auch ohne Änderung unter `images/`.
+- **GoReleaser** builds `ade_linux_amd64.tar.gz` and `ade_linux_arm64.tar.gz` (version `vX.Y.Z`
+  in the binary), `checksums.txt` and an SPDX SBOM per archive, uploads `install.sh` as well and
+  uses the matching section of `CHANGELOG.md` as release notes. Every file in `checksums.txt`
+  gets a build provenance attestation.
+- **Images** (`images.yml`, in parallel): `ghcr.io/davidw475/ade-agent-base` and `ade-dev` with
+  the tag `X.Y.Z` (without `v`; for full releases also `X.Y`), SBOM and provenance. By default the
+  binary uses exactly `ade-agent-base:X.Y.Z` (`sandbox.DefaultImage`), which is why the images are
+  built for every release, even without changes under `images/`.
 
-Die Version liest [`scripts/changelog-version.sh`](scripts/changelog-version.sh). Es prüft Format,
-Datum und Reihenfolge; dieselbe Prüfung läuft in jedem PR (Job „Shell-Skripte“).
+The version is read by [`scripts/changelog-version.sh`](scripts/changelog-version.sh). It checks
+format, date and order; the same check runs in every PR (job "Shell scripts").
 
-Ablauf:
+Steps:
 
-1. In `CHANGELOG.md` den Abschnitt `[Unveröffentlicht]` in `## [X.Y.Z] – JJJJ-MM-TT` umbenennen,
-   einen neuen leeren `[Unveröffentlicht]` anlegen und die Vergleichslinks am Ende ergänzen; per PR
-   nach `main`. **Der Merge veröffentlicht.** Lokal prüfen: `scripts/changelog-version.sh` gibt die
-   neue Version aus.
-2. Optional vorher (braucht [GoReleaser](https://goreleaser.com/install/)): `goreleaser check` und
-   `goreleaser release --snapshot --clean --skip=sbom`. In PRs, die die Release-Konfiguration
-   ändern, läuft derselbe Snapshot samt `install.sh` in der CI
+1. In `CHANGELOG.md`, rename the section `[Unreleased]` to `## [X.Y.Z] – YYYY-MM-DD`, add a new
+   empty `[Unreleased]` and extend the comparison links at the end; open a PR to `main`.
+   **The merge publishes.** Check locally: `scripts/changelog-version.sh` prints the new version.
+2. Optionally beforehand (needs [GoReleaser](https://goreleaser.com/install/)): `goreleaser check`
+   and `goreleaser release --snapshot --clean --skip=sbom`. In PRs that change the release
+   configuration, the same snapshot including `install.sh` runs in CI
    ([`release-snapshot.yml`](.github/workflows/release-snapshot.yml)).
-3. Nach dem Merge den Lauf verfolgen: `gh run watch` (Workflow „Auto-Release“). Danach prüfen:
+3. After the merge, follow the run: `gh run watch` (workflow "Auto-Release"). Then check:
    ```sh
    gh release view vX.Y.Z
    gh release download vX.Y.Z -p 'ade_linux_amd64.tar.gz' -D /tmp/ade-rel
@@ -95,25 +97,25 @@ Ablauf:
    gh attestation verify oci://ghcr.io/davidw475/ade-agent-base:X.Y.Z --repo DavidW475/ade
    ADE_VERSION=vX.Y.Z sh install.sh && ade version
    ```
-   Schlägt nur der Image-Build fehl, ist das Release schon veröffentlicht: Fehler beheben und den
-   Lauf über „Re-run failed jobs“ wiederholen. Scheitert der Lauf, bevor das Release entsteht, den
-   Fehler beheben und „Auto-Release“ von Hand starten (`gh workflow run auto-release.yml`): Gibt
-   es den Tag schon, aber kein Release, holt der Workflow es nach.
+   If only the image build fails, the release is already published: fix the error and repeat the
+   run with "Re-run failed jobs". If the run fails before the release exists, fix the error and
+   start "Auto-Release" manually (`gh workflow run auto-release.yml`): if the tag exists but the
+   release does not, the workflow catches up.
 
-Ein von Hand gepushter Tag (`git tag -a vX.Y.Z -m "ADE vX.Y.Z" && git push origin vX.Y.Z`)
-startet `release.yml` weiterhin direkt; der CHANGELOG-Abschnitt muss trotzdem existieren.
+A manually pushed tag (`git tag -a vX.Y.Z -m "ADE vX.Y.Z" && git push origin vX.Y.Z`) still
+starts `release.yml` directly; the CHANGELOG section must exist anyway.
 
-## Konventionen
+## Conventions
 
-- **Sprache:** Doku, Kommentare, Fehlermeldungen und UI-Texte auf Deutsch; Bezeichner auf Englisch.
+- **Language:** English for docs, comments, error messages, log and UI texts, and identifiers.
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:` …).
-- **Konfiguration:** Neue oder geänderte YAML-Felder in [`doc/configuration.md`](doc/configuration.md)
-  eintragen; `internal/config/reference_test.go` prüft die Tabellen gegen die Go-Structs.
-- **Architekturentscheidungen** als ADR in [`doc/decisions.md`](doc/decisions.md) anhängen.
-- **Sicherheit:** Der Daemon kann Code ausführen. Änderungen an Auth, Host-/Origin-Prüfung,
-  Sandbox oder Proxy brauchen Tests.
-- Neue Abhängigkeiten sparsam und nur mit Apache-2.0-kompatibler Lizenz.
+- **Configuration:** Add new or changed YAML fields to [`doc/configuration.md`](doc/configuration.md);
+  `internal/config/reference_test.go` checks the tables against the Go structs.
+- **Architecture decisions** are appended as an ADR to [`doc/decisions.md`](doc/decisions.md).
+- **Security:** The daemon can execute code. Changes to auth, the host/origin check, sandbox or
+  proxy need tests.
+- New dependencies sparingly and only with an Apache-2.0-compatible license.
 
-## Lizenz
+## License
 
-Beiträge stehen unter der [Apache-2.0-Lizenz](LICENSE).
+Contributions are licensed under the [Apache-2.0 license](LICENSE).

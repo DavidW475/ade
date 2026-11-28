@@ -1,8 +1,7 @@
 name: Release
 
-# Zwei Wege: ein von Hand gepushter Tag oder auto-release.yml, das den Tag aus CHANGELOG.md
-# setzt und diesen Workflow direkt aufruft (Tags, die mit GITHUB_TOKEN gepusht werden, starten
-# keine Workflows).
+# Two ways: a manually pushed tag, or auto-release.yml, which sets the tag from CHANGELOG.md and
+# calls this workflow directly (tags pushed with GITHUB_TOKEN start no workflows).
 on:
   push:
     tags: ["v*"]
@@ -39,11 +38,11 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      # GoReleaser erzeugt damit die SBOMs der Archive (sboms in .goreleaser.yaml).
+      # GoReleaser uses it to create the archives' SBOMs (sboms in .goreleaser.yaml).
       - uses: anchore/sbom-action/download-syft@v0
       - run: go test -race ./...
-        # Ohne Frontend-Build fehlt nur das eingebettete Dashboard; die Tests brauchen es nicht.
-      - name: Release-Notizen aus CHANGELOG.md
+        # Without a frontend build only the embedded dashboard is missing; the tests do not need it.
+      - name: Release notes from CHANGELOG.md
         run: |
           version="${TAG#v}"
           awk -v v="$version" '
@@ -52,7 +51,7 @@ jobs:
             found { print }
           ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
           if [ ! -s "$RUNNER_TEMP/notes.md" ]; then
-            echo "::error::CHANGELOG.md hat keinen Abschnitt für $version"
+            echo "::error::CHANGELOG.md has no section for $version"
             exit 1
           fi
       - uses: goreleaser/goreleaser-action@v6
@@ -63,14 +62,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ env.TAG }}
-      # Provenance für alles in checksums.txt (Archive und ihre SBOMs);
-      # prüfen mit `gh attestation verify ade_linux_amd64.tar.gz --repo DavidW475/ade`.
+      # Provenance for everything in checksums.txt (archives and their SBOMs);
+      # verify with `gh attestation verify ade_linux_amd64.tar.gz --repo DavidW475/ade`.
       - uses: actions/attest-build-provenance@v4
         with:
           subject-checksums: dist/checksums.txt
 
-  # Images immer zum Tag bauen (:X.Y.Z), parallel zum Binary. Schlägt der Build fehl,
-  # ist der Release-Lauf rot, das Release selbst ist dann aber schon veröffentlicht.
+  # Always build images for the tag (:X.Y.Z), in parallel to the binary. If the build fails, the
+  # release run is red, but the release itself is already published.
   images:
     name: Images
     uses: ./.github/workflows/images.yml

@@ -1,5 +1,5 @@
-# GoReleaser-Konfiguration für GitHub-Releases (Workflow: .github/workflows/release.yml).
-# Lokal prüfen: goreleaser check · Testlauf ohne Veröffentlichung: goreleaser release --snapshot --clean
+# GoReleaser configuration for GitHub releases (workflow: .github/workflows/release.yml).
+# Check locally: goreleaser check · trial run without publishing: goreleaser release --snapshot --clean
 version: 2
 
 project_name: ade
@@ -49,6 +49,6 @@ release:
     owner: DavidW475
     name: ade
   prerelease: auto
-  # Installationsskript der Version beim Release, z. B. für `ADE_VERSION=… sh install.sh`.
+  # Install script of the version in the release, e.g. for `ADE_VERSION=… sh install.sh`.
   extra_files:
     - glob: ./install.sh

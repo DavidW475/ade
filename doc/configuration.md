@@ -40,7 +40,7 @@ Global settings of the daemon. Changes take effect after a restart of the daemon
 | `ide.binary` | path | – | Own openvscode-server binary. Empty: ADE downloads the pinned version on first use and verifies its checksum (ADR-012). |
 | `ide.idle_timeout` | duration | `15m` | An IDE without an open tab stops after this time (at least `1m`). |
 | `sandbox.image` | string | `ghcr.io/davidw475/ade-agent-base:<version>` | Default image for sandbox containers; releases use the image of the same version, development builds `:latest`. Projects can override it in `sandbox.yaml`. |
-| `sandbox.docker` | path | `docker` from `PATH` | Container CLI. Rootless Docker and `podman` work too; ADE detects the runtime ([sandbox.md](sandbox.md#6-container-laufzeiten)). |
+| `sandbox.docker` | path | `docker` from `PATH` | Container CLI. Rootless Docker and `podman` work too; ADE detects the runtime ([sandbox.md](sandbox.md#6-container-runtimes)). |
 | `approvals.timeout` | duration | `10m` | How long an approval request waits for a decision in the dashboard before it counts as denied (`10s`–`2h`). |
 
 Example:
@@ -191,7 +191,7 @@ replaces it.
 | `roles.<name>.inputs` | list of strings | – | Artifacts of other roles that are added to the prompt. |
 | `roles.<name>.outputs` | list | – | At most one artifact: the role's last answer. A file name (`plan.md`) or an object with `name` and `schema`. |
 | `roles.<name>.outputs[].name` | string | – | File name of the artifact. Names ending in `.json` must be JSON. |
-| `roles.<name>.outputs[].schema` | path | – | JSON Schema (JSON or YAML) the artifact must match; supported subset in [factory.md](factory.md#3-ausführung). |
+| `roles.<name>.outputs[].schema` | path | – | JSON Schema (JSON or YAML) the artifact must match; supported subset in [factory.md](factory.md#3-execution). |
 | `roles.<name>.sandbox` | – | – | Not allowed: the sandbox applies to the whole run and is chosen at start. |
 | `flow[].step` | string | – | Unique name of the step; conditions refer to it (`review.verdict`). |
 | `flow[].role` | string | – | Runs the role as an agent session. |

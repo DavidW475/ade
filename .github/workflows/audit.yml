@@ -1,8 +1,8 @@
 name: Audit
 
-# #95: bekannte Schwachstellen in Go (Standardbibliothek der Toolchain aus go.mod und Module,
-# nur erreichbarer Code) und in den npm-Paketen des Dashboards. Wöchentlich zusätzlich, damit
-# neue Lücken auch ohne PR auffallen; dann meist `toolchain` in go.mod anheben.
+# #95: known vulnerabilities in Go (standard library of the toolchain from go.mod and modules,
+# reachable code only) and in the dashboard's npm packages. Also weekly, so that new
+# vulnerabilities show up without a PR; then usually raise `toolchain` in go.mod.
 on:
   push:
     branches: [main]
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   audit:
-    name: Abhängigkeiten prüfen
+    name: Check dependencies
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

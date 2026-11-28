@@ -1,21 +1,21 @@
-<!-- Titel: Conventional Commit, z. B. "feat(workspace): Workspaces anlegen und löschen" -->
+<!-- Title: Conventional Commit, e.g. "feat(workspace): create and delete workspaces" -->
 
-## Worum geht es
+## What this is about
 
-<!-- Ein bis drei Sätze. Meilenstein nennen, z. B. "Teil von M1". -->
+<!-- One to three sentences. Name the milestone, e.g. "Part of M1". -->
 
 ## Issues
 
-<!-- Jedes erledigte Issue mit eigenem Schlüsselwort, damit GitHub es beim Merge schließt.
-     Nur teilweise erledigte Issues mit "Teil von #N" verlinken. -->
+<!-- Every completed issue with its own keyword, so GitHub closes it on merge.
+     Link partially completed issues with "Part of #N". -->
 Closes #
 
-## Abweichungen vom Plan
+## Deviations from the plan
 
-<!-- Was anders umgesetzt wurde als im Issue/in doc/ beschrieben, und warum. Sonst "keine". -->
+<!-- What was implemented differently than described in the issue or in doc/, and why. Otherwise "none". -->
 
 ## Tests
 
 - [ ] `make test`
 - [ ] `make lint`
-- [ ] Manuell geprüft: …
+- [ ] Checked manually: …

@@ -50,10 +50,10 @@ jobs:
           version: latest
       - run: go test -race ./...
         env:
-          # Sandbox-Tests gegen den Docker-Daemon des Runners
+          # sandbox tests against the runner's Docker daemon
           ADE_TEST_DOCKER: "1"
       - run: make go
-      - name: Binary enthält das Dashboard
+      - name: Binary contains the dashboard
         run: |
           ./bin/ade version
           grep -q 'id="root"' internal/api/dist/index.html
@@ -63,20 +63,20 @@ jobs:
           path: bin/ade
 
   shell:
-    name: Shell-Skripte
+    name: Shell scripts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - run: shellcheck install.sh scripts/*.sh
-      # Eine neue Version oben im CHANGELOG wird nach dem Merge automatisch released
-      # (auto-release.yml); Format und Reihenfolge hier schon prüfen.
-      - name: CHANGELOG-Version
+      # A new version at the top of the CHANGELOG is released automatically after the merge
+      # (auto-release.yml); check format and order here already.
+      - name: CHANGELOG version
         run: |
           v=$(scripts/changelog-version.sh CHANGELOG.md)
-          echo "Neueste Version im CHANGELOG: ${v:-keine}"
+          echo "Newest version in the CHANGELOG: ${v:-none}"
 
   release-config:
-    name: GoReleaser-Konfiguration
+    name: GoReleaser configuration
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -86,8 +86,8 @@ jobs:
           version: "~> v2"
           args: check
 
-  # #94: Sandbox unter rootless Laufzeiten. Die Tests laufen im systemd-User-Manager des
-  # Runner-Nutzers (linger), damit die cgroup-Controller wie auf einem Desktop delegiert sind.
+  # #94: sandbox under rootless runtimes. The tests run in the systemd user manager of the
+  # runner user (linger), so the cgroup controllers are delegated as on a desktop.
   sandbox-runtimes:
     name: Sandbox (${{ matrix.runtime }})
     runs-on: ubuntu-24.04
@@ -105,7 +105,7 @@ jobs:
         with:
           name: web-dist
           path: internal/api/dist
-      - name: systemd-User-Manager starten
+      - name: Start systemd user manager
         run: |
           sudo loginctl enable-linger "$USER"
           uid=$(id -u)
@@ -121,20 +121,20 @@ jobs:
       - name: rootless Docker
         if: matrix.runtime == 'docker-rootless'
         run: |
-          # Ubuntu 24.04 beschränkt unprivilegierte User-Namespaces per AppArmor (rootlesskit).
+          # Ubuntu 24.04 restricts unprivileged user namespaces via AppArmor (rootlesskit).
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          # enable_icc=false für ade-egress (doc/sandbox.md#6-container-laufzeiten).
+          # enable_icc=false for ade-egress (doc/sandbox.md#6-container-runtimes).
           sudo modprobe br_netfilter
           sudo systemctl disable --now docker.service docker.socket
           sudo rm -f /var/run/docker.sock
-          # Statische Binaries samt rootless-Extras nach ~/bin, Dienst im User-Manager.
+          # Static binaries including rootless extras to ~/bin, service in the user manager.
           curl -fsSL https://get.docker.com/rootless | FORCE_ROOTLESS_INSTALL=1 sh
           echo "$HOME/bin" >> "$GITHUB_PATH"
           echo "DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock" >> "$GITHUB_ENV"
-      - name: Laufzeit
+      - name: Runtime
         if: matrix.runtime == 'docker-rootless'
         run: docker info --format '{{json .SecurityOptions}} mem={{.MemoryLimit}} cpu={{.CPUCfsQuota}} pids={{.PidsLimit}}'
-      - name: Sandbox-Tests
+      - name: Sandbox tests
         run: |
           go test -race -count=1 -v ./internal/sandbox/...
           go test -race -count=1 ./internal/agent/...

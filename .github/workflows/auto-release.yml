@@ -1,16 +1,16 @@
 name: Auto-Release
 
-# Automatische Releases aus CHANGELOG.md: Steht nach einem Merge auf main oben im CHANGELOG eine
-# Version `## [X.Y.Z] – JJJJ-MM-TT`, zu der es noch keinen Tag gibt, setzt dieser Workflow den
-# Tag vX.Y.Z auf den Commit und ruft release.yml auf (Binaries, Images, Attestierung).
-# Ein Tag, der mit GITHUB_TOKEN gepusht wird, startet release.yml nicht selbst; deshalb der
-# direkte Aufruf. Die Version liest scripts/changelog-version.sh.
+# Automatic releases from CHANGELOG.md: if, after a merge to main, the top of the CHANGELOG has a
+# version `## [X.Y.Z] – YYYY-MM-DD` without a tag yet, this workflow sets the tag vX.Y.Z on the
+# commit and calls release.yml (binaries, images, attestation).
+# A tag pushed with GITHUB_TOKEN does not start release.yml by itself; hence the direct call.
+# scripts/changelog-version.sh reads the version.
 on:
   push:
     branches: [main]
     paths: [CHANGELOG.md]
-  # Von Hand: wie oben; gibt es den Tag schon, aber kein Release (Lauf gescheitert), wird das
-  # Release nachgeholt.
+  # By hand: as above; if the tag exists but the release does not (run failed), the release is
+  # caught up.
   workflow_dispatch:
 
 permissions:
@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   tag:
-    name: Version erkennen und taggen
+    name: Detect version and tag
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -32,30 +32,30 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Version aus CHANGELOG.md
+      - name: Version from CHANGELOG.md
         id: version
-        # Erst zuweisen: Ein Fehler in $(…) als Argument von echo bräche den Schritt nicht ab.
+        # Assign first: an error in $(…) as an argument of echo would not fail the step.
         run: |
           version=$(scripts/changelog-version.sh CHANGELOG.md)
           echo "version=$version" >> "$GITHUB_OUTPUT"
-      - name: Tag setzen
+      - name: Set tag
         id: tag
         env:
           VERSION: ${{ steps.version.outputs.version }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$VERSION" ]; then
-            echo "Keine Version im CHANGELOG, nichts zu tun."
+            echo "No version in the CHANGELOG, nothing to do."
             exit 0
           fi
           tag="v$VERSION"
           if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
             if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && ! gh release view "$tag" >/dev/null 2>&1; then
-              echo "Tag $tag ohne Release, Release wird nachgeholt."
+              echo "Tag $tag without a release, catching up on the release."
               echo "tag=$tag" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            echo "Tag $tag gibt es schon ($(git rev-list -n 1 "$tag")), nichts zu tun."
+            echo "Tag $tag already exists ($(git rev-list -n 1 "$tag")), nothing to do."
             exit 0
           fi
           git config user.name "github-actions[bot]"
@@ -64,7 +64,7 @@ jobs:
           git push origin "refs/tags/$tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "### Release $tag" >> "$GITHUB_STEP_SUMMARY"
-          echo "Tag auf $GITHUB_SHA gesetzt, Release läuft." >> "$GITHUB_STEP_SUMMARY"
+          echo "Tag set on $GITHUB_SHA, release is running." >> "$GITHUB_STEP_SUMMARY"
 
   release:
     name: Release

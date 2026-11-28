@@ -1,111 +1,111 @@
 # AGENTS.md
 
-Hinweise für KI-Agenten (und Menschen), die an ADE arbeiten. Gilt für das ganze Repo.
+Notes for AI agents (and humans) working on ADE. Applies to the whole repository.
 
-## Projekt in Kürze
+## Project in brief
 
-ADE ist eine Leitstelle für KI-Agenten unter WSL2: ein Go-Daemon (`ade`) mit eingebettetem
-React-Dashboard. Plan und Begriffe stehen in [`doc/`](doc/README.md), der Fahrplan in
-[`doc/milestones.md`](doc/milestones.md), Entscheidungen in [`doc/decisions.md`](doc/decisions.md).
+ADE is a control center for AI agents on WSL2: a Go daemon (`ade`) with an embedded React
+dashboard. Plan and terms are in [`doc/`](doc/README.md), the roadmap in
+[`doc/milestones.md`](doc/milestones.md), decisions in [`doc/decisions.md`](doc/decisions.md).
 
-## Befehle
+## Commands
 
 ```sh
-make build   # web/ bauen (→ internal/api/dist) und bin/ade erzeugen
-make test    # go test -race ./... und TypeScript-Typprüfung
-make lint    # golangci-lint und ESLint
-make dev     # Daemon im Vordergrund (Debug-Logging)
+make build   # build web/ (→ internal/api/dist) and produce bin/ade
+make test    # go test -race ./... and TypeScript type check
+make lint    # golangci-lint and ESLint
+make dev     # daemon in the foreground (debug logging)
 ```
 
-Vor jedem Commit müssen `make test` und `make lint` grün sein. Zum manuellen Testen eine
-eigene Konfiguration mit anderem Port und Datenverzeichnis verwenden (siehe
-[CONTRIBUTING.md](CONTRIBUTING.md#lokal-entwickeln)), nie die Daten einer installierten ADE.
+`make test` and `make lint` must pass before every commit. For manual testing use your own
+configuration with a different port and data directory (see
+[CONTRIBUTING.md](CONTRIBUTING.md#developing-locally)), never the data of an installed ADE.
 
-## Struktur
+## Structure
 
-| Pfad | Inhalt |
+| Path | Contents |
 |---|---|
-| `cmd/ade/` | CLI-Einstieg und Unterbefehle |
-| `internal/api/` | HTTP-Handler, Auth, Host-/Origin-Prüfung, eingebettetes Frontend (`dist/`) |
-| `internal/config/` | Globale Konfiguration |
-| `internal/daemon/` | Daemon-Start, Lock, Client für die CLI |
-| `internal/store/` | SQLite und Migrationen (`migrations/NNNN_name.sql`, lückenlos nummeriert) |
-| `internal/service/` | systemd-User-Dienst (`ade install-service`, `ade uninstall-service`) |
-| `internal/browser/` | Browser öffnen (WSL → Windows) |
-| `internal/apperr/` | Fehlerarten (NotFound, Invalid, Conflict) → HTTP-Status |
-| `internal/git/` | Aufrufe des git-Binarys, Diff über temporären Index, Commit/Fetch/Merge/Push |
-| `internal/project/` | Projekte registrieren, `.ade/project.yaml` |
-| `internal/workspace/` | Workspaces: Clone, Setup, Diff, Übernahme (Collect, Merge, PR), Verwerfen |
-| `internal/agent/` | Agent-Sessions: Prozesse (PTY/Pipes), Event-Hub mit Replay, Neustart-Aufräumen, Kosten und Budgets, Lese-Rollen (Schnappschuss) |
-| `internal/agent/adapter/` | Adapter-Interface, Event-Typen + JSON-Schema; `claude/`, `codex/`, `pty/`, `fake/` (Tests) |
-| `internal/provider/` | Adapter → Anbieter, Modell-Aliase, Preistabelle, Kostenberechnung |
-| `internal/ide/` | openvscode-server je Workspace: Download mit Prüfsumme, Start, Inaktivitäts-Stopp |
-| `internal/gateway/` | Reverse-Proxy `ws-<id>.localhost` → IDE, Ticket-Anmeldung, Connection-Token |
-| `internal/sandbox/` | Docker-Container (Agent, Lese-Container), internes Netz und Proxy-Container je Workspace über die Docker-CLI, `.ade/sandbox.yaml` (inkl. `egress`), GC |
-| `internal/proxy/` | Egress-Proxy `ade proxy`: Allowlist, Schutz vor internen Zielen, Secret-Injection, Token-Zählung, Steuer-API, Rückfragen (Hook, `on_blocked: ask`) |
-| `internal/approval/` | Freigaben: Warteschlange, Regeln aus `approvals` in `project.yaml`, `ade hook pretooluse`, Egress-Ausnahmen, Budget-Freigaben |
-| `internal/factory/` | Software-Fabrik: Definitionen (`.ade/factories`, Vorlagen aus `examples/factories`), Runner (Runs, Gates, Artefakte, Schleifen, parallele Schritte, Fortsetzen nach Neustart), Bedingungen und Schemas |
-| `internal/trigger/` | Auslöser für Runs: GitHub-Issues mit Label (Polling über `gh`), Zeitplan |
-| `internal/cron/` | Cron-Ausdrücke (5 Felder) und Termine |
+| `cmd/ade/` | CLI entry point and subcommands |
+| `internal/api/` | HTTP handlers, auth, host/origin check, embedded frontend (`dist/`) |
+| `internal/config/` | Global configuration |
+| `internal/daemon/` | Daemon start, lock, client for the CLI |
+| `internal/store/` | SQLite and migrations (`migrations/NNNN_name.sql`, numbered without gaps) |
+| `internal/service/` | systemd user service (`ade install-service`, `ade uninstall-service`) |
+| `internal/browser/` | Opening the browser (WSL → Windows) |
+| `internal/apperr/` | Error kinds (NotFound, Invalid, Conflict) → HTTP status |
+| `internal/git/` | Calls of the git binary, diff via temporary index, commit/fetch/merge/push |
+| `internal/project/` | Registering projects, `.ade/project.yaml` |
+| `internal/workspace/` | Workspaces: clone, setup, diff, delivery (collect, merge, PR), discard |
+| `internal/agent/` | Agent sessions: processes (PTY/pipes), event hub with replay, cleanup after restart, costs and budgets, read-only roles (snapshot) |
+| `internal/agent/adapter/` | Adapter interface, event types + JSON schema; `claude/`, `codex/`, `pty/`, `fake/` (tests) |
+| `internal/provider/` | Adapter → provider, model aliases, price table, cost calculation |
+| `internal/ide/` | openvscode-server per workspace: download with checksum, start, idle stop |
+| `internal/gateway/` | Reverse proxy `ws-<id>.localhost` → IDE, ticket login, connection token |
+| `internal/sandbox/` | Docker containers (agent, reader container), internal network and proxy container per workspace via the Docker CLI, `.ade/sandbox.yaml` (incl. `egress`), GC |
+| `internal/proxy/` | Egress proxy `ade proxy`: allowlist, protection against internal targets, secret injection, token counting, control API, questions (hook, `on_blocked: ask`) |
+| `internal/approval/` | Approvals: queue, rules from `approvals` in `project.yaml`, `ade hook pretooluse`, egress exceptions, budget approvals |
+| `internal/factory/` | Software factory: definitions (`.ade/factories`, templates from `examples/factories`), runner (runs, gates, artifacts, loops, parallel steps, resuming after restart), conditions and schemas |
+| `internal/trigger/` | Triggers for runs: GitHub issues with a label (polling via `gh`), schedule |
+| `internal/cron/` | Cron expressions (5 fields) and dates |
 | `web/` | Dashboard (Vite + React + TypeScript, Monaco Diff Editor) |
-| `examples/`, `images/` | Beispielkonfigurationen, Fabrik-Vorlagen (`examples/factories`, eingebettet), Container-Images (`images/agent-base`) |
+| `examples/`, `images/` | Example configurations, factory templates (`examples/factories`, embedded), container images (`images/agent-base`) |
 
-Neue Module folgen der Struktur in [architecture.md](doc/architecture.md#10-repo-struktur).
+New modules follow the structure in [architecture.md](doc/architecture.md#10-repository-layout).
 
-## Konventionen
+## Conventions
 
-- **Sprache:** Doku, Kommentare, Fehlermeldungen, Log- und UI-Texte auf Deutsch; Bezeichner auf Englisch.
-- **Commits:** [Conventional Commits](https://www.conventionalcommits.org/), z. B. `feat(workspace): …`.
-- **Sicherheit zuerst:** Der Daemon führt Code aus. Jede neue Route läuft durch Host-/Origin-Prüfung
-  und braucht Auth (außer `/api/health`). Änderungen an Auth, Gateway, Sandbox oder Proxy brauchen Tests.
-- **Abhängigkeiten** sparsam, Lizenz kompatibel zu Apache-2.0, kein cgo.
-- **Migrationen** nie nachträglich ändern, immer eine neue anlegen.
-- **Git** immer über `internal/git` aufrufen. Das Haupt-Repo eines Projekts wird nur gelesen,
-  außer bei den Übernahme-Schritten des Daemons (Fetch nach `ade/<id>`, Mergen, Push, Branch
-  löschen, ADR-013); Workspaces haben kein Remote zum Haupt-Repo (ADR-005). Befehle im Workspace
-  über `git.Worktree` (keine Hooks; bei Sandbox-Workspaces im Container, #41).
-- **UI prüfen:** Unter WSL lässt sich das Dashboard mit Edge headless fotografieren
-  (`msedge.exe --headless=new --screenshot=… "http://localhost:<port>/auth/login?ticket=…&next=/pfad"`,
-  Ticket per `POST /api/auth/tickets` mit dem Daemon-Secret).
-- **CHANGELOG:** Änderungen unter `[Unveröffentlicht]` eintragen. Eine Versionsüberschrift
-  `## [X.Y.Z] – …` nur auf ausdrücklichen Wunsch des Maintainers: Ihr Merge nach `main`
-  veröffentlicht automatisch ein Release (ADR-024).
-- **Konfiguration:** Jedes neue YAML-Feld gehört in [`doc/configuration.md`](doc/configuration.md)
-  (Test `internal/config/reference_test.go`).
-- **Architekturentscheidungen** als neues ADR in `doc/decisions.md` anhängen.
+- **Language:** English for docs, comments, error messages, log and UI texts, and identifiers.
+- **Commits:** [Conventional Commits](https://www.conventionalcommits.org/), e.g. `feat(workspace): …`.
+- **Security first:** The daemon executes code. Every new route goes through the host/origin
+  check and needs auth (except `/api/health`). Changes to auth, gateway, sandbox or proxy need tests.
+- **Dependencies** sparingly, license compatible with Apache-2.0, no cgo.
+- **Migrations** are never changed afterwards; always add a new one.
+- **Git** is always called through `internal/git`. A project's main repository is only read,
+  except for the daemon's delivery steps (fetch to `ade/<id>`, merge, push, delete branch,
+  ADR-013); workspaces have no remote to the main repository (ADR-005). Commands in a workspace
+  go through `git.Worktree` (no hooks; in the container for sandbox workspaces, #41).
+- **Checking the UI:** Under WSL the dashboard can be screenshotted with headless Edge
+  (`msedge.exe --headless=new --screenshot=… "http://localhost:<port>/auth/login?ticket=…&next=/path"`,
+  ticket via `POST /api/auth/tickets` with the daemon secret).
+- **CHANGELOG:** Add changes under `[Unreleased]`. Add a version heading `## [X.Y.Z] – …` only
+  when the maintainer explicitly asks for it: merging it into `main` publishes a release
+  automatically (ADR-024).
+- **Configuration:** Every new YAML field belongs in [`doc/configuration.md`](doc/configuration.md)
+  (test `internal/config/reference_test.go`).
+- **Architecture decisions** are appended as a new ADR to `doc/decisions.md`.
 
-## Arbeitsablauf: Meilensteine, Issues und PRs
+## Workflow: milestones, issues and PRs
 
-Jeder Meilenstein (M0, M1, …) ist ein GitHub-Milestone mit Issues. Arbeit wird immer gegen diese
-Issues erledigt und über PRs mit ihnen verknüpft.
+Every milestone (M0, M1, …) is a GitHub milestone with issues. Work is always done against these
+issues and linked to them through PRs.
 
-1. **Issues lesen, bevor du anfängst.** Alle Issues des Meilensteins ansehen, nicht nur
-   `doc/milestones.md`; die Issues sind detaillierter:
+1. **Read the issues before you start.** Look at all issues of the milestone, not only
+   `doc/milestones.md`; the issues are more detailed:
    ```sh
-   gh issue list --milestone "M1 – Projekte & Workspaces" --state open
+   gh issue list --milestone "M11 – Release 1.0" --state open
    gh issue view <nr>
    ```
-2. **Branch** von aktuellem `main`: `m<N>-<kurzname>`, z. B. `m1-workspaces`. Nie direkt auf
-   `main` committen.
-3. **Umsetzen** und am Ende jede Aufgabe und jedes „Fertig, wenn“ der Issues gegen den Code
-   prüfen. Was fehlt, wird ergänzt oder im PR ausdrücklich als offen genannt.
-4. **PR erstellen** nach [`.github/pull_request_template.md`](.github/pull_request_template.md):
-   - Für **jedes vollständig erledigte Issue** eine eigene Zeile `Closes #<nr>` im PR-Text.
-     Nur so schließt GitHub das Issue beim Merge.
-   - Teilweise erledigte Issues mit `Teil von #<nr>` verlinken; sie bleiben offen.
-   - Abweichungen vom Issue oder von `doc/` mit Begründung unter „Abweichungen vom Plan“.
-   - Die Akzeptanzkriterien des Meilensteins in `doc/milestones.md` im selben PR abhaken.
-5. **CI abwarten** (`gh pr checks <nr> --watch`) und Fehler beheben.
-6. **Nach dem Merge prüfen**, ob alle Issues geschlossen sind:
+2. **Branch** from current `main`: `m<N>-<short-name>`, e.g. `m1-workspaces`. Never commit
+   directly to `main`.
+3. **Implement**, and at the end check every task and every "Done when" of the issues against the
+   code. Whatever is missing is added or explicitly named as open in the PR.
+4. **Create the PR** following [`.github/pull_request_template.md`](.github/pull_request_template.md):
+   - For **every fully completed issue** a separate line `Closes #<nr>` in the PR text.
+     Only then does GitHub close the issue on merge.
+   - Link partially completed issues with `Part of #<nr>`; they stay open.
+   - Deviations from the issue or from `doc/` with reasons under "Deviations from the plan".
+   - Tick the milestone's acceptance criteria in `doc/milestones.md` in the same PR.
+5. **Wait for CI** (`gh pr checks <nr> --watch`) and fix failures.
+6. **After the merge, check** that all issues are closed:
    ```sh
-   gh issue list --milestone "<Meilenstein>" --state open
+   gh issue list --milestone "<milestone>" --state open
    ```
-   - Wurde ein Issue nicht automatisch geschlossen (Schlüsselwort fehlte, PR schon gemergt):
-     mit Verweis auf den PR schließen, z. B.
-     `gh issue close <nr> --comment "Erledigt in #<pr>."`, und den PR-Text um die Zeile ergänzen.
-   - Ist der Meilenstein leer, ihn schließen:
-     `gh api -X PATCH repos/DavidW475/ade/milestones/<nummer> -f state=closed`.
-7. **Neue Aufgaben**, die beim Arbeiten auffallen, als Issue im passenden Meilenstein anlegen,
-   statt sie stillschweigend mitzuerledigen oder zu vergessen.
+   - If an issue was not closed automatically (keyword missing, PR already merged): close it
+     with a reference to the PR, e.g.
+     `gh issue close <nr> --comment "Done in #<pr>."`, and add the line to the PR text.
+   - If the milestone is empty, close it:
+     `gh api -X PATCH repos/DavidW475/ade/milestones/<number> -f state=closed`.
+7. **New tasks** that come up while working are filed as an issue in the matching milestone,
+   instead of being done silently on the side or forgotten.
 
-Merges nach `main` macht der Maintainer; Agenten öffnen PRs, mergen aber nicht selbst.
+The maintainer merges into `main`; agents open PRs but do not merge themselves.

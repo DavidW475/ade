@@ -1,111 +1,110 @@
-# Sandbox & Egress-Proxy
+# Sandbox & egress proxy
 
-Ziel: Ein Agent darf in seinem Workspace **alles** tun – aber **nur** dort, und ins Netz
-**nur dorthin**, wo die Policy es erlaubt. Er kann weder Secrets lesen noch etwas veröffentlichen.
+Goal: an agent may do **anything** in its workspace – but **only** there, and on the network
+**only where** the policy allows it. It can neither read secrets nor publish anything.
 
-> **Stand M7:** Alles in diesem Dokument ist umgesetzt, außer TLS-Interception (später).
-> Umsetzung: ADR-014 (Container), ADR-015 (Netz, Proxy, Secrets), ADR-016 (Freigaben),
-> ADR-023 (rootless Docker und Podman, Abschnitt 6).
+> **Status M7:** everything in this document is implemented except TLS interception (later).
+> Implementation: ADR-014 (containers), ADR-015 (network, proxy, secrets), ADR-016 (approvals),
+> ADR-023 (rootless Docker and Podman, section 6).
 
-## 1. Aufbau pro Workspace
+## 1. Layout per workspace
 
 ```mermaid
 flowchart LR
-    subgraph NI["Docker-Netz ade-ws-42 (--internal)"]
-        A["ade-ws-42 (Alias agent)<br/>Agent-CLI + openvscode-server<br/>/workspace (Mount)"]
+    subgraph NI["Docker network ade-ws-42 (--internal)"]
+        A["ade-ws-42 (alias agent)<br/>agent CLI + openvscode-server<br/>/workspace (mount)"]
     end
-    P["ade-proxy-42<br/>ade proxy<br/>(in ade-ws-42 und ade-egress)"]
+    P["ade-proxy-42<br/>ade proxy<br/>(in ade-ws-42 and ade-egress)"]
     D[ade daemon]
     I((Internet))
 
     A -- "HTTP(S)_PROXY / BASE_URLs" --> P
-    P -- "ade-egress: nur Allowlist" --> I
-    D -- "Policy, Secrets, Logs" --- P
-    D -- "Steuer-API :8081" --> P
-    D -- "Gateway → :3000" --> P
-    P -- "IDE-Weiterleitung" --> A
+    P -- "ade-egress: allowlist only" --> I
+    D -- "policy, secrets, logs" --- P
+    D -- "control API :8081" --> P
+    D -- "gateway → :3000" --> P
+    P -- "IDE forwarding" --> A
 ```
 
-- **`ade-ws-<id>`** ist ein `--internal`-Netz: Container darin haben **keine Route nach draußen**.
-- Der **Proxy-Container** hängt in beiden Netzen und ist der einzige Weg ins Internet.
-- `HTTP_PROXY`/`HTTPS_PROXY` im Agent-Container sind nur Bequemlichkeit – **erzwungen** wird die
-  Isolation durch das interne Netz. Ein Programm, das den Proxy ignoriert, erreicht schlicht nichts.
-- **`ade-egress`** ist ein gemeinsames Netz aller Proxys ohne Verkehr zwischen den Containern
-  (`enable_icc=false`; unter Podman nicht verfügbar, siehe [Abschnitt 6](#6-container-laufzeiten)).
-- Docker veröffentlicht keine Ports von Containern, die nur in internen Netzen hängen. Der Daemon
-  erreicht deshalb Steuer-API (`:8081`) und IDE (`:3000`) über veröffentlichte Ports des
-  **Proxy-Containers** auf `127.0.0.1`; der Proxy leitet die IDE per TCP an `agent:3000` weiter.
-- Der Proxy-Container führt das `ade`-Binary des Daemons aus (nur lesend gemountet, eine Kopie im
-  Datenverzeichnis: `<data_dir>/sandbox/ade-proxy`; statisch gebaut), im Standard-Image, als
-  Nutzer, ohne Capabilities, mit nur lesendem Dateisystem und kleinen Grenzen.
+- **`ade-ws-<id>`** is an `--internal` network: containers in it have **no route to the outside**.
+- The **proxy container** is attached to both networks and is the only way to the internet.
+- `HTTP_PROXY`/`HTTPS_PROXY` in the agent container are only a convenience – the isolation is
+  **enforced** by the internal network. A program that ignores the proxy simply reaches nothing.
+- **`ade-egress`** is a shared network of all proxies without traffic between the containers
+  (`enable_icc=false`; not available under Podman, see [section 6](#6-container-runtimes)).
+- Docker does not publish ports of containers that are only attached to internal networks. The
+  daemon therefore reaches the control API (`:8081`) and the IDE (`:3000`) through published ports
+  of the **proxy container** on `127.0.0.1`; the proxy forwards the IDE via TCP to `agent:3000`.
+- The proxy container runs the daemon's `ade` binary (mounted read-only, a copy in the data
+  directory: `<data_dir>/sandbox/ade-proxy`; statically built), in the default image, as a user,
+  without capabilities, with a read-only file system and small limits.
 
-## 2. Agent-Container
+## 2. Agent container
 
-| Einstellung | Wert |
+| Setting | Value |
 |---|---|
-| Image | `ghcr.io/davidw475/ade-agent-base:<version>` (oder Projekt-Image aus `.ade/sandbox.yaml`) |
-| User | UID/GID des Daemons (`--user`); fehlt sie im Image, legt ADE einen passwd-Eintrag an. Unter rootless Docker root im Container (= Nutzer auf dem Host), unter Podman `--userns keep-id` ([Abschnitt 6](#6-container-laufzeiten)) |
-| Mounts | nur `~/.ade/workspaces/<id>` → `/workspace` (rw); optional Caches (npm, go) als Volumes |
+| Image | `ghcr.io/davidw475/ade-agent-base:<version>` (or the project image from `.ade/sandbox.yaml`) |
+| User | UID/GID of the daemon (`--user`); if it is missing in the image, ADE adds a passwd entry. Under rootless Docker root in the container (= the user on the host), under Podman `--userns keep-id` ([section 6](#6-container-runtimes)) |
+| Mounts | only `~/.ade/workspaces/<id>` → `/workspace` (rw); optionally caches (npm, go) as volumes |
 | Capabilities | `--cap-drop ALL`, `--security-opt no-new-privileges` |
-| Ressourcen | `--memory`, `--cpus`, `--pids-limit` aus Policy |
-| Verboten | Docker-Socket, Host-Netz, privilegierter Modus, Mount des Haupt-Repos |
-| Prozesse | `sleep infinity` unter `--init`; `openvscode-server` (Port 3000, Token, auf `127.0.0.1` veröffentlicht), Agent-CLI, Setup-Befehle und git des Daemons über `docker exec` |
-| Workspace-Clone | ohne Hardlinks (keine geteilten Objektdateien mit dem Haupt-Repo) |
+| Resources | `--memory`, `--cpus`, `--pids-limit` from the policy |
+| Forbidden | Docker socket, host network, privileged mode, mounting the main repository |
+| Processes | `sleep infinity` under `--init`; `openvscode-server` (port 3000, token, published on `127.0.0.1`), agent CLI, setup commands and the daemon's git via `docker exec` |
+| Workspace clone | without hardlinks (no object files shared with the main repository) |
 
-Basis-Image enthält: Debian slim, git, curl, Node.js LTS, Python 3, ripgrep, gängige
-Agent-CLIs, openvscode-server, `ade`-Hook-Binary. Projekte können ein eigenes Image ableiten
-(`FROM ade-agent-base`) oder Setup-Befehle in `.ade/project.yaml` angeben.
+The base image contains: Debian slim, git, curl, Node.js LTS, Python 3, ripgrep, common agent
+CLIs, openvscode-server, the `ade` hook binary. Projects can derive their own image
+(`FROM ade-agent-base`) or list setup commands in `.ade/project.yaml`.
 
-## 3. Egress-Proxy (`ade proxy`)
+## 3. Egress proxy (`ade proxy`)
 
-Ein kleiner HTTP-Forward-Proxy in Go, Teil des `ade`-Binaries.
+A small HTTP forward proxy in Go, part of the `ade` binary.
 
-**Version 1 (ohne TLS-Aufbrechen):**
+**Version 1 (without TLS interception):**
 
-- `CONNECT host:port` → erlaubt, wenn `host` auf der Allowlist steht (Einträge ohne Port gelten
-  für 80 und 443); sonst `403` mit Begründung.
-- Klartext-HTTP (absolute URI) → Prüfung über den Host der URI.
-- **Interne Ziele sind immer gesperrt:** Loopback, private Netze (auch Docker-Netze), Link-Local,
-  CGNAT, Multicast u. a. Geprüft wird die tatsächlich verwendete IP direkt vor dem `connect`
-  (kein DNS-Rebinding), auch wenn ein Name auf der Allowlist steht.
-- Jede Anfrage wird als Egress-Event gemeldet (erlaubt/geblockt, Grund, Host, Port, Bytes, Dauer;
-  CONNECT-Tunnel beim Schließen). Der Daemon holt sie per Long-Polling ab, speichert die letzten
-  2000 je Workspace und zeigt sie in der Ansicht **Netzwerk**.
-- Ohne Policy (direkt nach dem Start) ist alles gesperrt.
-- **Steuer-API** (`:8081`, nur mit Token aus `ADE_PROXY_TOKEN`; der Agent kennt es nicht):
-  `PUT /policy` (Allow/Deny, Keys, Rückfragen), `GET /events`, `GET /questions`,
+- `CONNECT host:port` → allowed if `host` is on the allowlist (entries without a port apply to
+  80 and 443); otherwise `403` with a reason.
+- Plain HTTP (absolute URI) → checked by the host of the URI.
+- **Internal targets are always blocked:** loopback, private networks (including Docker
+  networks), link-local, CGNAT, multicast and others. The IP that is actually used is checked
+  right before `connect` (no DNS rebinding), even if a name is on the allowlist.
+- Every request is reported as an egress event (allowed/blocked, reason, host, port, bytes,
+  duration; CONNECT tunnels when closing). The daemon collects them by long polling, stores the
+  latest 2000 per workspace and shows them in the **Network** view.
+- Without a policy (right after the start) everything is blocked.
+- **Control API** (`:8081`, only with the token from `ADE_PROXY_TOKEN`; the agent does not know
+  it): `PUT /policy` (allow/deny, keys, questions), `GET /events`, `GET /questions`,
   `POST /questions/{id}`, `GET /healthz`.
-- **Freigaben** (`on_blocked: ask`): Eine Anfrage an ein nicht freigegebenes Ziel wartet (bis zu
-  2 min) auf eine Entscheidung im Dashboard („Agent will `pypi.org:443` erreichen“): **Einmal**
-  (nur die wartenden Anfragen), **Für diesen Workspace**, **Immer (Projekt)** oder **Ablehnen**
-  (bis zum Neustart des Proxys nicht erneut fragen). Ziele auf der deny-Liste und interne
-  Adressen fragen nie. Gleichzeitige Anfragen an dasselbe Ziel teilen sich eine Freigabe.
-- **Ausnahmen:** „Für diesen Workspace“ und „Immer (Projekt)“ speichert der Daemon in SQLite und
-  ergänzt damit die Allowlist – `.ade/sandbox.yaml` im Repo bleibt unverändert. Auch mit
-  `on_blocked: deny` lässt sich ein geblockter Host in der Netzwerk-Ansicht mit einem Klick
-  erlauben; dort stehen alle Ausnahmen und lassen sich entfernen.
-- **Freigabe-Hook:** Der Proxy nimmt unter `/ade/hook/pretooluse` die Fragen von
-  `ade hook pretooluse` aus dem Agent-Container entgegen und reicht sie über die Steuer-API an
-  den Daemon weiter (doc/architecture.md#43-freigaben). Das ade-Binary ist dafür nur lesend unter
-  `/opt/ade/ade` im Agent-Container gemountet.
+- **Approvals** (`on_blocked: ask`): a request to a target that is not allowed waits (up to
+  2 min) for a decision in the dashboard ("Agent wants to reach `pypi.org:443`"): **Once** (only
+  the waiting requests), **For this workspace**, **Always (project)** or **Deny** (do not ask
+  again until the proxy restarts). Targets on the deny list and internal addresses never ask.
+  Concurrent requests to the same target share one approval.
+- **Exceptions:** "For this workspace" and "Always (project)" are stored by the daemon in SQLite
+  and extend the allowlist – `.ade/sandbox.yaml` in the repository stays unchanged. Even with
+  `on_blocked: deny`, a blocked host can be allowed with one click in the network view; all
+  exceptions are listed there and can be removed.
+- **Approval hook:** at `/ade/hook/pretooluse` the proxy accepts the questions of
+  `ade hook pretooluse` from the agent container and passes them to the daemon through the control
+  API ([architecture.md](architecture.md#43-approvals)). For this the ade binary is mounted
+  read-only at `/opt/ade/ade` in the agent container.
 
-**Später (optional):** TLS-Interception mit eigener CA im Container für Regeln auf
-Pfad-/Methodenebene (z. B. GitHub nur lesend). Bewusst nicht in v1 – mehr Komplexität,
-mehr Angriffsfläche.
+**Later (optional):** TLS interception with an own CA in the container for rules on path/method
+level (e.g. GitHub read-only). Deliberately not in v1 – more complexity, more attack surface.
 
 ### DNS
 
-Auch im internen Netz beantwortet Docker DNS-Anfragen (eingebetteter DNS-Server `127.0.0.11`).
-Geprüft mit Docker 29: Für `--internal`-Netze leitet er externe Namen nicht weiter, nur
-Container-Namen (`proxy`) lösen auf. Unabhängig von der Docker-Version setzt ADE zusätzlich
-`--dns 192.0.2.1` (TEST-NET-1, im internen Netz unerreichbar) als Upstream – keine
-Loopback-Adresse, denn die würde Docker im Netz-Namespace des Hosts befragen. Der Agent braucht
-keine externe Auflösung, der Proxy löst für ihn auf. Ein Docker-Test prüft beides.
+Even in the internal network Docker answers DNS queries (embedded DNS server `127.0.0.11`).
+Checked with Docker 29: for `--internal` networks it does not forward external names, only
+container names (`proxy`) resolve. Independent of the Docker version, ADE additionally sets
+`--dns 192.0.2.1` (TEST-NET-1, unreachable in the internal network) as upstream – not a loopback
+address, because Docker would query that in the host's network namespace. The agent does not
+need external resolution, the proxy resolves for it. A Docker test checks both.
 
-### Policy-Format (`.ade/sandbox.yaml`)
+### Policy format (`.ade/sandbox.yaml`)
 
 ```yaml
-image: ghcr.io/davidw475/ade-agent-base:0.1
+image: ghcr.io/davidw475/ade-agent-base:1.0.0
 resources:
   memory: 4g
   cpus: 2
@@ -117,131 +116,137 @@ egress:
     - "*.githubusercontent.com"
   deny:
     - "*.pastebin.com"
-  on_blocked: ask          # deny (Standard) oder ask: Freigabe im Dashboard
+  on_blocked: ask          # deny (default) or ask: approval in the dashboard
 ```
 
-Presets sind im Binary hinterlegte Domain-Listen (`internal/sandbox/egress.go`):
+Presets are domain lists built into the binary (`internal/sandbox/egress.go`):
 
 | Preset | Hosts |
 |---|---|
 | `anthropic` | api.anthropic.com, console.anthropic.com, platform.claude.com, claude.ai, statsig.anthropic.com |
-| `openai` | api.openai.com, auth.openai.com, chatgpt.com (Codex CLI: API, ChatGPT-Anmeldung, Modell-Liste) |
+| `openai` | api.openai.com, auth.openai.com, chatgpt.com (Codex CLI: API, ChatGPT login, model list) |
 | `github-readonly` | github.com, api.github.com, codeload.github.com, raw/objects/release-assets.githubusercontent.com, ghcr.io, pkg-containers.githubusercontent.com |
 | `npm` | registry.npmjs.org, registry.yarnpkg.com |
 | `pypi` | pypi.org, files.pythonhosted.org |
 | `go-proxy` | proxy.golang.org, sum.golang.org |
 
-- Ohne `egress`-Abschnitt gelten `anthropic`, `openai`, `github-readonly`, `npm`, `pypi`, `go-proxy`.
-  Mit Abschnitt gilt nur, was dort steht; `egress: {}` sperrt alles.
-- `github-readonly` heißt ohne TLS-Aufbrechen nur: Der Container erreicht GitHub, hat aber keine
-  Zugangsdaten dafür. Schreibzugriffe scheitern an der Anmeldung, nicht am Proxy.
-- `deny` geht vor `allow`; ein Eintrag ohne Port sperrt alle Ports.
-- Der Daemon liest die Datei aus dem Haupt-Repo und schickt Änderungen alle paar Sekunden an
-  laufende Proxys – ohne Neustart. Ist die Datei ungültig, behalten laufende Proxys die zuletzt
-  gültige Policy, und neue Container starten erst nach der Korrektur (kein stilles Zurückfallen
-  auf die Voreinstellung).
+- Without an `egress` section, `anthropic`, `openai`, `github-readonly`, `npm`, `pypi` and
+  `go-proxy` apply. With a section only what it lists applies; `egress: {}` blocks everything.
+- Without TLS interception, `github-readonly` only means: the container reaches GitHub but has no
+  credentials for it. Write access fails at authentication, not at the proxy.
+- `deny` wins over `allow`; an entry without a port blocks all ports.
+- The daemon reads the file from the main repository and sends changes to running proxies every
+  few seconds – without a restart. If the file is invalid, running proxies keep the last valid
+  policy and new containers only start after it is fixed (no silent fallback to the defaults).
+
+All options: [configuration.md](configuration.md#adesandboxyaml).
 
 ## 4. Secrets
 
-Grundsatz: **Kein API-Key, kein Git-Token im Agent-Container.**
+Principle: **no API key and no Git token in the agent container.**
 
-API-Zugriffe der Agent-CLIs laufen über **Basis-URLs, die auf den Proxy zeigen**:
+The agent CLIs' API calls go through **base URLs that point to the proxy**:
 
 ```
 ANTHROPIC_BASE_URL=http://proxy:8080/p/anthropic
 ```
 
-Der Proxy leitet `…/p/anthropic/*` an `https://api.anthropic.com/*` weiter und **fügt den Key
-selbst ein**. Der Agent sieht nur einen Platzhalter. Vorteile:
+The proxy forwards `…/p/anthropic/*` to `https://api.anthropic.com/*` and **inserts the key
+itself**. The agent only sees a placeholder. Advantages:
 
-- Ein kompromittierter Agent kann den Key nicht auslesen oder weitergeben.
-- Der Proxy kann pro Workspace **Tokens zählen und Budgets erzwingen**.
-- Kein TLS-Aufbrechen nötig (Agent → Proxy im internen Netz per HTTP, Proxy → Anbieter per HTTPS).
+- A compromised agent cannot read or pass on the key.
+- The proxy can **count tokens and enforce budgets** per workspace.
+- No TLS interception needed (agent → proxy via HTTP in the internal network, proxy → provider
+  via HTTPS).
 
-Ob eine CLI eine konfigurierbare Basis-URL unterstützt, ist pro Adapter zu prüfen
-(Claude Code: `ANTHROPIC_BASE_URL`). Für CLIs ohne diese Option bleibt nur Key-im-Container
-mit Warnung im Dashboard oder TLS-Interception (später).
+Whether a CLI supports a configurable base URL has to be checked per adapter (Claude Code:
+`ANTHROPIC_BASE_URL`). For CLIs without this option only key-in-container with a warning in the
+dashboard or TLS interception (later) remain.
 
-Umsetzung (M6 für Anthropic, M8 für OpenAI):
+Implementation (M6 for Anthropic, M8 for OpenAI):
 
-- Der Daemon schickt die aufgelösten Keys (`providers.<name>.api_key`) über die Steuer-API an den
-  Proxy. Sie stehen nie in Container-Konfiguration, Umgebung oder Dateien des Agent-Containers.
-- Agent-Sessions in der Sandbox bekommen `ANTHROPIC_BASE_URL=http://proxy:8080/p/anthropic`,
-  `ANTHROPIC_API_KEY=<Platzhalter>` und `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. Der Proxy
-  entfernt `Authorization`/`X-Api-Key` des Clients und setzt den echten Key; Antworten (SSE)
-  reicht er ungepuffert durch.
-- `proxy` steht in `NO_PROXY`. Clients, die die Basis-URL trotzdem über `HTTP_PROXY` ansprechen,
-  bedient der Proxy genauso (Anfragen an sich selbst unter `/p/`).
-- Ohne konfigurierten Key bekommt die CLI keine Basis-URL und nutzt ihre eigene Anmeldung über
-  die Allowlist (Preset `anthropic` bzw. `openai`).
+- The daemon sends the resolved keys (`providers.<name>.api_key`) to the proxy through the
+  control API. They never appear in the container configuration, environment or files of the
+  agent container.
+- Agent sessions in the sandbox get `ANTHROPIC_BASE_URL=http://proxy:8080/p/anthropic`,
+  `ANTHROPIC_API_KEY=<placeholder>` and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. The proxy
+  removes the client's `Authorization`/`X-Api-Key` and sets the real key; it passes responses
+  (SSE) through unbuffered.
+- `proxy` is in `NO_PROXY`. Clients that still address the base URL through `HTTP_PROXY` are
+  served the same way (requests to the proxy itself under `/p/`).
+- Without a configured key the CLI gets no base URL and uses its own login through the allowlist
+  (preset `anthropic` or `openai`).
 
-OpenAI (M8, für Codex):
+OpenAI (M8, for Codex):
 
-- `/p/openai/…` geht an `https://api.openai.com/…`, der Proxy setzt `Authorization: Bearer <Key>`.
-- Codex beachtet `OPENAI_BASE_URL` nicht. ADE gibt der CLI deshalb einen eigenen Provider als
-  Argument (`-c model_provider=ade -c model_providers.ade={base_url="http://proxy:8080/p/openai/v1",
-  env_key="OPENAI_API_KEY", wire_api="responses"}`); `OPENAI_API_KEY` ist im Container ein Platzhalter.
-- Codex läuft im Container mit `--dangerously-bypass-approvals-and-sandbox`: Der Container ist die
-  Sandbox, die eigene von Codex (Landlock/seccomp) ist darin nicht zuverlässig.
+- `/p/openai/…` goes to `https://api.openai.com/…`, the proxy sets `Authorization: Bearer <key>`.
+- Codex ignores `OPENAI_BASE_URL`. ADE therefore passes an own provider to the CLI as an argument
+  (`-c model_provider=ade -c model_providers.ade={base_url="http://proxy:8080/p/openai/v1",
+  env_key="OPENAI_API_KEY", wire_api="responses"}`); `OPENAI_API_KEY` is a placeholder in the
+  container.
+- Codex runs in the container with `--dangerously-bypass-approvals-and-sandbox`: the container is
+  the sandbox, Codex's own one (Landlock/seccomp) is not reliable inside it.
 
-**Token-Zählung (M8):** Für `/p/<anbieter>/…` fordert der Proxy unkomprimierte Antworten an und
-liest sie beim Durchreichen mit (ohne Puffern): `usage` aus JSON-Antworten und aus den SSE-Events
-(`message_start`/`message_delta` bei Anthropic, `response.completed` bei OpenAI, `usage` in
-Chat-Chunks). Die Nutzung steht im Egress-Event; der Daemon verbucht sie als Kosten der Session
-und prüft die Budgets ([architecture.md](architecture.md#44-kosten-und-budgets)). Was am Proxy
-vorbei über CONNECT läuft (Abo-Login), kann er nicht zählen; dann gilt die Meldung der CLI.
+**Token counting (M8):** for `/p/<provider>/…` the proxy requests uncompressed responses and
+reads along while passing them through (without buffering): `usage` from JSON responses and from
+the SSE events (`message_start`/`message_delta` for Anthropic, `response.completed` for OpenAI,
+`usage` in chat chunks). The usage is part of the egress event; the daemon books it as costs of
+the session and checks the budgets ([architecture.md](architecture.md#44-costs-and-budgets)).
+Whatever bypasses the proxy via CONNECT (subscription login) cannot be counted; then the CLI's
+report counts.
 
-**Git:** Der Agent committet lokal im Workspace. `fetch`/`push` zum Remote macht ausschließlich
-der Daemon auf dem Host nach Freigabe. Lesender Zugriff auf GitHub (z. B. Abhängigkeiten) geht
-über die Allowlist.
+**Git:** the agent commits locally in the workspace. Only the daemon on the host does
+`fetch`/`push` to the remote, after approval. Read access to GitHub (e.g. dependencies) goes
+through the allowlist.
 
-**Anmeldung per Abo:** Falls ein Nutzer eine CLI mit eigenem Abo-Login in der Sandbox nutzt,
-liegen dessen Credentials im Container (Volume). Das ist bewusst eine Nutzerentscheidung, ADE
-zeigt dann einen Hinweis. ADE selbst implementiert keine Abo-Logins von Anbietern
-(siehe [decisions.md](decisions.md#adr-010-anbieter-zugang-nur-über-api-keys-oder-offizielle-clis)).
+**Subscription login:** if a user uses a CLI with its own subscription login in the sandbox, its
+credentials are in the container (volume). This is deliberately the user's decision; ADE then
+shows a notice. ADE itself does not implement providers' subscription logins
+(see [decisions.md](decisions.md#adr-010-provider-access-only-via-api-keys-or-official-clis)).
 
-## 5. Lebenszyklus
+## 5. Life cycle
 
-| Ereignis | Aktion |
+| Event | Action |
 |---|---|
-| Workspace mit Sandbox angelegt | Netz `ade-ws-<id>`, Proxy `ade-proxy-<id>` und Container `ade-ws-<id>` erstellen und starten (ggf. Image laden), Policy an den Proxy, Setup-Befehle im Container |
-| Session startet | `docker exec -it ade-ws-<id> <adapter-cmd>` (startet den Container bei Bedarf) |
-| Session stoppt | SIGTERM an alle Prozesse mit `ADE_SESSION_ID=<id>` im Container, nach Timeout SIGKILL |
-| IDE öffnen | `docker exec ade-ws-<id> openvscode-server …`, Gateway → veröffentlichter Port des Proxys → `agent:3000` |
-| Daemon wird beendet | Container und Proxys stoppen (Dateien bleiben im Workspace-Verzeichnis) |
-| Workspace verworfen | Container, Proxy, Netz und Workspace-Verzeichnis löschen |
-| Daemon-Start | Container per Label finden: verwaiste (samt Netzen) entfernen, übrige stoppen; Start bei Bedarf. Container aus M5 (Label `ade.net` fehlt) werden beim nächsten Start neu angelegt |
+| Workspace with sandbox created | Create and start network `ade-ws-<id>`, proxy `ade-proxy-<id>` and container `ade-ws-<id>` (pull the image if needed), policy to the proxy, setup commands in the container |
+| Session starts | `docker exec -it ade-ws-<id> <adapter-cmd>` (starts the container if needed) |
+| Session stops | SIGTERM to all processes with `ADE_SESSION_ID=<id>` in the container, SIGKILL after a timeout |
+| Open IDE | `docker exec ade-ws-<id> openvscode-server …`, gateway → published port of the proxy → `agent:3000` |
+| Daemon stops | Stop containers and proxies (files stay in the workspace directory) |
+| Workspace discarded | Delete container, proxy, network and workspace directory |
+| Daemon start | Find containers by label: remove orphaned ones (including networks), stop the others; start on demand. Containers from M5 (label `ade.net` missing) are recreated on the next start |
 
-Alle Docker-Objekte tragen Labels (`ade.managed=true`, `ade.workspace=<id>`,
-`ade.data_dir=<Datenverzeichnis>`), damit `ade gc` verwaiste Ressourcen sicher aufräumen kann –
-auch die einer ADE-Instanz, deren Datenverzeichnis nicht mehr existiert, aber nie die einer
-anderen laufenden Instanz.
+All Docker objects carry labels (`ade.managed=true`, `ade.workspace=<id>`,
+`ade.data_dir=<data directory>`), so `ade gc` can safely clean up orphaned resources – including
+those of an ADE instance whose data directory no longer exists, but never those of another
+running instance.
 
-## 6. Container-Laufzeiten
+## 6. Container runtimes
 
-ADE ruft immer die Docker-CLI-Syntax auf (`sandbox.docker` in `config.yaml`, Standard `docker`).
-Dahinter kann Docker oder Podman stehen; ADE erkennt die Laufzeit beim Start der Sandbox über
-`<docker> info --format '{{json .}}'` und zeigt sie im Log („Container-Laufzeit erkannt“).
+ADE always uses the Docker CLI syntax (`sandbox.docker` in `config.yaml`, default `docker`).
+Behind it can be Docker or Podman; ADE detects the runtime when the sandbox starts via
+`<docker> info --format '{{json .}}'` and shows it in the log ("container runtime detected") and
+in the dashboard.
 
-| Laufzeit | Einstellung | UID im Container | Dateien im Workspace gehören |
+| Runtime | Setting | UID in the container | Files in the workspace belong to |
 |---|---|---|---|
-| Docker (rootful) | `docker` | UID des Nutzers (`--user`) | dem Nutzer |
-| Docker rootless | `docker` mit rootless-Kontext bzw. `DOCKER_HOST` | `0` – root im User-Namespace ist der Nutzer auf dem Host | dem Nutzer |
-| Podman (rootless) | `podman` (oder der `docker`-Shim aus `podman-docker`) | UID des Nutzers, `--userns keep-id` | dem Nutzer |
-| Podman (rootful) | `podman` als root | wie Docker rootful | dem Nutzer |
+| Docker (rootful) | `docker` | UID of the user (`--user`) | the user |
+| Docker rootless | `docker` with rootless context or `DOCKER_HOST` | `0` – root in the user namespace is the user on the host | the user |
+| Podman (rootless) | `podman` (or the `docker` shim from `podman-docker`) | UID of the user, `--userns keep-id` | the user |
+| Podman (rootful) | `podman` as root | like Docker rootful | the user |
 
-Unter rootless Docker bekäme jede andere UID als 0 auf dem Host eine fremde UID aus dem
-subuid-Bereich – der Nutzer könnte die Dateien seines Workspaces nicht mehr ändern. Root im
-Container hat dort ohne Capabilities (`--cap-drop ALL`, `no-new-privileges`) keine Rechte über die
-des Nutzers hinaus. Weil Claude Code `bypassPermissions` als root nur in einer Sandbox erlaubt,
-setzt ADE in diesem Fall `IS_SANDBOX=1`.
+Under rootless Docker any UID other than 0 would map to a foreign UID from the subuid range on the
+host – the user could no longer change the files of their workspace. Root in the container has no
+rights beyond the user's without capabilities (`--cap-drop ALL`, `no-new-privileges`). Because
+Claude Code only allows `bypassPermissions` as root inside a sandbox, ADE sets `IS_SANDBOX=1` in
+this case.
 
-### Einrichtung
+### Setup
 
 **Podman (rootless):**
 
 ```sh
-sudo apt install podman            # Ubuntu/Debian; Netz-Backend netavark (Standard ab Podman 4)
+sudo apt install podman            # Ubuntu/Debian; network backend netavark (default since Podman 4)
 podman info --format '{{.Host.NetworkBackend}} {{.Host.CgroupControllers}}'
 ```
 
@@ -251,47 +256,47 @@ sandbox:
   docker: podman
 ```
 
-**Docker rootless:** nach der [Docker-Anleitung](https://docs.docker.com/engine/security/rootless/)
-einrichten (`dockerd-rootless-setuptool.sh install`). ADE übernimmt `DOCKER_HOST` bzw. den aktiven
-Docker-Kontext aus der Umgebung des Daemons; läuft ADE als Dienst (`ade install-service`), gehört
-`DOCKER_HOST` in die Umgebung beim Installieren des Dienstes oder der Kontext per `docker context use rootless`.
-Für `enable_icc=false` im Egress-Netz braucht rootless Docker das Kernelmodul `br_netfilter`
-(rootful lädt Docker es selbst):
+**Docker rootless:** set it up following the
+[Docker guide](https://docs.docker.com/engine/security/rootless/)
+(`dockerd-rootless-setuptool.sh install`). ADE takes `DOCKER_HOST` or the active Docker context
+from the daemon's environment; if ADE runs as a service (`ade install-service`), `DOCKER_HOST`
+must be in the environment when installing the service, or the context set with
+`docker context use rootless`. For `enable_icc=false` in the egress network, rootless Docker needs
+the kernel module `br_netfilter` (rootful Docker loads it itself):
 
 ```sh
 sudo modprobe br_netfilter
-echo br_netfilter | sudo tee /etc/modules-load.d/br_netfilter.conf   # dauerhaft
+echo br_netfilter | sudo tee /etc/modules-load.d/br_netfilter.conf   # permanently
 ```
 
-**Ressourcen-Grenzen:** Agent- und Proxy-Container haben immer Grenzen für Speicher, CPU und
-Prozesse. Rootless setzt das die cgroup-Controller `memory`, `cpu` und `pids` voraus, die systemd
-an den Nutzer delegieren muss (cgroups v2). Fehlt einer, bricht ADE den Start der Sandbox mit einer
-Meldung ab, statt die Grenzen stillschweigend wegzulassen. Prüfen und delegieren:
+**Resource limits:** agent and proxy containers always have limits for memory, CPU and processes.
+Rootless, this requires the cgroup controllers `memory`, `cpu` and `pids`, which systemd must
+delegate to the user (cgroups v2). If one is missing, ADE aborts the sandbox start with a message
+instead of silently dropping the limits. Check and delegate:
 
 ```sh
 cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers
 sudo mkdir -p /etc/systemd/system/user@.service.d
 printf '[Service]\nDelegate=cpu cpuset io memory pids\n' | sudo tee /etc/systemd/system/user@.service.d/delegate.conf
-sudo systemctl daemon-reload   # danach neu anmelden (unter WSL: wsl --shutdown)
+sudo systemctl daemon-reload   # then log in again (under WSL: wsl --shutdown)
 ```
 
-Unter WSL2 braucht das `systemd=true` in `/etc/wsl.conf` (ohnehin Voraussetzung für den Dienst).
+Under WSL2 this needs `systemd=true` in `/etc/wsl.conf` (a requirement for the service anyway).
 
-### Unterschiede und Einschränkungen
+### Differences and limitations
 
-| Thema | Docker | Podman |
+| Topic | Docker | Podman |
 |---|---|---|
-| Internes Netz (`--internal`) | ja | ja (netavark) |
-| Kein Verkehr zwischen Proxys in `ade-egress` | `enable_icc=false` | nicht verfügbar – Proxys sehen sich gegenseitig. Ein Agent erreicht trotzdem nur seinen eigenen Proxy, und der lehnt interne Ziele ab |
-| Externe Namen im internen Netz nicht auflösbar (`--dns 192.0.2.1`) | ja | ja |
-| `--cap-drop ALL`, `no-new-privileges`, `--read-only` | ja | ja |
-| Ressourcen-Grenzen | rootful immer, rootless mit delegierten Controllern | wie Docker rootless |
-| Ports auf `127.0.0.1` veröffentlichen | ja (rootless über rootlesskit) | ja (pasta bzw. slirp4netns) |
+| Internal network (`--internal`) | yes | yes (netavark) |
+| No traffic between proxies in `ade-egress` | `enable_icc=false` | not available – proxies see each other. An agent still only reaches its own proxy, and that one rejects internal targets |
+| External names not resolvable in the internal network (`--dns 192.0.2.1`) | yes | yes |
+| `--cap-drop ALL`, `no-new-privileges`, `--read-only` | yes | yes |
+| Resource limits | rootful always, rootless with delegated controllers | like Docker rootless |
+| Publishing ports on `127.0.0.1` | yes (rootless via rootlesskit) | yes (pasta or slirp4netns) |
 
-Weitere bekannte Einschränkungen:
+Further known limitations:
 
-- Unter rootless Docker laufen Agent-CLIs als root im Container. Werkzeuge, die root ablehnen oder
-  sich anders verhalten (z. B. `npm` mit `unsafe-perm`), verhalten sich wie in einem rootful
-  Container als root.
-- Podman mit dem alten Netz-Backend CNI wird nicht unterstützt (kein DNS in internen Netzen).
-- Die CI prüft die Sandbox-Integrationstests unter Docker, rootless Docker und rootless Podman.
+- Under rootless Docker, agent CLIs run as root in the container. Tools that refuse root or behave
+  differently (e.g. `npm` with `unsafe-perm`) behave as in a rootful container as root.
+- Podman with the old network backend CNI is not supported (no DNS in internal networks).
+- CI runs the sandbox integration tests under Docker, rootless Docker and rootless Podman.

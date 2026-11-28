@@ -8,7 +8,7 @@ interface and walks through a new adapter step by step.
 Code: [`internal/agent/adapter`](../internal/agent/adapter) (interface, events, JSON schema) and
 the existing adapters [`claude/`](../internal/agent/adapter/claude),
 [`codex/`](../internal/agent/adapter/codex), [`pty/`](../internal/agent/adapter/pty) and
-[`fake/`](../internal/agent/adapter/fake) (tests). Background: [architecture.md](architecture.md#23-agent-adapter).
+[`fake/`](../internal/agent/adapter/fake) (tests). Background: [architecture.md](architecture.md#23-agent-adapters).
 
 ## 1. The interface
 
@@ -148,7 +148,7 @@ models to the price table in `internal/provider` if they are missing.
 4. For factories (structured adapters only): `Adapters` in [`internal/factory/definition.go`](../internal/factory/definition.go).
 5. Permission modes: `Modes` in [`internal/api/agents.go`](../internal/api/agents.go).
 6. Provider mapping, egress preset and image as described above.
-7. Documentation: adapter table in [architecture.md](architecture.md#23-agent-adapter),
+7. Documentation: adapter table in [architecture.md](architecture.md#23-agent-adapters),
    `adapter` values in [configuration.md](configuration.md), [`CHANGELOG.md`](../CHANGELOG.md).
 
 ## 5. Testing

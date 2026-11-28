@@ -1,14 +1,14 @@
-# ADE-Konfiguration für dieses Repository (siehe examples/.ade/project.yaml).
+# ADE configuration for this repository (see examples/.ade/project.yaml).
 
 name: ADE
 
 base_branch: main
 
-# Agenten arbeiten hier mit Claude Code (Adapter ab M2).
+# Agents work here with Claude Code.
 adapter: claude
 
-# Abhängigkeiten in jedem neuen Workspace installieren, damit `make build`,
-# `make test` und `make lint` sofort laufen. node_modules ist nicht eingecheckt.
+# Install dependencies in every new workspace, so `make build`, `make test` and `make lint`
+# work right away. node_modules is not checked in.
 setup:
   - go mod download
   - npm ci --prefix web --no-audit --no-fund

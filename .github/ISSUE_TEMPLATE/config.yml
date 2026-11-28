@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Architektur und Pläne
+  - name: Architecture and plans
     url: https://github.com/DavidW475/ade/tree/main/doc
-    about: Vor einem neuen Issue bitte doc/ und die Meilensteine ansehen.
+    about: Please look at doc/ and the milestones before opening a new issue.
