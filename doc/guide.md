@@ -68,11 +68,14 @@ after updating ADE or installing new tools. `ade uninstall-service` removes it.
 
 Stopping and restarting (for example after changing `config.yaml`):
 
-| Daemon runs as | Stop | Restart |
-|---|---|---|
-| Service | `systemctl --user stop ade` | `systemctl --user restart ade` |
-| Background process | `kill "$(cat ~/.local/share/ade/daemon.lock)"` | stop, then `ade start` |
-| Foreground (`ade serve`) | Ctrl+C | `ade serve` |
+```sh
+ade stop      # stops the service or the background process and waits until it has ended
+ade restart   # stop, then start again (without opening the browser)
+```
+
+Both find the daemon of the configuration themselves: the systemd service if it runs as one,
+otherwise the background process from `daemon.lock`. A daemon in the foreground (`ade serve`)
+stops with Ctrl+C.
 
 When the daemon stops, running agents become `interrupted` and sandbox containers stop; files
 stay in the workspaces. Sessions can be resumed after the restart.
@@ -288,7 +291,7 @@ Windows. If `localhost` does not reach WSL, check that localhost forwarding is e
 program on port 7000: set `listen: 127.0.0.1:7100` in `config.yaml`.
 
 **"Daemon already running" / lock errors.** Only one daemon may use a data directory.
-`cat ~/.local/share/ade/daemon.lock` shows its PID. For tests use your own configuration with a
+`cat ~/.local/share/ade/daemon.lock` shows its PID; `ade stop` ends it. For tests use your own configuration with a
 different `listen` and `data_dir` (`ade start --config …`).
 
 **Sandbox does not start.**

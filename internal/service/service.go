@@ -220,6 +220,9 @@ func (m *Manager) Uninstall(ctx context.Context) error {
 // Start starts the installed service.
 func (m *Manager) Start(ctx context.Context) error { return m.call(ctx, "start", Name) }
 
+// Stop stops the service; systemctl waits until the daemon has ended.
+func (m *Manager) Stop(ctx context.Context) error { return m.call(ctx, "stop", Name) }
+
 // Linger reports whether lingering is active for the user (the user manager then runs without
 // an open session). ok is false if this cannot be determined.
 func Linger(ctx context.Context) (enabled, ok bool) {

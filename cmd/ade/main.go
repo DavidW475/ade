@@ -31,6 +31,8 @@ Usage:
 
 Commands:
   start              start the daemon (if needed) and open the dashboard in the browser
+  stop               stop the daemon (service or background process)
+  restart            stop and start the daemon again, e.g. after changing config.yaml
   serve              run the daemon in the foreground
   project            manage projects (add, list, remove)
   run                start a run of a software factory (ade run feature --task "…")
@@ -97,6 +99,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 	switch cmd, rest := args[0], args[1:]; cmd {
 	case "start":
 		return cmdStart(rest, stdout, stderr)
+	case "stop":
+		return cmdStop(rest, stdout, stderr)
+	case "restart":
+		return cmdRestart(rest, stdout, stderr)
 	case "serve":
 		return cmdServe(rest, stderr)
 	case "project":
@@ -137,7 +143,7 @@ func loadConfig(fs *flag.FlagSet, args []string, allowArgs ...bool) (*config.Con
 		return nil, "", err
 	}
 	if fs.NArg() > 0 && (len(allowArgs) == 0 || !allowArgs[0]) {
-		return nil, "", usageError{fmt.Sprintf("unerwartete Argumente: %v", fs.Args())}
+		return nil, "", usageError{fmt.Sprintf("unexpected arguments: %v", fs.Args())}
 	}
 	abs, err := filepath.Abs(*path)
 	if err != nil {

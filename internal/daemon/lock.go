@@ -22,7 +22,7 @@ type lockFile struct {
 }
 
 func acquireLock(path string) (*lockFile, error) {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // G703: lock file in the configured data directory
 	if err != nil {
 		return nil, fmt.Errorf("open lock file: %w", err)
 	}
@@ -55,7 +55,7 @@ func (l *lockFile) release() {
 }
 
 func readPID(path string) int {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G703: lock file in the configured data directory
 	if err != nil {
 		return 0
 	}
