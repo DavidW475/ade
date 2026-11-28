@@ -10,7 +10,7 @@ import (
 	"github.com/DavidW475/ade/internal/apperr"
 )
 
-// Workspace-Status.
+// Workspace status.
 const (
 	WorkspaceCreating    = "creating"
 	WorkspaceSetup       = "setup"
@@ -19,7 +19,7 @@ const (
 	WorkspaceError       = "error"
 )
 
-// Workspace ist eine isolierte Arbeitskopie eines Projekts.
+// Workspace is an isolated working copy of a project.
 type Workspace struct {
 	ID         string    `json:"id"`
 	ProjectID  string    `json:"project_id"`
@@ -33,18 +33,18 @@ type Workspace struct {
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 
-	// HeadCommit ist der zuletzt ins Haupt-Repo geholte Stand des Branches.
+	// HeadCommit is the state of the branch most recently fetched into the main repository.
 	HeadCommit  string     `json:"head_commit,omitempty"`
 	CollectedAt *time.Time `json:"collected_at,omitempty"`
-	// MergeCommit ist der Merge-Commit im Basis-Branch nach „Mergen“.
+	// MergeCommit is the merge commit in the base branch after “Merge”.
 	MergeCommit string     `json:"merge_commit,omitempty"`
 	MergedAt    *time.Time `json:"merged_at,omitempty"`
-	// PRURL ist der Pull Request nach „PR erstellen“.
+	// PRURL is the pull request after “Create PR”.
 	PRURL string `json:"pr_url,omitempty"`
 
-	// Sandbox: Agent, Setup und IDE laufen im Docker-Container des Workspaces (M5).
+	// Sandbox: agent, setup and IDE run in the workspace's Docker container (M5).
 	Sandbox bool `json:"sandbox"`
-	// SandboxImage ist das Image, mit dem der Container angelegt wird bzw. wurde.
+	// SandboxImage is the image the container is or was created with.
 	SandboxImage string `json:"sandbox_image,omitempty"`
 }
 
@@ -65,14 +65,14 @@ func scanWorkspace(row interface{ Scan(...any) error }) (*Workspace, error) {
 	return &w, nil
 }
 
-// CreateWorkspace legt einen Workspace-Datensatz an.
+// CreateWorkspace creates a workspace record.
 func (s *Store) CreateWorkspace(ctx context.Context, w *Workspace) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO workspaces (id, project_id, path, branch, base_branch, base_commit, status, sandbox, sandbox_image)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		w.ID, w.ProjectID, w.Path, w.Branch, w.BaseBranch, w.BaseCommit, w.Status, w.Sandbox, w.SandboxImage)
 	if isForeignKeyViolation(err) {
-		return apperr.NotFound("Projekt %s nicht gefunden", w.ProjectID)
+		return apperr.NotFound("project %s not found", w.ProjectID)
 	}
 	if err != nil {
 		return fmt.Errorf("Workspace speichern: %w", err)
@@ -85,16 +85,16 @@ func (s *Store) CreateWorkspace(ctx context.Context, w *Workspace) error {
 	return nil
 }
 
-// GetWorkspace liefert einen Workspace.
+// GetWorkspace returns a workspace.
 func (s *Store) GetWorkspace(ctx context.Context, id string) (*Workspace, error) {
 	w, err := scanWorkspace(s.db.QueryRowContext(ctx, `SELECT `+workspaceCols+` FROM workspaces WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, apperr.NotFound("Workspace %s nicht gefunden", id)
+		return nil, apperr.NotFound("workspace %s not found", id)
 	}
 	return w, err
 }
 
-// ListWorkspaces liefert die Workspaces eines Projekts (projectID leer: alle), neueste zuerst.
+// ListWorkspaces returns the workspaces of a project (projectID empty: all), newest first.
 func (s *Store) ListWorkspaces(ctx context.Context, projectID string) ([]*Workspace, error) {
 	q := `SELECT ` + workspaceCols + ` FROM workspaces`
 	var args []any
@@ -119,20 +119,20 @@ func (s *Store) ListWorkspaces(ctx context.Context, projectID string) ([]*Worksp
 	return out, rows.Err()
 }
 
-// WorkspaceUpdate enthält die änderbaren Felder; nil bedeutet unverändert.
+// WorkspaceUpdate contains the changeable fields; nil means unchanged.
 type WorkspaceUpdate struct {
 	BaseCommit *string
 	Status     *string
 	Error      *string
 	SetupLog   *string
-	// HeadCommit setzt zugleich collected_at auf jetzt.
+	// HeadCommit also sets collected_at to now.
 	HeadCommit *string
-	// MergeCommit setzt zugleich merged_at auf jetzt.
+	// MergeCommit also sets merged_at to now.
 	MergeCommit *string
 	PRURL       *string
 }
 
-// UpdateWorkspace ändert die gesetzten Felder.
+// UpdateWorkspace changes the set fields.
 func (s *Store) UpdateWorkspace(ctx context.Context, id string, u WorkspaceUpdate) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE workspaces SET
 		base_commit  = COALESCE(?1, base_commit),
@@ -150,31 +150,31 @@ func (s *Store) UpdateWorkspace(ctx context.Context, id string, u WorkspaceUpdat
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return apperr.NotFound("Workspace %s nicht gefunden", id)
+		return apperr.NotFound("workspace %s not found", id)
 	}
-	// Egress-Ausnahmen des Workspaces hängen nicht per Fremdschlüssel an ihm.
+	// The workspace's egress exceptions are not attached to it by a foreign key.
 	_, err = s.db.ExecContext(ctx, `DELETE FROM egress_grants WHERE workspace_id = ?`, id)
 	return err
 }
 
-// DeleteWorkspace löscht einen Workspace-Datensatz.
+// DeleteWorkspace deletes a workspace record.
 func (s *Store) DeleteWorkspace(ctx context.Context, id string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM workspaces WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return apperr.NotFound("Workspace %s nicht gefunden", id)
+		return apperr.NotFound("workspace %s not found", id)
 	}
 	return nil
 }
 
-// MarkInterruptedWorkspaces setzt Workspaces, deren Anlegen oder Setup durch einen
-// Daemon-Neustart unterbrochen wurde, auf einen Fehlerstatus. Liefert die Anzahl.
+// MarkInterruptedWorkspaces sets workspaces whose creation or setup was interrupted by a
+// daemon restart to an error status. Returns the count.
 func (s *Store) MarkInterruptedWorkspaces(ctx context.Context) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `UPDATE workspaces SET
 		status = CASE status WHEN 'setup' THEN 'setup_failed' ELSE 'error' END,
-		error = 'durch Neustart des Daemons unterbrochen',
+		error = 'interrupted by a daemon restart',
 		updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
 		WHERE status IN ('creating', 'setup')`)
 	if err != nil {
@@ -191,5 +191,5 @@ func nullTime(s sql.NullString) *time.Time {
 	return &t
 }
 
-// Ptr liefert einen Zeiger auf v (für WorkspaceUpdate).
+// Ptr returns a pointer to v (for WorkspaceUpdate).
 func Ptr[T any](v T) *T { return &v }

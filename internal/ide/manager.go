@@ -1,6 +1,6 @@
-// Package ide verwaltet die Browser-IDE (openvscode-server) je Workspace: bei Bedarf
-// herunterladen, starten, über das Gateway erreichbar machen und bei Inaktivität stoppen
-// (doc/architecture.md#24-browser-ide). Ab M5 läuft sie im Sandbox-Container.
+// Package ide manages the browser IDE (openvscode-server) per workspace: download on demand,
+// start, make it reachable through the gateway and stop it when idle
+// (doc/architecture.md#24-browser-ide). Since M5 it runs in the sandbox container.
 package ide
 
 import (
@@ -27,7 +27,7 @@ import (
 	"github.com/DavidW475/ade/internal/apperr"
 )
 
-// Zustände einer IDE.
+// States of an IDE.
 const (
 	StateStopped    = "stopped"
 	StateInstalling = "installing"
@@ -36,84 +36,84 @@ const (
 	StateError      = "error"
 )
 
-// Umgebungsvariablen, die ADE dem IDE-Prozess setzt. EnvOwner erkennt verwaiste Prozesse
-// nach einem Absturz (wie ADE_SESSION_ID bei Agenten) und trennt mehrere Daemons.
+// Environment variables ADE sets for the IDE process. EnvOwner detects orphaned processes
+// after a crash (like ADE_SESSION_ID for agents) and separates several daemons.
 const (
 	EnvOwner         = "ADE_IDE_OWNER"
 	EnvWorkspaceID   = agent.EnvWorkspaceID
 	EnvWorkspacePath = agent.EnvWorkspacePath
 )
 
-// Voreinstellungen für Zeitgrenzen.
+// Defaults for time limits.
 const (
 	DefaultStartTimeout = 60 * time.Second
 	DefaultStopTimeout  = 5 * time.Second
 	DefaultIdleTimeout  = 15 * time.Minute
 )
 
-// WorkspaceFunc liefert den Pfad des Arbeitsverzeichnisses eines Workspaces. Für unbekannte
-// Workspaces liefert sie einen apperr.NotFound-Fehler, für solche ohne Arbeitsverzeichnis
+// WorkspaceFunc returns the path of a workspace's working directory. For unknown workspaces
+// it returns an apperr.NotFound error, for those without a working directory
 // apperr.Conflict.
 type WorkspaceFunc func(ctx context.Context, id string) (string, error)
 
-// Sandbox führt Befehle im Docker-Container eines Workspaces aus (ab M5). Die IDE läuft
-// dann dort: openvscode-server aus dem Image, Port per Docker auf 127.0.0.1 veröffentlicht.
+// Sandbox runs commands in a workspace's Docker container (since M5). The IDE then runs
+// there: openvscode-server from the image, port published on 127.0.0.1 by Docker.
 type Sandbox interface {
-	// Command baut einen Prozess im Container (läuft im Workspace-Verzeichnis).
+	// Command builds a process in the container (runs in the workspace directory).
 	Command(ctx context.Context, argv, env []string) *exec.Cmd
-	// Signal sendet sig an alle Prozesse im Container mit der Variable marker (KEY=VALUE).
+	// Signal sends sig to all processes in the container with the variable marker (KEY=VALUE).
 	Signal(ctx context.Context, marker string, sig syscall.Signal) error
-	// HostPort liefert den Port auf 127.0.0.1 für port im Container.
+	// HostPort returns the port on 127.0.0.1 for port in the container.
 	HostPort(ctx context.Context, port int) (int, error)
-	// WriteFile schreibt eine Datei im Container, nur für den Nutzer lesbar.
+	// WriteFile writes a file in the container, readable only by the user.
 	WriteFile(ctx context.Context, path string, data []byte) error
 }
 
-// SandboxFunc liefert die Sandbox eines Workspaces (nil: IDE läuft lokal). Sie startet den
-// Container bei Bedarf.
+// SandboxFunc returns a workspace's sandbox (nil: the IDE runs locally). It starts the
+// container on demand.
 type SandboxFunc func(ctx context.Context, id string) (Sandbox, error)
 
-// Pfade und Port der IDE im Container.
+// Paths and port of the IDE in the container.
 const (
 	sandboxPort      = 3000
-	sandboxTokenFile = "/home/ade/.ade/ide-connection-token" //nolint:gosec // G101: Pfad, kein Secret
+	sandboxTokenFile = "/home/ade/.ade/ide-connection-token" //nolint:gosec // G101: path, not a secret
 )
 
-// Options konfiguriert den Manager.
+// Options configures the manager.
 type Options struct {
-	// Dir enthält die heruntergeladene IDE, gemeinsame Erweiterungen und Daten je Workspace.
+	// Dir contains the downloaded IDE, shared extensions and data per workspace.
 	Dir string
-	// Binary ist ein eigener openvscode-server; leer = festgelegte Version herunterladen.
+	// Binary is an own openvscode-server; empty = download the pinned version.
 	Binary     string
 	Workspaces WorkspaceFunc
-	// Sandbox ist optional; ohne sie laufen alle IDEs lokal.
+	// Sandbox is optional; without it all IDEs run locally.
 	Sandbox SandboxFunc
 	Logger  *slog.Logger
 
 	IdleTimeout  time.Duration
 	StartTimeout time.Duration
 	StopTimeout  time.Duration
-	// Env ist die Umgebung, aus der die IDE erbt (Default: os.Environ). ADE gibt davon nur
-	// dieselben Variablen weiter wie an Agenten (agent.FilterEnv).
+	// Env is the environment the IDE inherits from (default: os.Environ). ADE only passes on
+	// the same variables as to agents (agent.FilterEnv).
 	Env []string
-	// ExtraEnv wird ungefiltert angehängt (Tests).
+	// ExtraEnv is appended unfiltered (tests).
 	ExtraEnv []string
-	// HTTPClient lädt das Release herunter (Tests setzen einen eigenen).
+	// HTTPClient downloads the release (tests set their own).
 	HTTPClient *http.Client
-	// release überschreibt das Download-Ziel (Tests).
+	// release overrides the download target (tests).
 	release *release
 }
 
-// Status beschreibt den Zustand der IDE eines Workspaces.
+// Status describes the state of a workspace's IDE.
 type Status struct {
 	State     string     `json:"state"`
 	Error     string     `json:"error,omitempty"`
 	StartedAt *time.Time `json:"started_at,omitempty"`
-	// Connections ist die Zahl offener Verbindungen über das Gateway.
+	// Connections is the number of open connections through the gateway.
 	Connections int `json:"connections"`
 }
 
-// Manager verwaltet die IDEs aller Workspaces.
+// Manager manages the IDEs of all workspaces.
 type Manager struct {
 	opts Options
 	log  *slog.Logger
@@ -141,21 +141,21 @@ type instance struct {
 	port    int
 	token   string
 	pid     int
-	sb      Sandbox // gesetzt, wenn die IDE im Container läuft
+	sb      Sandbox // set if the IDE runs in the container
 
-	// ctx endet mit Stop; er bricht Download und Startwarten ab, nicht den Prozess selbst.
+	// ctx ends with Stop; it aborts download and start waiting, not the process itself.
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	ready    chan struct{} // geschlossen, sobald running oder fehlgeschlagen
-	exited   chan struct{} // geschlossen, wenn der Prozess beendet ist
+	ready    chan struct{} // closed as soon as running or failed
+	exited   chan struct{} // closed when the process has ended
 	stopping bool
 
 	conns      int
 	lastActive time.Time
 }
 
-// NewManager erzeugt einen Manager. Er startet nichts, bis eine IDE angefordert wird.
+// NewManager creates a manager. It starts nothing until an IDE is requested.
 func NewManager(opts Options) *Manager {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
@@ -182,14 +182,14 @@ func NewManager(opts Options) *Manager {
 	return m
 }
 
-// Recover beendet IDE-Prozesse, die ein früherer Lauf dieses Daemons hinterlassen hat.
+// Recover ends IDE processes that an earlier run of this daemon left behind.
 func (m *Manager) Recover() {
 	if n := killOwned(m.opts.Dir); n > 0 {
-		m.log.Warn("verwaiste IDE-Prozesse beendet", "anzahl", n)
+		m.log.Warn("orphaned IDE processes ended", "count", n)
 	}
 }
 
-// Close stoppt alle IDEs und wartet auf ihr Ende.
+// Close stops all IDEs and waits for them to end.
 func (m *Manager) Close() {
 	m.cancel()
 	m.mu.Lock()
@@ -204,7 +204,7 @@ func (m *Manager) Close() {
 	m.wg.Wait()
 }
 
-// Status liefert den Zustand der IDE eines Workspaces.
+// Status returns the state of a workspace's IDE.
 func (m *Manager) Status(id string) Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -224,11 +224,11 @@ func (m *Manager) statusLocked(id string) Status {
 	return st
 }
 
-// Start startet die IDE eines Workspaces, falls sie nicht schon läuft oder startet, und
-// kehrt sofort zurück. Den Fortschritt liefert Status.
+// Start starts a workspace's IDE if it is not already running or starting, and returns
+// right away. Status reports the progress.
 func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 	if m.ctx.Err() != nil {
-		return Status{}, errors.New("Daemon wird beendet")
+		return Status{}, errors.New("daemon is stopping")
 	}
 	path, err := m.opts.Workspaces(ctx, id)
 	if err != nil {
@@ -251,21 +251,21 @@ func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 	}
 	m.inst[id] = in
 	m.wg.Add(1)
-	go m.run(in, path) //nolint:gosec // G118: Die IDE überdauert die Anfrage; sie endet mit in.ctx
+	go m.run(in, path) //nolint:gosec // G118: the IDE outlives the request; it ends with in.ctx
 	return m.statusLocked(id), nil
 }
 
-// Upstream ist eine laufende IDE, an die das Gateway eine Anfrage weiterreicht.
+// Upstream is a running IDE to which the gateway passes a request.
 type Upstream struct {
 	URL   *url.URL
 	Token string
-	// Release meldet das Ende der Anfrage bzw. der WebSocket-Verbindung.
+	// Release reports the end of the request or of the WebSocket connection.
 	Release func()
 }
 
-// Acquire liefert die laufende IDE eines Workspaces und zählt die Verbindung, bis Release
-// aufgerufen wird. Läuft die IDE nicht, startet Acquire sie und wartet, bis sie bereit ist
-// oder ctx endet.
+// Acquire returns a workspace's running IDE and counts the connection until Release is
+// called. If the IDE is not running, Acquire starts it and waits until it is ready or ctx
+// ends.
 func (m *Manager) Acquire(ctx context.Context, id string) (*Upstream, error) {
 	if _, err := m.Start(ctx, id); err != nil {
 		return nil, err
@@ -274,7 +274,7 @@ func (m *Manager) Acquire(ctx context.Context, id string) (*Upstream, error) {
 	in := m.inst[id]
 	m.mu.Unlock()
 	if in == nil {
-		return nil, apperr.Conflict("IDE wurde gestoppt")
+		return nil, apperr.Conflict("IDE was stopped")
 	}
 	select {
 	case <-in.ready:
@@ -287,7 +287,7 @@ func (m *Manager) Acquire(ctx context.Context, id string) (*Upstream, error) {
 	if m.inst[id] != in || in.state != StateRunning {
 		msg := in.err
 		if msg == "" {
-			msg = "IDE läuft nicht"
+			msg = "IDE is not running"
 		}
 		return nil, apperr.Conflict("%s", msg)
 	}
@@ -308,8 +308,8 @@ func (m *Manager) Acquire(ctx context.Context, id string) (*Upstream, error) {
 	}, nil
 }
 
-// Stop beendet die IDE eines Workspaces (SIGTERM an die Prozessgruppe, nach StopTimeout
-// SIGKILL) und wartet auf ihr Ende.
+// Stop ends a workspace's IDE (SIGTERM to the process group, SIGKILL after StopTimeout)
+// and waits for it to end.
 func (m *Manager) Stop(id string) {
 	m.mu.Lock()
 	in, ok := m.inst[id]
@@ -341,7 +341,7 @@ func (m *Manager) Stop(id string) {
 			<-in.exited
 		}
 	} else {
-		<-in.exited // Start läuft noch (Download o. Ä.) und bricht über in.ctx ab
+		<-in.exited // Start is still running (download etc.) and aborts through in.ctx
 	}
 	m.mu.Lock()
 	if m.inst[id] == in {
@@ -350,19 +350,19 @@ func (m *Manager) Stop(id string) {
 	m.mu.Unlock()
 }
 
-// BeforeWorkspaceDelete stoppt die IDE und entfernt ihre Daten.
+// BeforeWorkspaceDelete stops the IDE and removes its data.
 func (m *Manager) BeforeWorkspaceDelete(_ context.Context, id string) error {
 	m.Stop(id)
 	if err := os.RemoveAll(m.dataDir(id)); err != nil {
-		return fmt.Errorf("IDE-Daten löschen: %w", err)
+		return fmt.Errorf("delete IDE data: %w", err)
 	}
 	return nil
 }
 
 func (m *Manager) dataDir(id string) string { return filepath.Join(m.opts.Dir, "workspaces", id) }
 
-// run installiert bei Bedarf, startet den Prozess, wartet auf Bereitschaft und danach
-// auf das Prozessende.
+// run installs if needed, starts the process, waits for readiness and then for the
+// process to end.
 func (m *Manager) run(in *instance, workdir string) {
 	defer m.wg.Done()
 	defer in.cancel()
@@ -378,14 +378,14 @@ func (m *Manager) run(in *instance, workdir string) {
 			return
 		}
 		in.state, in.err = StateError, err.Error()
-		m.log.Error("IDE fehlgeschlagen", "workspace", in.wsID, "err", err)
+		m.log.Error("IDE failed", "workspace", in.wsID, "err", err)
 	}
 
 	var sb Sandbox
 	if m.opts.Sandbox != nil {
 		var err error
 		if sb, err = m.opts.Sandbox(in.ctx, in.wsID); err != nil {
-			fail(fmt.Errorf("Sandbox-Container: %w", err))
+			fail(fmt.Errorf("sandbox container: %w", err))
 			return
 		}
 	}
@@ -418,26 +418,26 @@ func (m *Manager) run(in *instance, workdir string) {
 	}
 	if err := cmd.Start(); err != nil {
 		m.mu.Unlock()
-		fail(fmt.Errorf("openvscode-server starten: %w", err))
+		fail(fmt.Errorf("start openvscode-server: %w", err))
 		return
 	}
 	in.pid = cmd.Process.Pid
 	m.mu.Unlock()
 	if sb != nil {
-		// Den veröffentlichten Port kennt Docker erst nach dem Container-Start.
+		// Docker only knows the published port after the container has started.
 		port, err := sb.HostPort(in.ctx, sandboxPort)
 		if err != nil {
 			_ = sb.Signal(context.Background(), EnvOwner+"="+m.opts.Dir, syscall.SIGKILL)
 			_ = syscall.Kill(-in.pid, syscall.SIGKILL)
 			_ = cmd.Wait()
-			fail(fmt.Errorf("IDE-Port: %w", err))
+			fail(fmt.Errorf("IDE port: %w", err))
 			return
 		}
 		m.mu.Lock()
 		in.port, in.sb = port, sb
 		m.mu.Unlock()
 	}
-	m.log.Info("IDE gestartet", "workspace", in.wsID, "pid", in.pid, "port", in.port, "sandbox", sb != nil)
+	m.log.Info("IDE started", "workspace", in.wsID, "pid", in.pid, "port", in.port, "sandbox", sb != nil)
 
 	waitErr := make(chan error, 1)
 	go func() { waitErr <- cmd.Wait() }()
@@ -462,28 +462,28 @@ func (m *Manager) run(in *instance, workdir string) {
 	readyOnce()
 
 	err := <-waitErr
-	// Reste der Prozessgruppe (z. B. Extension-Hosts) mitnehmen.
+	// Take leftovers of the process group with it (e.g. extension hosts).
 	killAll()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if in.stopping {
 		in.state = StateStopped
-		m.log.Info("IDE gestoppt", "workspace", in.wsID)
+		m.log.Info("IDE stopped", "workspace", in.wsID)
 		return
 	}
 	in.state = StateError
-	in.err = "openvscode-server unerwartet beendet"
+	in.err = "openvscode-server exited unexpectedly"
 	if err != nil {
 		in.err += ": " + err.Error()
 	}
 	if out := strings.TrimSpace(stderr.String()); out != "" {
 		in.err += " – " + lastLine(out)
 	}
-	m.log.Error("IDE unerwartet beendet", "workspace", in.wsID, "err", in.err)
+	m.log.Error("IDE exited unexpectedly", "workspace", in.wsID, "err", in.err)
 }
 
-// waitReady fragt den Port ab, bis der Server antwortet, der Prozess endet oder
-// StartTimeout abläuft.
+// waitReady polls the port until the server answers, the process ends or StartTimeout
+// expires.
 func (m *Manager) waitReady(in *instance, waitErr chan error) error {
 	client := &http.Client{Timeout: time.Second}
 	deadline := time.NewTimer(m.opts.StartTimeout)
@@ -494,14 +494,14 @@ func (m *Manager) waitReady(in *instance, waitErr chan error) error {
 	for {
 		select {
 		case err := <-waitErr:
-			waitErr <- err // für run wieder einreihen
-			return fmt.Errorf("openvscode-server beim Start beendet: %w", err)
+			waitErr <- err // queue it again for run
+			return fmt.Errorf("openvscode-server exited during start: %w", err)
 		case <-deadline.C:
-			return fmt.Errorf("openvscode-server antwortet nach %s nicht", m.opts.StartTimeout)
+			return fmt.Errorf("openvscode-server does not answer after %s", m.opts.StartTimeout)
 		case <-in.ctx.Done():
-			return errors.New("Start abgebrochen")
+			return errors.New("start aborted")
 		case <-tick.C:
-			resp, err := client.Get(u) //nolint:gosec // G107: lokale Adresse
+			resp, err := client.Get(u) //nolint:gosec // G107: local address
 			if err == nil {
 				_ = resp.Body.Close()
 				return nil
@@ -510,12 +510,12 @@ func (m *Manager) waitReady(in *instance, waitErr chan error) error {
 	}
 }
 
-// binary liefert den Pfad des openvscode-servers und lädt ihn bei Bedarf herunter.
-// Mehrere gleichzeitige Starts teilen sich einen Download.
+// binary returns the path of the openvscode-server and downloads it if needed.
+// Several concurrent starts share one download.
 func (m *Manager) binary(in *instance) (string, error) {
 	if m.opts.Binary != "" {
 		if !fileExists(m.opts.Binary) {
-			return "", fmt.Errorf("ide.binary %s nicht gefunden", m.opts.Binary)
+			return "", fmt.Errorf("ide.binary %s not found", m.opts.Binary)
 		}
 		return m.opts.Binary, nil
 	}
@@ -537,10 +537,10 @@ func (m *Manager) binary(in *instance) (string, error) {
 		run = &installRun{done: make(chan struct{})}
 		m.install = run
 		go func() {
-			m.log.Info("lade openvscode-server herunter", "version", Version, "url", rel.URL)
+			m.log.Info("downloading openvscode-server", "version", Version, "url", rel.URL)
 			run.path, run.err = install(m.ctx, m.opts.HTTPClient, m.opts.Dir, rel)
 			if run.err == nil {
-				m.log.Info("openvscode-server installiert", "pfad", run.path)
+				m.log.Info("openvscode-server installed", "path", run.path)
 			}
 			m.mu.Lock()
 			m.install = nil
@@ -552,7 +552,7 @@ func (m *Manager) binary(in *instance) (string, error) {
 	select {
 	case <-run.done:
 	case <-in.ctx.Done():
-		return "", errors.New("Start abgebrochen")
+		return "", errors.New("start aborted")
 	}
 
 	m.mu.Lock()
@@ -563,28 +563,28 @@ func (m *Manager) binary(in *instance) (string, error) {
 	return run.path, run.err
 }
 
-// command baut den Aufruf. Den Connection-Token liest der Server aus einer Datei, damit er
-// nicht in der Prozessliste steht.
+// command builds the call. The server reads the connection token from a file, so it does
+// not show up in the process list.
 func (m *Manager) command(in *instance, bin, workdir string) (*exec.Cmd, error) {
 	port, err := freePort()
 	if err != nil {
-		return nil, fmt.Errorf("freien Port finden: %w", err)
+		return nil, fmt.Errorf("find a free port: %w", err)
 	}
 	data := m.dataDir(in.wsID)
 	if err := os.MkdirAll(data, 0o700); err != nil {
-		return nil, fmt.Errorf("IDE-Datenverzeichnis anlegen: %w", err)
+		return nil, fmt.Errorf("create IDE data directory: %w", err)
 	}
 	ext := filepath.Join(m.opts.Dir, "extensions")
 	if err := os.MkdirAll(ext, 0o700); err != nil {
-		return nil, fmt.Errorf("Erweiterungsverzeichnis anlegen: %w", err)
+		return nil, fmt.Errorf("create extensions directory: %w", err)
 	}
 	token := randomToken()
 	tokenFile := filepath.Join(data, "connection-token")
 	if err := os.WriteFile(tokenFile, []byte(token), 0o600); err != nil {
-		return nil, fmt.Errorf("Connection-Token schreiben: %w", err)
+		return nil, fmt.Errorf("write connection token: %w", err)
 	}
 
-	cmd := exec.CommandContext(m.ctx, bin, //nolint:gosec // G204: Binary aus Konfiguration bzw. geprüftem Download
+	cmd := exec.CommandContext(m.ctx, bin, //nolint:gosec // G204: binary from the configuration or a verified download
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(port),
 		"--connection-token-file", tokenFile,
@@ -602,7 +602,7 @@ func (m *Manager) command(in *instance, bin, workdir string) (*exec.Cmd, error) 
 	)
 	cmd.Env = append(cmd.Env, m.opts.ExtraEnv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// Beim Daemon-Ende stoppt Close die IDE geordnet; CommandContext ist nur die Rückfallebene.
+	// When the daemon ends, Close stops the IDE in order; CommandContext is only the fallback.
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 
 	m.mu.Lock()
@@ -611,13 +611,13 @@ func (m *Manager) command(in *instance, bin, workdir string) (*exec.Cmd, error) 
 	return cmd, nil
 }
 
-// sandboxCommand baut den Aufruf von openvscode-server im Container. Der Connection-Token
-// liegt in einer Datei im Container; der Server lauscht auf allen Adressen des Containers,
-// erreichbar ist er von außen nur über den auf 127.0.0.1 veröffentlichten Port.
+// sandboxCommand builds the call of openvscode-server in the container. The connection token
+// is in a file in the container; the server listens on all addresses of the container, but
+// from outside it is only reachable through the port published on 127.0.0.1.
 func (m *Manager) sandboxCommand(in *instance, sb Sandbox) (*exec.Cmd, error) {
 	token := randomToken()
 	if err := sb.WriteFile(in.ctx, sandboxTokenFile, []byte(token)); err != nil {
-		return nil, fmt.Errorf("Connection-Token im Container schreiben: %w", err)
+		return nil, fmt.Errorf("write connection token in the container: %w", err)
 	}
 	cmd := sb.Command(m.ctx, []string{
 		"openvscode-server",
@@ -635,7 +635,7 @@ func (m *Manager) sandboxCommand(in *instance, sb Sandbox) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-// reaper stoppt IDEs ohne Verbindung, die länger als IdleTimeout inaktiv sind.
+// reaper stops IDEs without a connection that have been idle longer than IdleTimeout.
 func (m *Manager) reaper() {
 	defer m.wg.Done()
 	every := min(m.opts.IdleTimeout/4, time.Minute)
@@ -654,12 +654,12 @@ func (m *Manager) reaper() {
 			case in.state == StateRunning && in.conns == 0 && time.Since(in.lastActive) > m.opts.IdleTimeout:
 				idle = append(idle, id)
 			case in.state == StateError && time.Since(in.lastActive) > m.opts.IdleTimeout:
-				delete(m.inst, id) // Fehler nicht ewig anzeigen
+				delete(m.inst, id) // do not show errors forever
 			}
 		}
 		m.mu.Unlock()
 		for _, id := range idle {
-			m.log.Info("IDE inaktiv, wird gestoppt", "workspace", id)
+			m.log.Info("IDE idle, stopping", "workspace", id)
 			m.Stop(id)
 		}
 	}
@@ -680,7 +680,7 @@ func randomToken() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// tail behält die letzten 4 KiB der Ausgabe.
+// tail keeps the last 4 KiB of the output.
 type tail struct {
 	mu  sync.Mutex
 	buf []byte
@@ -707,10 +707,10 @@ func lastLine(s string) string {
 	return strings.TrimSpace(lines[len(lines)-1])
 }
 
-// procDir ist das proc-Dateisystem (Tests setzen ein eigenes Verzeichnis).
+// procDir is the proc file system (tests set their own directory).
 var procDir = "/proc"
 
-// killOwned beendet alle Prozesse, deren Umgebung EnvOwner=dir enthält, und liefert ihre Zahl.
+// killOwned ends all processes whose environment contains EnvOwner=dir and returns their count.
 func killOwned(dir string) int {
 	entries, err := os.ReadDir(procDir)
 	if err != nil {

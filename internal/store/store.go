@@ -1,4 +1,4 @@
-// Package store kapselt die SQLite-Datenbank des Daemons inklusive Migrationen.
+// Package store wraps the daemon's SQLite database including migrations.
 package store
 
 import (
@@ -15,21 +15,21 @@ import (
 	"strconv"
 	"strings"
 
-	_ "modernc.org/sqlite" // SQLite-Treiber ohne cgo
+	_ "modernc.org/sqlite" // SQLite driver without cgo
 )
 
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
-// Store ist der Zugriff auf die ADE-Datenbank.
+// Store is the access to the ADE database.
 type Store struct {
 	db *sql.DB
 }
 
-// Open öffnet (oder erzeugt) die Datenbank unter path und spielt ausstehende Migrationen ein.
+// Open opens (or creates) the database at path and applies pending migrations.
 func Open(ctx context.Context, path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("Datenverzeichnis anlegen: %w", err)
+		return nil, fmt.Errorf("create data directory: %w", err)
 	}
 	if err := privateFiles(path); err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	q.Add("_txlock", "immediate")
 	db, err := sql.Open("sqlite", "file:"+path+"?"+q.Encode())
 	if err != nil {
-		return nil, fmt.Errorf("Datenbank öffnen: %w", err)
+		return nil, fmt.Errorf("open database: %w", err)
 	}
 	s := &Store{db: db}
 	if err := s.migrate(ctx); err != nil {
@@ -51,31 +51,30 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return s, nil
 }
 
-// privateFiles legt die Datenbankdatei nur für den Nutzer lesbar an und setzt die Rechte
-// bestehender Dateien (auch -wal und -shm) auf 0600. Die Datenbank enthält Aufgaben,
-// Agent-Ausgaben und Egress-Protokolle; SQLite übernimmt für -wal und -shm die Rechte der
-// Hauptdatei.
+// privateFiles creates the database file readable only by the user and sets the permissions
+// of existing files (also -wal and -shm) to 0600. The database contains tasks, agent output
+// and egress logs; SQLite gives -wal and -shm the permissions of the main file.
 func privateFiles(path string) error {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // G304: Pfad aus der eigenen Konfiguration
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // G304: path from the own configuration
 	if err != nil {
-		return fmt.Errorf("Datenbank anlegen: %w", err)
+		return fmt.Errorf("create database: %w", err)
 	}
 	_ = f.Close()
 	for _, p := range []string{path, path + "-wal", path + "-shm"} {
 		if err := os.Chmod(p, 0o600); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("Rechte der Datenbank setzen: %w", err)
+			return fmt.Errorf("set permissions of the database: %w", err)
 		}
 	}
 	return nil
 }
 
-// DB liefert die zugrunde liegende Datenbankverbindung.
+// DB returns the underlying database connection.
 func (s *Store) DB() *sql.DB { return s.db }
 
-// Close schließt die Datenbank.
+// Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
-// Ping prüft, ob die Datenbank erreichbar ist.
+// Ping checks whether the database is reachable.
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
 
 type migration struct {
@@ -96,10 +95,10 @@ func loadMigrations() ([]migration, error) {
 		prefix, _, ok := strings.Cut(name, "_")
 		v, err := strconv.Atoi(prefix)
 		if !ok || err != nil || v <= 0 {
-			return nil, fmt.Errorf("Migration %q: Name muss mit <nummer>_ beginnen", name)
+			return nil, fmt.Errorf("migration %q: name must start with <number>_", name)
 		}
 		if other, dup := seen[v]; dup {
-			return nil, fmt.Errorf("Migrationen %q und %q haben dieselbe Nummer", other, name)
+			return nil, fmt.Errorf("migrations %q and %q have the same number", other, name)
 		}
 		seen[v] = name
 		data, err := fs.ReadFile(migrationFS, "migrations/"+name)
@@ -122,15 +121,15 @@ func (s *Store) migrate(ctx context.Context) error {
 		name       TEXT NOT NULL,
 		applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 	)`); err != nil {
-		return fmt.Errorf("schema_migrations anlegen: %w", err)
+		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
 	var current int
 	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&current); err != nil {
-		return fmt.Errorf("Schema-Version lesen: %w", err)
+		return fmt.Errorf("read schema version: %w", err)
 	}
 	if n := len(ms); n > 0 && current > ms[n-1].version {
-		return fmt.Errorf("Datenbank hat Schema-Version %d, dieses Binary kennt nur bis %d – bitte ADE aktualisieren", current, ms[n-1].version)
+		return fmt.Errorf("database has schema version %d, this binary only knows up to %d – please update ADE", current, ms[n-1].version)
 	}
 
 	for _, m := range ms {
@@ -159,7 +158,7 @@ func (s *Store) apply(ctx context.Context, m migration) error {
 	return tx.Commit()
 }
 
-// SchemaVersion liefert die höchste eingespielte Migration.
+// SchemaVersion returns the highest applied migration.
 func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
 	var v int
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v)

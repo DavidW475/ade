@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// Event ist ein gespeichertes Ereignis einer Session (Schema: doc/architecture.md#event-schema).
-// seq ist pro Session fortlaufend und beginnt bei 1.
+// Event is a stored event of a session (schema: doc/architecture.md#event-schema).
+// seq is consecutive per session and starts at 1.
 type Event struct {
 	Seq       int64           `json:"seq"`
 	SessionID string          `json:"session_id"`
@@ -17,8 +17,8 @@ type Event struct {
 	Payload   json.RawMessage `json:"payload"`
 }
 
-// AppendEvents speichert Events in einer Transaktion (gedrosseltes Schreiben: der Aufrufer
-// sammelt Events und schreibt sie gebündelt).
+// AppendEvents stores events in one transaction (throttled writing: the caller collects
+// events and writes them in batches).
 func (s *Store) AppendEvents(ctx context.Context, evs []Event) error {
 	if len(evs) == 0 {
 		return nil
@@ -39,13 +39,13 @@ func (s *Store) AppendEvents(ctx context.Context, evs []Event) error {
 			payload = json.RawMessage("{}")
 		}
 		if _, err := stmt.ExecContext(ctx, e.SessionID, e.Seq, e.TS.UTC().Format(timeLayout), e.Type, string(payload)); err != nil {
-			return fmt.Errorf("Event %s/%d speichern: %w", e.SessionID, e.Seq, err)
+			return fmt.Errorf("store event %s/%d: %w", e.SessionID, e.Seq, err)
 		}
 	}
 	return tx.Commit()
 }
 
-// ListEvents liefert bis zu limit Events einer Session mit seq > since, aufsteigend.
+// ListEvents returns up to limit events of a session with seq > since, ascending.
 func (s *Store) ListEvents(ctx context.Context, sessionID string, since int64, limit int) ([]Event, error) {
 	if limit <= 0 {
 		limit = 1000
@@ -71,14 +71,14 @@ func (s *Store) ListEvents(ctx context.Context, sessionID string, since int64, l
 	return out, rows.Err()
 }
 
-// MaxEventSeq liefert die höchste seq einer Session (0, wenn es keine Events gibt).
+// MaxEventSeq returns the highest seq of a session (0 if there are no events).
 func (s *Store) MaxEventSeq(ctx context.Context, sessionID string) (int64, error) {
 	var n int64
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM events WHERE session_id = ?`, sessionID).Scan(&n)
 	return n, err
 }
 
-// LastEvents liefert die letzten limit Events des Typs typ einer Session, neueste zuerst.
+// LastEvents returns the last limit events of type typ of a session, newest first.
 func (s *Store) LastEvents(ctx context.Context, sessionID, typ string, limit int) ([]Event, error) {
 	if limit <= 0 {
 		limit = 50

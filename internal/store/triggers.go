@@ -9,7 +9,7 @@ import (
 	"github.com/DavidW475/ade/internal/apperr"
 )
 
-// TriggerState ist der Zustand eines Auslösers.
+// TriggerState is the state of a trigger.
 type TriggerState struct {
 	ProjectID string     `json:"project_id"`
 	Name      string     `json:"name"`
@@ -19,7 +19,7 @@ type TriggerState struct {
 	LastError string     `json:"last_error,omitempty"`
 }
 
-// GetTriggerState liefert den Zustand eines Auslösers (ohne Eintrag: leerer Zustand).
+// GetTriggerState returns the state of a trigger (without an entry: empty state).
 func (s *Store) GetTriggerState(ctx context.Context, projectID, name string) (*TriggerState, error) {
 	st := &TriggerState{ProjectID: projectID, Name: name}
 	var check, fire sql.NullString
@@ -35,7 +35,7 @@ func (s *Store) GetTriggerState(ctx context.Context, projectID, name string) (*T
 	return st, nil
 }
 
-// TriggerUpdate sind Änderungen am Zustand; nil-Felder bleiben unverändert.
+// TriggerUpdate are changes to the state; nil fields stay unchanged.
 type TriggerUpdate struct {
 	Paused    *bool
 	LastCheck *time.Time
@@ -50,7 +50,7 @@ func fmtTime(t *time.Time) any {
 	return t.UTC().Format("2006-01-02T15:04:05.000Z")
 }
 
-// UpdateTriggerState legt den Zustand an oder ändert die gesetzten Felder.
+// UpdateTriggerState creates the state or changes the set fields.
 func (s *Store) UpdateTriggerState(ctx context.Context, projectID, name string, u TriggerUpdate) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO trigger_state (project_id, name, paused, last_check, last_fire, last_error)
 		VALUES (?1, ?2, COALESCE(?3, 0), ?4, ?5, COALESCE(?6, ''))
@@ -61,12 +61,12 @@ func (s *Store) UpdateTriggerState(ctx context.Context, projectID, name string, 
 			last_error = COALESCE(?6, last_error)`,
 		projectID, name, u.Paused, fmtTime(u.LastCheck), fmtTime(u.LastFire), u.LastError)
 	if isForeignKeyViolation(err) {
-		return apperr.NotFound("Projekt %s nicht gefunden", projectID)
+		return apperr.NotFound("project %s not found", projectID)
 	}
 	return err
 }
 
-// TriggerRun ist ein ausgelöster Run.
+// TriggerRun is a triggered run.
 type TriggerRun struct {
 	ProjectID string    `json:"project_id"`
 	Trigger   string    `json:"trigger"`
@@ -76,7 +76,7 @@ type TriggerRun struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// HasTriggerRun meldet, ob der Auslöser für key schon einen Run gestartet hat.
+// HasTriggerRun reports whether the trigger has already started a run for key.
 func (s *Store) HasTriggerRun(ctx context.Context, projectID, trigger, key string) (bool, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM trigger_runs WHERE project_id = ? AND trigger = ? AND key = ?`,
@@ -84,17 +84,17 @@ func (s *Store) HasTriggerRun(ctx context.Context, projectID, trigger, key strin
 	return n > 0, err
 }
 
-// AddTriggerRun vermerkt einen ausgelösten Run; gibt es key schon, ist das ein Konflikt.
+// AddTriggerRun records a triggered run; if key already exists, that is a conflict.
 func (s *Store) AddTriggerRun(ctx context.Context, tr *TriggerRun) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO trigger_runs (project_id, trigger, key, run_id) VALUES (?, ?, ?, ?)`,
 		tr.ProjectID, tr.Trigger, tr.Key, tr.RunID)
 	if isUniqueViolation(err) {
-		return apperr.Conflict("Auslöser %s hat für %s schon einen Run", tr.Trigger, tr.Key)
+		return apperr.Conflict("trigger %s already has a run for %s", tr.Trigger, tr.Key)
 	}
 	return err
 }
 
-// TriggerRunFilter schränkt ListTriggerRuns ein; leere Felder filtern nicht.
+// TriggerRunFilter restricts ListTriggerRuns; empty fields do not filter.
 type TriggerRunFilter struct {
 	ProjectID  string
 	Trigger    string
@@ -102,7 +102,7 @@ type TriggerRunFilter struct {
 	Limit      int
 }
 
-// ListTriggerRuns liefert ausgelöste Runs, neueste zuerst.
+// ListTriggerRuns returns triggered runs, newest first.
 func (s *Store) ListTriggerRuns(ctx context.Context, f TriggerRunFilter) ([]TriggerRun, error) {
 	limit := f.Limit
 	if limit <= 0 || limit > 1000 {

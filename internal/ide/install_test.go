@@ -90,22 +90,22 @@ func TestInstall(t *testing.T) {
 	}
 	st, err := os.Stat(bin)
 	if err != nil || st.Mode().Perm()&0o100 == 0 {
-		t.Errorf("Binary nicht ausführbar: %v %v", st, err)
+		t.Errorf("binary not executable: %v %v", st, err)
 	}
 	if l, err := os.Readlink(filepath.Join(dir, name, "lib")); err != nil || l != "bin" {
 		t.Errorf("Symlink = %q, %v", l, err)
 	}
-	// Keine Reste von Download oder Entpacken.
+	// No leftovers from downloading or unpacking.
 	ents, _ := os.ReadDir(dir)
 	if len(ents) != 1 {
-		t.Errorf("Verzeichnis enthält %d Einträge, want 1", len(ents))
+		t.Errorf("directory contains %d entries, want 1", len(ents))
 	}
-	// Zweiter Aufruf lädt nicht neu.
+	// A second call does not download again.
 	if _, err := install(context.Background(), srv.Client(), dir, rel); err != nil {
 		t.Fatal(err)
 	}
 	if hits.Load() != 1 {
-		t.Errorf("%d Downloads, want 1", hits.Load())
+		t.Errorf("%d downloads, want 1", hits.Load())
 	}
 }
 
@@ -115,24 +115,24 @@ func TestInstallRejectsWrongChecksum(t *testing.T) {
 	srv, _ := serve(t, data)
 	dir := t.TempDir()
 	_, err := install(context.Background(), srv.Client(), dir, release{Name: name, URL: srv.URL, SHA256: strings.Repeat("0", 64)})
-	if err == nil || !strings.Contains(err.Error(), "Prüfsumme") {
-		t.Fatalf("err = %v, want Prüfsummenfehler", err)
+	if err == nil || !strings.Contains(err.Error(), "checksum") {
+		t.Fatalf("err = %v, want checksum error", err)
 	}
 	if ents, _ := os.ReadDir(dir); len(ents) != 0 {
-		t.Errorf("Reste nach Fehler: %v", ents)
+		t.Errorf("leftovers after an error: %v", ents)
 	}
 }
 
 func TestExtractRejectsUnsafeEntries(t *testing.T) {
 	cases := map[string][]entry{
-		"pfad-nach-oben":   {{name: "../evil", typ: tar.TypeReg, body: "x"}},
-		"absoluter-pfad":   {{name: "/tmp/evil", typ: tar.TypeReg, body: "x"}},
-		"symlink-heraus":   {{name: "a/link", typ: tar.TypeSymlink, link: "../../etc"}},
-		"absoluter-link":   {{name: "link", typ: tar.TypeSymlink, link: "/etc/passwd"}},
-		"hardlink":         {{name: "hl", typ: tar.TypeLink, link: "x"}},
-		"geraetedatei":     {{name: "dev", typ: tar.TypeChar}},
-		"datei-durch-link": {{name: "l", typ: tar.TypeSymlink, link: "."}, {name: "l", typ: tar.TypeReg, body: "x"}},
-		"link-kette": {
+		"path-upwards":      {{name: "../evil", typ: tar.TypeReg, body: "x"}},
+		"absolute-path":     {{name: "/tmp/evil", typ: tar.TypeReg, body: "x"}},
+		"symlink-out":       {{name: "a/link", typ: tar.TypeSymlink, link: "../../etc"}},
+		"absolute-link":     {{name: "link", typ: tar.TypeSymlink, link: "/etc/passwd"}},
+		"hardlink":          {{name: "hl", typ: tar.TypeLink, link: "x"}},
+		"geraetedatei":      {{name: "dev", typ: tar.TypeChar}},
+		"file-through-link": {{name: "l", typ: tar.TypeSymlink, link: "."}, {name: "l", typ: tar.TypeReg, body: "x"}},
+		"link-chain": {
 			{name: "sub", typ: tar.TypeSymlink, link: "."},
 			{name: "s1", typ: tar.TypeSymlink, link: "sub/sub"},
 			{name: "s2", typ: tar.TypeSymlink, link: "s1/.."},
@@ -142,7 +142,7 @@ func TestExtractRejectsUnsafeEntries(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			if err := extract(bytes.NewReader(makeTarGz(t, entries)), dir); err == nil {
-				t.Fatal("Fehler erwartet")
+				t.Fatal("expected an error")
 			}
 		})
 	}
@@ -154,11 +154,11 @@ func TestManagerDownloadsOnFirstStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Das „Release“ enthält ein Startskript, das die Test-Binary als Fake-Server aufruft.
+	// The “release” contains a start script that calls the test binary as a fake server.
 	script := "#!/bin/sh\nexec " + exe + " \"$@\"\n"
 	data := makeTarGz(t, []entry{{name: name + "/bin/openvscode-server", typ: tar.TypeReg, body: script, mode: 0o755}})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(200 * time.Millisecond) // Zustand „installing“ sichtbar machen
+		time.Sleep(200 * time.Millisecond) // make the state “installing” visible
 		_, _ = w.Write(data)
 	}))
 	t.Cleanup(srv.Close)

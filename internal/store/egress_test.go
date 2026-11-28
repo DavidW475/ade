@@ -30,23 +30,23 @@ func TestEgressRetentionAndCascade(t *testing.T) {
 	}
 	all, err := s.ListEgress(ctx, "w1", EgressFilter{Limit: EgressKeep * 2})
 	if err != nil || len(all) != EgressKeep {
-		t.Fatalf("%d Events, %v; erwartet %d", len(all), err, EgressKeep)
+		t.Fatalf("%d events, %v; want %d", len(all), err, EgressKeep)
 	}
 	if all[0].ID < all[1].ID {
-		t.Error("nicht neueste zuerst")
+		t.Error("not newest first")
 	}
 	hosts, err := s.EgressHosts(ctx, "w1")
 	if err != nil || len(hosts) != 3 {
 		t.Fatalf("Hosts %+v %v", hosts, err)
 	}
-	// Events eines unbekannten Workspaces werden verworfen.
-	if err := s.AppendEgress(ctx, "fehlt", evs[:1]); err != nil {
+	// Events of an unknown workspace are discarded.
+	if err := s.AppendEgress(ctx, "missing", evs[:1]); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DeleteWorkspace(ctx, "w1"); err != nil {
 		t.Fatal(err)
 	}
 	if left, _ := s.ListEgress(ctx, "w1", EgressFilter{}); len(left) != 0 {
-		t.Fatalf("%d Events nach dem Löschen", len(left))
+		t.Fatalf("%d events after deleting", len(left))
 	}
 }

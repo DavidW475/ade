@@ -1,4 +1,4 @@
-// Package project verwaltet registrierte Projekte und ihre Konfiguration (.ade/project.yaml).
+// Package project manages registered projects and their configuration (.ade/project.yaml).
 package project
 
 import (
@@ -18,43 +18,43 @@ import (
 	"github.com/DavidW475/ade/internal/git"
 )
 
-// ConfigFile ist der Pfad der Projekt-Konfiguration relativ zum Repo.
+// ConfigFile is the path of the project configuration relative to the repository.
 const ConfigFile = ".ade/project.yaml"
 
-// KnownAdapters sind die Adapter, die in project.yaml erlaubt sind.
+// KnownAdapters are the adapters allowed in project.yaml.
 var KnownAdapters = []string{"claude", "codex", "pty"}
 
-// Config ist der Inhalt von .ade/project.yaml. Alle Felder sind optional.
+// Config is the contents of .ade/project.yaml. All fields are optional.
 type Config struct {
-	// Name ist der Anzeigename; Default ist der Verzeichnisname des Repos.
+	// Name is the display name; the default is the repository's directory name.
 	Name string `yaml:"name" json:"name,omitempty"`
-	// BaseBranch ist der Branch, von dem Workspaces abzweigen; Default ist der Branch,
-	// der beim Registrieren ermittelt wurde.
+	// BaseBranch is the branch workspaces start from; the default is the branch determined
+	// at registration.
 	BaseBranch string `yaml:"base_branch" json:"base_branch,omitempty"`
-	// Adapter ist der Standard-Adapter für neue Agent-Sessions.
+	// Adapter is the default adapter for new agent sessions.
 	Adapter string `yaml:"adapter" json:"adapter,omitempty"`
-	// Setup sind Shell-Befehle, die nach dem Anlegen eines Workspaces darin laufen.
+	// Setup are shell commands that run in a workspace after it was created.
 	Setup []string `yaml:"setup" json:"setup,omitempty"`
-	// Approvals legt fest, welche Werkzeuge ohne Rückfrage laufen (Sandbox/lokal).
+	// Approvals defines which tools run without asking (sandbox/local).
 	Approvals *approval.Config `yaml:"approvals" json:"approvals,omitempty"`
-	// Budget begrenzt die Kosten der Agenten (M8).
+	// Budget limits the agents' costs (M8).
 	Budget *Budget `yaml:"budget" json:"budget,omitempty"`
-	// Triggers starten Fabrik-Runs automatisch (M10).
+	// Triggers start factory runs automatically (M10).
 	Triggers []Trigger `yaml:"triggers" json:"triggers,omitempty"`
 }
 
-// Budget sind Kostengrenzen in USD; 0 heißt keine Grenze.
+// Budget are cost limits in USD; 0 means no limit.
 type Budget struct {
-	// SessionUSD gilt je Session (überschreibbar beim Start).
+	// SessionUSD applies per session (can be overridden at start).
 	SessionUSD float64 `yaml:"session_usd" json:"session_usd,omitempty"`
-	// MonthlyUSD gilt für alle Sessions des Projekts im Kalendermonat (UTC).
+	// MonthlyUSD applies to all sessions of the project in the calendar month (UTC).
 	MonthlyUSD float64 `yaml:"monthly_usd" json:"monthly_usd,omitempty"`
 }
 
-// MaxBudgetUSD ist die größte erlaubte Budget-Angabe.
+// MaxBudgetUSD is the largest allowed budget value.
 const MaxBudgetUSD = 1e6
 
-// SessionBudget liefert das Session-Budget (0: keins); c darf nil sein.
+// SessionBudget returns the session budget (0: none); c may be nil.
 func (c *Config) SessionBudget() float64 {
 	if c == nil || c.Budget == nil {
 		return 0
@@ -62,7 +62,7 @@ func (c *Config) SessionBudget() float64 {
 	return c.Budget.SessionUSD
 }
 
-// MonthlyBudget liefert das Monatsbudget (0: keins); c darf nil sein.
+// MonthlyBudget returns the monthly budget (0: none); c may be nil.
 func (c *Config) MonthlyBudget() float64 {
 	if c == nil || c.Budget == nil {
 		return 0
@@ -70,7 +70,7 @@ func (c *Config) MonthlyBudget() float64 {
 	return c.Budget.MonthlyUSD
 }
 
-// ConfigError ist eine ungültige project.yaml.
+// ConfigError is an invalid project.yaml.
 type ConfigError struct {
 	Path string
 	Msg  string
@@ -78,8 +78,8 @@ type ConfigError struct {
 
 func (e *ConfigError) Error() string { return fmt.Sprintf("%s: %s", e.Path, e.Msg) }
 
-// LoadConfig liest .ade/project.yaml aus repo. Fehlt die Datei, ist das Ergebnis eine
-// leere Konfiguration ohne Fehler. Ungültige Dateien liefern einen *ConfigError.
+// LoadConfig reads .ade/project.yaml from repo. If the file is missing, the result is an
+// empty configuration without an error. Invalid files return a *ConfigError.
 func LoadConfig(ctx context.Context, repo string) (*Config, error) {
 	path := filepath.Join(repo, ConfigFile)
 	data, err := os.ReadFile(path)
@@ -92,7 +92,7 @@ func LoadConfig(ctx context.Context, repo string) (*Config, error) {
 	return ParseConfig(ctx, data)
 }
 
-// ParseConfig prüft und liest den Inhalt einer project.yaml.
+// ParseConfig checks and reads the contents of a project.yaml.
 func ParseConfig(ctx context.Context, data []byte) (*Config, error) {
 	var cfg Config
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -109,17 +109,17 @@ func ParseConfig(ctx context.Context, data []byte) (*Config, error) {
 func (c *Config) validate(ctx context.Context) string {
 	c.Name = strings.TrimSpace(c.Name)
 	if len(c.Name) > 100 {
-		return "name: höchstens 100 Zeichen"
+		return "name: at most 100 characters"
 	}
 	if c.BaseBranch != "" && !git.ValidBranchName(ctx, c.BaseBranch) {
-		return fmt.Sprintf("base_branch: %q ist kein gültiger Branch-Name", c.BaseBranch)
+		return fmt.Sprintf("base_branch: %q is not a valid branch name", c.BaseBranch)
 	}
 	if c.Adapter != "" && !slices.Contains(KnownAdapters, c.Adapter) {
-		return fmt.Sprintf("adapter: %q ist unbekannt (erlaubt: %s)", c.Adapter, strings.Join(KnownAdapters, ", "))
+		return fmt.Sprintf("adapter: %q is unknown (allowed: %s)", c.Adapter, strings.Join(KnownAdapters, ", "))
 	}
 	for i, cmd := range c.Setup {
 		if strings.TrimSpace(cmd) == "" {
-			return fmt.Sprintf("setup[%d]: leerer Befehl", i)
+			return fmt.Sprintf("setup[%d]: empty command", i)
 		}
 	}
 	if err := c.Approvals.Validate(); err != nil {
@@ -134,7 +134,7 @@ func (c *Config) validate(ctx context.Context) string {
 			v    float64
 		}{{"budget.session_usd", b.SessionUSD}, {"budget.monthly_usd", b.MonthlyUSD}} {
 			if v.v < 0 || v.v > MaxBudgetUSD || v.v != v.v {
-				return fmt.Sprintf("%s: zwischen 0 und %.0f", v.name, MaxBudgetUSD)
+				return fmt.Sprintf("%s: between 0 and %.0f", v.name, MaxBudgetUSD)
 			}
 		}
 	}

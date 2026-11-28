@@ -51,16 +51,16 @@ func TestRunRepeatSteps(t *testing.T) {
 		}
 	}
 	if got.Steps[0].Output != "s.md" || got.Steps[0].Row != 4 || got.History[0].Status != StepDone {
-		t.Fatalf("neuer Durchlauf %+v, alt %+v", got.Steps[0], got.History[0])
+		t.Fatalf("new pass %+v, old %+v", got.Steps[0], got.History[0])
 	}
 	if ex := got.Executions(); len(ex) != 7 || ex[6].Row != 6 {
-		t.Fatalf("Ausführungen %+v", ex)
+		t.Fatalf("executions %+v", ex)
 	}
-	// Die Session des alten Durchlaufs gehört weiter zum Run.
+	// The session of the old pass still belongs to the run.
 	if id, _ := s.RunOfSession(ctx, "s-impl"); id != "r" {
 		t.Fatalf("RunOfSession %q", id)
 	}
 	if err := s.RepeatSteps(ctx, "r", 9, 9); err == nil {
-		t.Fatal("Rücksprung auf fehlende Position ohne Fehler")
+		t.Fatal("jump back to a missing position without an error")
 	}
 }

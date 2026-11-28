@@ -9,50 +9,50 @@ import (
 	"github.com/DavidW475/ade/internal/cron"
 )
 
-// Trigger startet Runs einer Fabrik automatisch (doc/factory.md#5-auslöser). Genau eins von
-// GitHubIssues und Schedule ist gesetzt.
+// Trigger starts runs of a factory automatically (doc/factory.md#5-triggers). Exactly one of
+// GitHubIssues and Schedule is set.
 type Trigger struct {
-	// Name identifiziert den Auslöser im Projekt (Zustand, Dashboard).
+	// Name identifies the trigger within the project (state, dashboard).
 	Name    string `yaml:"name" json:"name"`
 	Factory string `yaml:"factory" json:"factory"`
-	// Inputs sind feste Eingaben des Runs (bei Issues kommt task aus dem Issue).
+	// Inputs are fixed inputs of the run (for issues, task comes from the issue).
 	Inputs map[string]string `yaml:"inputs" json:"inputs,omitempty"`
-	// Sandbox gilt für die Runs (nil: ja – Auslöser verarbeiten fremde Eingaben).
+	// Sandbox applies to the runs (nil: yes – triggers process untrusted input).
 	Sandbox *bool `yaml:"sandbox" json:"sandbox,omitempty"`
-	// AllowUnbudgeted erlaubt Fabriken ohne budget.max_cost_usd.
+	// AllowUnbudgeted allows factories without budget.max_cost_usd.
 	AllowUnbudgeted bool `yaml:"allow_unbudgeted" json:"allow_unbudgeted,omitempty"`
 
 	GitHubIssues *GitHubIssues `yaml:"github_issues" json:"github_issues,omitempty"`
 	Schedule     *Schedule     `yaml:"schedule" json:"schedule,omitempty"`
 }
 
-// GitHubIssues startet einen Run je offenem Issue mit Label.
+// GitHubIssues starts one run per open issue with a label.
 type GitHubIssues struct {
 	Label string `yaml:"label" json:"label"`
-	// Authors beschränkt auf Issues dieser GitHub-Nutzer (leer: alle).
+	// Authors restricts to issues of these GitHub users (empty: all).
 	Authors []string `yaml:"authors" json:"authors,omitempty"`
-	// Interval ist der Abstand der Abfragen (Standard 5m, mindestens 1m).
+	// Interval is the polling interval (default 5m, at least 1m).
 	Interval time.Duration `yaml:"interval" json:"interval_ns,omitempty"`
-	// Comment: Kommentare am Issue bei Start und Ende (Standard: ja).
+	// Comment: comments on the issue at start and end (default: yes).
 	Comment *bool `yaml:"comment" json:"comment,omitempty"`
 }
 
-// Schedule startet Runs nach Zeitplan.
+// Schedule starts runs on a schedule.
 type Schedule struct {
 	Cron string `yaml:"cron" json:"cron"`
-	// CatchUp holt nach einer Pause des Daemons den letzten verpassten Termin nach
-	// (Standard: ja).
+	// CatchUp catches up on the last missed date after a pause of the daemon
+	// (default: yes).
 	CatchUp *bool `yaml:"catch_up" json:"catch_up,omitempty"`
 }
 
-// Grenzen für Auslöser.
+// Limits for triggers.
 const (
 	DefaultIssueInterval = 5 * time.Minute
 	MinIssueInterval     = time.Minute
 	maxTriggers          = 20
 )
 
-// Kind liefert die Art des Auslösers.
+// Kind returns the kind of the trigger.
 func (t *Trigger) Kind() string {
 	if t.GitHubIssues != nil {
 		return "github_issues"
@@ -60,10 +60,10 @@ func (t *Trigger) Kind() string {
 	return "schedule"
 }
 
-// SandboxOn meldet, ob die Runs in der Sandbox laufen.
+// SandboxOn reports whether the runs use the sandbox.
 func (t *Trigger) SandboxOn() bool { return t.Sandbox == nil || *t.Sandbox }
 
-// IssueInterval liefert den Abstand der Abfragen.
+// IssueInterval returns the polling interval.
 func (g *GitHubIssues) IssueInterval() time.Duration {
 	if g.Interval <= 0 {
 		return DefaultIssueInterval
@@ -71,10 +71,10 @@ func (g *GitHubIssues) IssueInterval() time.Duration {
 	return g.Interval
 }
 
-// Comments meldet, ob ADE am Issue kommentiert.
+// Comments reports whether ADE comments on the issue.
 func (g *GitHubIssues) Comments() bool { return g.Comment == nil || *g.Comment }
 
-// CatchUpOn meldet, ob ein verpasster Termin nachgeholt wird.
+// CatchUpOn reports whether a missed date is caught up.
 func (s *Schedule) CatchUpOn() bool { return s.CatchUp == nil || *s.CatchUp }
 
 var (
@@ -85,46 +85,46 @@ var (
 
 func validateTriggers(ts []Trigger) string {
 	if len(ts) > maxTriggers {
-		return fmt.Sprintf("triggers: höchstens %d", maxTriggers)
+		return fmt.Sprintf("triggers: at most %d", maxTriggers)
 	}
 	seen := map[string]bool{}
 	for i := range ts {
 		t := &ts[i]
 		at := fmt.Sprintf("triggers[%d]", i)
 		if !triggerNameRE.MatchString(t.Name) {
-			return fmt.Sprintf("%s.name: %q ist ungültig (Kleinbuchstaben, Ziffern, - und _)", at, t.Name)
+			return fmt.Sprintf("%s.name: %q is invalid (lowercase letters, digits, - and _)", at, t.Name)
 		}
 		if seen[t.Name] {
-			return fmt.Sprintf("%s.name: %s gibt es schon", at, t.Name)
+			return fmt.Sprintf("%s.name: %s already exists", at, t.Name)
 		}
 		seen[t.Name] = true
 		at = "triggers." + t.Name
 		if !triggerNameRE.MatchString(t.Factory) {
-			return fmt.Sprintf("%s.factory: %q ist kein gültiger Fabrik-Name", at, t.Factory)
+			return fmt.Sprintf("%s.factory: %q is not a valid factory name", at, t.Factory)
 		}
 		for k, v := range t.Inputs {
 			if !triggerNameRE.MatchString(k) || len(v) > 100<<10 {
-				return fmt.Sprintf("%s.inputs.%s: ungültig", at, k)
+				return fmt.Sprintf("%s.inputs.%s: invalid", at, k)
 			}
 		}
 		if (t.GitHubIssues == nil) == (t.Schedule == nil) {
-			return at + ": genau eins von github_issues oder schedule angeben"
+			return at + ": specify exactly one of github_issues or schedule"
 		}
 		if g := t.GitHubIssues; g != nil {
 			g.Label = strings.TrimSpace(g.Label)
 			if !labelRE.MatchString(g.Label) {
-				return at + ".github_issues.label: 1 bis 50 Zeichen, ohne Komma"
+				return at + ".github_issues.label: 1 to 50 characters, without a comma"
 			}
 			for _, a := range g.Authors {
 				if !ghUserRE.MatchString(a) {
-					return fmt.Sprintf("%s.github_issues.authors: %q ist kein GitHub-Name", at, a)
+					return fmt.Sprintf("%s.github_issues.authors: %q is not a GitHub name", at, a)
 				}
 			}
 			if g.Interval != 0 && (g.Interval < MinIssueInterval || g.Interval > 24*time.Hour) {
-				return at + ".github_issues.interval: zwischen 1m und 24h"
+				return at + ".github_issues.interval: between 1m and 24h"
 			}
 			if _, ok := t.Inputs["task"]; ok {
-				return at + ".inputs.task: kommt bei github_issues aus dem Issue"
+				return at + ".inputs.task: comes from the issue for github_issues"
 			}
 		}
 		if s := t.Schedule; s != nil {

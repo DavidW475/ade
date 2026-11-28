@@ -12,30 +12,30 @@ import (
 	"github.com/DavidW475/ade/internal/apperr"
 )
 
-// Session-Status.
+// Session status.
 const (
-	// SessionStarting: angelegt, wartet z. B. auf das Setup des Workspaces.
+	// SessionStarting: created, waits e.g. for the workspace setup.
 	SessionStarting = "starting"
-	// SessionRunning: der Agent arbeitet.
+	// SessionRunning: the agent is working.
 	SessionRunning = "running"
-	// SessionIdle: der Prozess läuft und wartet auf eine Folgeanweisung.
+	// SessionIdle: the process is running and waits for a follow-up instruction.
 	SessionIdle = "idle"
-	// SessionDone: Prozess regulär beendet.
+	// SessionDone: the process ended regularly.
 	SessionDone = "done"
-	// SessionFailed: Prozess mit Fehler beendet oder nicht startbar.
+	// SessionFailed: the process ended with an error or could not be started.
 	SessionFailed = "failed"
-	// SessionStopped: vom Nutzer gestoppt.
+	// SessionStopped: stopped by the user.
 	SessionStopped = "stopped"
-	// SessionInterrupted: durch Beenden oder Absturz des Daemons unterbrochen.
+	// SessionInterrupted: interrupted by the daemon stopping or crashing.
 	SessionInterrupted = "interrupted"
-	// SessionPaused: Budget überschritten; wartet auf eine Freigabe (M8).
+	// SessionPaused: budget exceeded; waits for an approval (M8).
 	SessionPaused = "paused"
 )
 
-// ActiveSessionStates sind Status, in denen zu einer Session ein Prozess gehört (oder gleich gehören wird).
+// ActiveSessionStates are states in which a process belongs to a session (or will shortly).
 var ActiveSessionStates = []string{SessionStarting, SessionRunning, SessionIdle}
 
-// SessionActive meldet, ob status ein aktiver Status ist.
+// SessionActive reports whether status is an active status.
 func SessionActive(status string) bool {
 	switch status {
 	case SessionStarting, SessionRunning, SessionIdle:
@@ -44,7 +44,7 @@ func SessionActive(status string) bool {
 	return false
 }
 
-// Session ist ein Lauf eines Agenten (oder Terminals) in einem Workspace.
+// Session is a run of an agent (or terminal) in a workspace.
 type Session struct {
 	ID          string   `json:"id"`
 	WorkspaceID string   `json:"workspace_id"`
@@ -53,7 +53,7 @@ type Session struct {
 	Task        string   `json:"task,omitempty"`
 	Command     []string `json:"command,omitempty"`
 	Model       string   `json:"model,omitempty"`
-	// ModelID ist die aufgelöste Modell-ID, wenn Model ein Alias ist.
+	// ModelID is the resolved model ID if Model is an alias.
 	ModelID        string  `json:"model_id,omitempty"`
 	PermissionMode string  `json:"permission_mode,omitempty"`
 	Role           string  `json:"role,omitempty"`
@@ -63,21 +63,21 @@ type Session struct {
 	ResumeID       string  `json:"resume_id,omitempty"`
 	PID            int     `json:"-"`
 	CostUSD        float64 `json:"cost_usd"`
-	// Tokens sind die Summen der Nutzung (Tabelle usage).
+	// Tokens are the sums of the usage (table usage).
 	InputTokens      int64 `json:"input_tokens"`
 	OutputTokens     int64 `json:"output_tokens"`
 	CacheReadTokens  int64 `json:"cache_read_tokens"`
 	CacheWriteTokens int64 `json:"cache_write_tokens"`
-	// Unpriced: Für einen Teil der Tokens war kein Preis bekannt (Kosten unvollständig).
+	// Unpriced: no price was known for some of the tokens (costs incomplete).
 	Unpriced bool `json:"unpriced,omitempty"`
-	// Metered: Der Egress-Proxy misst die Nutzung (Sandbox mit Secret-Injection).
+	// Metered: the egress proxy measures the usage (sandbox with secret injection).
 	Metered bool `json:"metered,omitempty"`
-	// BudgetUSD ist das Budget der Session (0: keins).
+	// BudgetUSD is the session's budget (0: none).
 	BudgetUSD float64 `json:"budget_usd,omitempty"`
-	// MonthlyAllowUSD: Nach Freigabe darf die Session bis zu diesen Monatskosten des
-	// Projekts weiterlaufen.
+	// MonthlyAllowUSD: after an approval the session may continue up to these monthly costs
+	// of the project.
 	MonthlyAllowUSD float64 `json:"monthly_allow_usd,omitempty"`
-	// ReadOnly: Session einer Lese-Rolle einer Fabrik (Workspace nur lesend, M9).
+	// ReadOnly: session of a read-only role of a factory (workspace read-only, M9).
 	ReadOnly  bool       `json:"read_only,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
@@ -115,7 +115,7 @@ func scanSession(row interface{ Scan(...any) error }) (*Session, error) {
 	return &s, nil
 }
 
-// CreateSession legt eine Session an.
+// CreateSession creates a session.
 func (s *Store) CreateSession(ctx context.Context, sess *Session) error {
 	cmd, err := json.Marshal(sess.Command)
 	if err != nil {
@@ -131,10 +131,10 @@ func (s *Store) CreateSession(ctx context.Context, sess *Session) error {
 		sess.ID, sess.WorkspaceID, sess.Adapter, sess.Task, string(cmd), sess.Model, sess.PermissionMode,
 		sess.Role, sess.Status, sess.ResumeID, sess.ModelID, sess.Metered, sess.BudgetUSD, sess.ReadOnly)
 	if isForeignKeyViolation(err) {
-		return apperr.NotFound("Workspace %s nicht gefunden", sess.WorkspaceID)
+		return apperr.NotFound("workspace %s not found", sess.WorkspaceID)
 	}
 	if err != nil {
-		return fmt.Errorf("Session speichern: %w", err)
+		return fmt.Errorf("store session: %w", err)
 	}
 	got, err := s.GetSession(ctx, sess.ID)
 	if err != nil {
@@ -144,26 +144,26 @@ func (s *Store) CreateSession(ctx context.Context, sess *Session) error {
 	return nil
 }
 
-// GetSession liefert eine Session.
+// GetSession returns a session.
 func (s *Store) GetSession(ctx context.Context, id string) (*Session, error) {
 	sess, err := scanSession(s.db.QueryRowContext(ctx, `SELECT `+sessionCols+sessionFrom+` WHERE s.id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, apperr.NotFound("Session %s nicht gefunden", id)
+		return nil, apperr.NotFound("session %s not found", id)
 	}
 	return sess, err
 }
 
-// SessionFilter schränkt ListSessions ein; leere Felder filtern nicht.
+// SessionFilter restricts ListSessions; empty fields do not filter.
 type SessionFilter struct {
 	ProjectID   string
 	WorkspaceID string
-	// Active liefert nur Sessions in ActiveSessionStates.
+	// Active only returns sessions in ActiveSessionStates.
 	Active bool
-	// Limit begrenzt die Anzahl (0: 200).
+	// Limit limits the count (0: 200).
 	Limit int
 }
 
-// ListSessions liefert Sessions, neueste zuerst.
+// ListSessions returns sessions, newest first.
 func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]*Session, error) {
 	var where []string
 	var args []any
@@ -178,7 +178,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]*Session, 
 	}
 	q := `SELECT ` + sessionCols + sessionFrom
 	if len(where) > 0 {
-		q += ` WHERE ` + strings.Join(where, " AND ") //nolint:gosec // G202: nur feste Bedingungen, Werte als Parameter
+		q += ` WHERE ` + strings.Join(where, " AND ") //nolint:gosec // G202: only fixed conditions, values as parameters
 	}
 	limit := f.Limit
 	if limit <= 0 {
@@ -202,25 +202,25 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]*Session, 
 	return out, rows.Err()
 }
 
-// SessionUpdate enthält die änderbaren Felder; nil bedeutet unverändert.
+// SessionUpdate contains the changeable fields; nil means unchanged.
 type SessionUpdate struct {
 	Status   *string
 	Error    *string
 	ExitCode *int
 	ResumeID *string
 	PID      *int
-	// Metered, BudgetUSD und MonthlyAllowUSD setzen die gleichnamigen Felder.
+	// Metered, BudgetUSD and MonthlyAllowUSD set the fields of the same name.
 	Metered         *bool
 	BudgetUSD       *float64
 	MonthlyAllowUSD *float64
-	// Ended setzt ended_at auf jetzt; ClearEnded setzt es zurück (Fortsetzen).
+	// Ended sets ended_at to now; ClearEnded resets it (resume).
 	Ended      bool
 	ClearEnded bool
-	// ClearExitCode löscht exit_code (Fortsetzen).
+	// ClearExitCode clears exit_code (resume).
 	ClearExitCode bool
 }
 
-// UpdateSession ändert die gesetzten Felder.
+// UpdateSession changes the set fields.
 func (s *Store) UpdateSession(ctx context.Context, id string, u SessionUpdate) error {
 	now := time.Now().UTC().Format(timeLayout)
 	var ended any
@@ -248,10 +248,10 @@ func (s *Store) UpdateSession(ctx context.Context, id string, u SessionUpdate) e
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return apperr.NotFound("Session %s nicht gefunden", id)
+		return apperr.NotFound("session %s not found", id)
 	}
 	return nil
 }
 
-// timeLayout ist das Zeitformat in der Datenbank (UTC, Millisekunden).
+// timeLayout is the time format in the database (UTC, milliseconds).
 const timeLayout = "2006-01-02T15:04:05.000Z"

@@ -27,13 +27,13 @@ func TestOpenMigratesAndIsIdempotent(t *testing.T) {
 	}
 	if _, err := s.DB().ExecContext(ctx,
 		`INSERT INTO projects (id, name, repo_path, default_branch) VALUES ('p1', 'demo', '/repo', 'main')`); err != nil {
-		t.Fatalf("projects-Tabelle fehlt: %v", err)
+		t.Fatalf("projects table missing: %v", err)
 	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	// Zweites Öffnen darf nichts erneut einspielen und keine Daten verlieren.
+	// Opening a second time must not apply anything again or lose data.
 	s, err = Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestOpenMigratesAndIsIdempotent(t *testing.T) {
 	defer func() { _ = s.Close() }()
 	v2, _ := s.SchemaVersion(ctx)
 	if v2 != v {
-		t.Fatalf("SchemaVersion nach erneutem Öffnen = %d, want %d", v2, v)
+		t.Fatalf("SchemaVersion after reopening = %d, want %d", v2, v)
 	}
 	var n int
 	if err := s.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`).Scan(&n); err != nil || n != 1 {
@@ -52,7 +52,7 @@ func TestOpenMigratesAndIsIdempotent(t *testing.T) {
 func TestOpenMakesDatabasePrivate(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "ade.db")
-	// Eine ältere Version legte die Datei mit den Rechten der umask an.
+	// An older version created the file with the umask's permissions.
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -82,14 +82,14 @@ func TestOpenRejectsNewerSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().ExecContext(ctx, `INSERT INTO schema_migrations (version, name) VALUES (9999, 'zukunft')`); err != nil {
+	if _, err := s.DB().ExecContext(ctx, `INSERT INTO schema_migrations (version, name) VALUES (9999, 'future')`); err != nil {
 		t.Fatal(err)
 	}
 	_ = s.Close()
 
 	if s, err := Open(ctx, path); err == nil {
 		_ = s.Close()
-		t.Fatal("Fehler bei neuerem Schema erwartet")
+		t.Fatal("expected an error for a newer schema")
 	}
 }
 
@@ -100,7 +100,7 @@ func TestMigrationsAreWellFormed(t *testing.T) {
 	}
 	for i, m := range ms {
 		if m.version != i+1 {
-			t.Errorf("Migration %s: Nummer %d, erwartet lückenlos %d", m.name, m.version, i+1)
+			t.Errorf("migration %s: number %d, want gapless %d", m.name, m.version, i+1)
 		}
 	}
 }
@@ -118,10 +118,10 @@ func TestProjectsAndWorkspaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	if p.CreatedAt.IsZero() {
-		t.Error("CreatedAt nicht gesetzt")
+		t.Error("CreatedAt not set")
 	}
 	if err := s.CreateProject(ctx, &Project{ID: "p2", Name: "x", RepoPath: "/repo/demo", DefaultBranch: "main"}); !errors.Is(err, apperr.ErrConflict) {
-		t.Errorf("doppelter Pfad: err = %v", err)
+		t.Errorf("duplicate path: err = %v", err)
 	}
 	if err := s.CreateProject(ctx, &Project{ID: "p3", Name: "demo", RepoPath: "/repo/demo2", DefaultBranch: "main"}); err != nil {
 		t.Fatal(err)
@@ -134,18 +134,18 @@ func TestProjectsAndWorkspaces(t *testing.T) {
 		}
 	}
 	if _, err := s.FindProject(ctx, "demo"); !errors.Is(err, apperr.ErrConflict) {
-		t.Errorf("mehrdeutiger Name: err = %v", err)
+		t.Errorf("ambiguous name: err = %v", err)
 	}
-	if _, err := s.FindProject(ctx, "gibts-nicht"); !errors.Is(err, apperr.ErrNotFound) {
-		t.Errorf("unbekannt: err = %v", err)
+	if _, err := s.FindProject(ctx, "does-not-exist"); !errors.Is(err, apperr.ErrNotFound) {
+		t.Errorf("unknown: err = %v", err)
 	}
 
 	w := &Workspace{ID: "w1", ProjectID: "p1", Path: "/ws/w1", Branch: "ade/w1", BaseBranch: "main", Status: WorkspaceCreating}
 	if err := s.CreateWorkspace(ctx, w); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateWorkspace(ctx, &Workspace{ID: "w2", ProjectID: "fehlt", Path: "/ws/w2", Branch: "b", BaseBranch: "main", Status: WorkspaceCreating}); !errors.Is(err, apperr.ErrNotFound) {
-		t.Errorf("Workspace ohne Projekt: err = %v", err)
+	if err := s.CreateWorkspace(ctx, &Workspace{ID: "w2", ProjectID: "missing", Path: "/ws/w2", Branch: "b", BaseBranch: "main", Status: WorkspaceCreating}); !errors.Is(err, apperr.ErrNotFound) {
+		t.Errorf("workspace without project: err = %v", err)
 	}
 	if err := s.UpdateWorkspace(ctx, "w1", WorkspaceUpdate{Status: Ptr(WorkspaceSetup), BaseCommit: Ptr("abc")}); err != nil {
 		t.Fatal(err)
@@ -156,7 +156,7 @@ func TestProjectsAndWorkspaces(t *testing.T) {
 	}
 
 	if err := s.DeleteProject(ctx, "p1"); !errors.Is(err, apperr.ErrConflict) {
-		t.Errorf("Projekt mit Workspaces löschen: err = %v", err)
+		t.Errorf("delete project with workspaces: err = %v", err)
 	}
 
 	if n, err := s.MarkInterruptedWorkspaces(ctx); err != nil || n != 1 {
@@ -164,7 +164,7 @@ func TestProjectsAndWorkspaces(t *testing.T) {
 	}
 	got, _ = s.GetWorkspace(ctx, "w1")
 	if got.Status != WorkspaceSetupFailed || got.Error == "" {
-		t.Errorf("nach Unterbrechung: %#v", got)
+		t.Errorf("after interruption: %#v", got)
 	}
 
 	list, err := s.ListWorkspaces(ctx, "p1")
@@ -178,6 +178,6 @@ func TestProjectsAndWorkspaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.DeleteProject(ctx, "p1"); !errors.Is(err, apperr.ErrNotFound) {
-		t.Errorf("zweites Löschen: err = %v", err)
+		t.Errorf("second delete: err = %v", err)
 	}
 }
