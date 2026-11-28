@@ -7,9 +7,9 @@ import (
 	"sync"
 )
 
-// Usage ist die Token-Nutzung einer Anfrage an eine Anbieter-API, gelesen aus der Antwort.
-// Input zählt wie bei Anthropic nur Tokens ohne Cache; bei OpenAI wird der gelesene Cache
-// aus input_tokens herausgerechnet.
+// Usage is the token usage of a request to a provider API, read from the response.
+// Like Anthropic, Input only counts tokens without cache; for OpenAI the read cache is
+// subtracted from input_tokens.
 type Usage struct {
 	Model      string `json:"model,omitempty"`
 	Input      int64  `json:"input_tokens"`
@@ -18,27 +18,27 @@ type Usage struct {
 	CacheWrite int64  `json:"cache_write_tokens,omitempty"`
 }
 
-// Zählweisen der Anbieter.
+// How the providers count.
 const (
 	DialectAnthropic = "anthropic"
 	DialectOpenAI    = "openai"
 )
 
-// Grenzen für das Mitlesen: Größere JSON-Antworten oder SSE-Zeilen werden übersprungen.
+// Limits for reading along: larger JSON responses or SSE lines are skipped.
 const (
 	maxUsageJSON = 16 << 20
 	maxUsageLine = 16 << 20
 )
 
-// usageScanner liest die Antwort einer Anbieter-API mit, ohne sie aufzuhalten, und sammelt
-// die Token-Nutzung. Write wird vom Antwort-Writer aufgerufen und scheitert nie.
+// usageScanner reads along the response of a provider API without holding it up and
+// collects the token usage. Write is called by the response writer and never fails.
 type usageScanner struct {
 	dialect string
 	sse     bool
 
 	mu    sync.Mutex
 	buf   bytes.Buffer
-	skip  bool // aktuelle Zeile bzw. JSON zu groß
+	skip  bool // current line or JSON too large
 	usage Usage
 	found bool
 }
@@ -99,7 +99,7 @@ func (s *usageScanner) endLine() {
 	s.buf.Reset()
 }
 
-// Result liefert die gesammelte Nutzung (nil: keine gefunden).
+// Result returns the collected usage (nil: none found).
 func (s *usageScanner) Result() *Usage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -116,7 +116,7 @@ func (s *usageScanner) Result() *Usage {
 	return &u
 }
 
-// rawUsage vereint die Felder der Anbieter.
+// rawUsage combines the providers' fields.
 type rawUsage struct {
 	// Anthropic
 	InputTokens              *int64 `json:"input_tokens"`
@@ -149,7 +149,7 @@ type usageEnvelope struct {
 	} `json:"response"`
 }
 
-// event wertet ein JSON-Objekt aus (ganze Antwort oder ein SSE-Event).
+// event evaluates a JSON object (the whole response or an SSE event).
 func (s *usageScanner) event(data []byte) {
 	if len(data) == 0 || data[0] != '{' {
 		return
@@ -161,15 +161,15 @@ func (s *usageScanner) event(data []byte) {
 	switch {
 	case e.Message != nil && e.Message.Usage != nil: // Anthropic message_start
 		s.apply(e.Message.Model, e.Message.Usage)
-	case e.Response != nil && e.Response.Usage != nil: // OpenAI response.completed u. a.
+	case e.Response != nil && e.Response.Usage != nil: // OpenAI response.completed and others
 		s.apply(e.Response.Model, e.Response.Usage)
-	case e.Usage != nil: // ganze Antwort, Anthropic message_delta, Chat-Chunk mit usage
+	case e.Usage != nil: // whole response, Anthropic message_delta, chat chunk with usage
 		s.apply(e.Model, e.Usage)
 	}
 }
 
-// apply übernimmt die Zahlen. Anthropic meldet in message_start die Eingabe und in
-// message_delta kumulierte Werte; gesetzte Felder überschreiben daher frühere.
+// apply takes over the numbers. Anthropic reports the input in message_start and cumulative
+// values in message_delta; set fields therefore override earlier ones.
 func (s *usageScanner) apply(model string, u *rawUsage) {
 	if model != "" {
 		s.usage.Model = model

@@ -14,25 +14,25 @@ import (
 	"time"
 )
 
-// Health ist die Antwort von GET /healthz der Steuer-API.
+// Health is the answer of GET /healthz of the control API.
 type Health struct {
-	// Boot ändert sich bei jedem Start des Proxys (Event-Zähler beginnen neu).
+	// Boot changes with every start of the proxy (event counters start anew).
 	Boot   string `json:"boot"`
 	Policy bool   `json:"policy"`
 }
 
-// EventsResponse ist die Antwort von GET /events.
+// EventsResponse is the answer of GET /events.
 type EventsResponse struct {
 	Boot   string  `json:"boot"`
 	Events []Event `json:"events"`
-	// Next ist der Wert für after beim nächsten Aufruf.
+	// Next is the value for after on the next call.
 	Next int64 `json:"next"`
 }
 
-// MaxEventWait begrenzt das Long-Polling von GET /events.
+// MaxEventWait limits the long polling of GET /events.
 const MaxEventWait = 30 * time.Second
 
-// ControlHandler ist die Steuer-API für den Daemon. Ohne Token ist sie gesperrt.
+// ControlHandler is the control API for the daemon. Without a token it is locked.
 func (s *Server) ControlHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -43,7 +43,7 @@ func (s *Server) ControlHandler() http.Handler {
 		dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&p); err != nil {
-			http.Error(w, "Policy lesen: "+err.Error(), http.StatusBadRequest)
+			http.Error(w, "read policy: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if err := s.SetPolicy(p); err != nil {
@@ -56,7 +56,7 @@ func (s *Server) ControlHandler() http.Handler {
 		q := r.URL.Query()
 		after, _ := strconv.ParseInt(q.Get("after"), 10, 64)
 		if q.Get("boot") != "" && q.Get("boot") != s.boot {
-			after = 0 // neuer Proxy-Lauf: von vorn
+			after = 0 // new proxy run: from the start
 		}
 		wait, _ := time.ParseDuration(q.Get("wait"))
 		wait = min(max(wait, 0), MaxEventWait)
@@ -86,7 +86,7 @@ func (s *Server) requireToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if s.opts.Token == "" || !ok || subtle.ConstantTimeCompare([]byte(got), []byte(s.opts.Token)) != 1 {
-			http.Error(w, "nicht angemeldet", http.StatusUnauthorized)
+			http.Error(w, "not logged in", http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -99,9 +99,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// Client spricht die Steuer-API eines Proxys an.
+// Client talks to a proxy's control API.
 type Client struct {
-	// Base ist z. B. http://127.0.0.1:49153.
+	// Base is e.g. http://127.0.0.1:49153.
 	Base  string
 	Token string
 	HTTP  *http.Client
@@ -143,27 +143,27 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-// StatusError ist eine Fehlerantwort der Steuer-API.
+// StatusError is an error response of the control API.
 type StatusError struct {
 	Code int
 	Msg  string
 }
 
-func (e *StatusError) Error() string { return fmt.Sprintf("Proxy: %d %s", e.Code, e.Msg) }
+func (e *StatusError) Error() string { return fmt.Sprintf("proxy: %d %s", e.Code, e.Msg) }
 
-// Health fragt den Zustand ab.
+// Health queries the state.
 func (c *Client) Health(ctx context.Context) (Health, error) {
 	var h Health
 	err := c.do(ctx, http.MethodGet, "/healthz", nil, &h)
 	return h, err
 }
 
-// SetPolicy setzt Policy und Secrets.
+// SetPolicy sets policy and secrets.
 func (c *Client) SetPolicy(ctx context.Context, p Policy) error {
 	return c.do(ctx, http.MethodPut, "/policy", p, nil)
 }
 
-// Events holt Events nach after; wait > 0 wartet so lange auf neue.
+// Events fetches events after after; wait > 0 waits that long for new ones.
 func (c *Client) Events(ctx context.Context, boot string, after int64, wait time.Duration) (EventsResponse, error) {
 	var r EventsResponse
 	path := "/events?after=" + strconv.FormatInt(after, 10) + "&wait=" + wait.String()
@@ -174,7 +174,7 @@ func (c *Client) Events(ctx context.Context, boot string, after int64, wait time
 	return r, err
 }
 
-// IsUnauthorized meldet einen abgelehnten Token.
+// IsUnauthorized reports a rejected token.
 func IsUnauthorized(err error) bool {
 	var se *StatusError
 	return errors.As(err, &se) && se.Code == http.StatusUnauthorized

@@ -1,15 +1,15 @@
 package proxy
 
-// Rückfragen an den Daemon (M7, doc/architecture.md#43-freigaben).
+// Questions to the daemon (M7, doc/architecture.md#43-approvals).
 //
-// Der Proxy-Container erreicht den Daemon nicht (er lauscht nur auf 127.0.0.1 des Hosts).
-// Deshalb hält der Proxy Fragen fest, bis der Daemon sie über die Steuer-API abholt
-// (GET /questions, Long-Polling) und beantwortet (POST /questions/{id}):
+// The proxy container does not reach the daemon (it only listens on the host's 127.0.0.1).
+// The proxy therefore holds questions until the daemon fetches them through the control API
+// (GET /questions, long polling) and answers them (POST /questions/{id}):
 //
-//   - tool:   ade hook pretooluse im Agent-Container fragt vor einem Werkzeug-Aufruf
-//     (POST /ade/hook/pretooluse); die Antwort geht unverändert an den Hook zurück.
-//   - egress: eine Anfrage an ein nicht freigegebenes Ziel, wenn die Policy Ask setzt; die
-//     Anfrage wartet, gleichzeitige Anfragen an dasselbe Ziel teilen sich eine Frage.
+//   - tool:   ade hook pretooluse in the agent container asks before a tool call
+//     (POST /ade/hook/pretooluse); the answer goes back to the hook unchanged.
+//   - egress: a request to a target that is not allowed when the policy sets Ask; the
+//     request waits, concurrent requests to the same target share one question.
 
 import (
 	"context"
@@ -22,40 +22,40 @@ import (
 	"time"
 )
 
-// Arten von Fragen.
+// Kinds of questions.
 const (
 	QuestionTool   = "tool"
 	QuestionEgress = "egress"
 )
 
-// Antworten.
+// Answers.
 const (
 	AnswerAllow = "allow"
 	AnswerDeny  = "deny"
 )
 
-// HookPath ist der Pfad, unter dem der Hook im Agent-Container fragt.
+// HookPath is the path at which the hook in the agent container asks.
 const HookPath = "/ade/hook/pretooluse"
 
-// MaxQuestionWait begrenzt, wie lange eine Frage höchstens offen bleibt.
+// MaxQuestionWait limits how long a question stays open at most.
 const MaxQuestionWait = 2 * time.Hour
 
-// HookCall ist der Body, den ade hook pretooluse schickt (lokal an den Daemon, in der
-// Sandbox an den Proxy).
+// HookCall is the body that ade hook pretooluse sends (locally to the daemon, in the
+// sandbox to the proxy).
 type HookCall struct {
-	// Session ist die ADE-Session (ADE_SESSION_ID).
+	// Session is the ADE session (ADE_SESSION_ID).
 	Session string `json:"session"`
-	// Input ist die Hook-Eingabe der Agent-CLI (unverändert).
+	// Input is the agent CLI's hook input (unchanged).
 	Input json.RawMessage `json:"input"`
 }
 
-// Answer ist die Antwort auf eine Frage (und auf einen HookCall).
+// Answer is the answer to a question (and to a HookCall).
 type Answer struct {
 	Decision string `json:"decision"`
 	Reason   string `json:"reason,omitempty"`
 }
 
-// Question ist eine offene Frage an den Daemon.
+// Question is an open question to the daemon.
 type Question struct {
 	ID      string    `json:"id"`
 	Kind    string    `json:"kind"`
@@ -68,23 +68,23 @@ type Question struct {
 
 	done   chan struct{}
 	answer Answer
-	// waiters zählt die Anfragen, die auf eine egress-Frage warten.
+	// waiters counts the requests waiting for an egress question.
 	waiters int
 }
 
-// QuestionsResponse ist die Antwort von GET /questions: alle offenen Fragen.
+// QuestionsResponse is the answer of GET /questions: all open questions.
 type QuestionsResponse struct {
 	Boot      string     `json:"boot"`
 	Version   int64      `json:"version"`
 	Questions []Question `json:"questions"`
 }
 
-// questions verwaltet die offenen Fragen.
+// questions manages the open questions.
 type questions struct {
 	mu      sync.Mutex
 	open    map[string]*Question
-	egress  map[string]*Question // host:port → offene Frage
-	denied  map[string]bool      // host:port, abgelehnt bis zum Neustart
+	egress  map[string]*Question // host:port → open question
+	denied  map[string]bool      // host:port, denied until the restart
 	version int64
 	notify  chan struct{}
 }
@@ -110,7 +110,7 @@ func (q *questions) add(qu *Question) {
 	q.changedLocked()
 }
 
-// remove nimmt eine Frage aus der Liste (beantwortet oder vom Fragenden aufgegeben).
+// remove takes a question off the list (answered or given up by the asker).
 func (q *questions) removeLocked(qu *Question) {
 	if q.open[qu.ID] != qu {
 		return
@@ -153,8 +153,8 @@ func (q *questions) list() ([]Question, int64, <-chan struct{}) {
 	return out, q.version, q.notify
 }
 
-// wait wartet auf die Antwort; endet ctx vorher, gibt der Fragende auf (bei egress erst,
-// wenn alle Wartenden aufgegeben haben).
+// wait waits for the answer; if ctx ends first, the asker gives up (for egress only once
+// all waiting requests have given up).
 func (q *questions) wait(ctx context.Context, qu *Question, limit time.Duration) (Answer, bool) {
 	t := time.NewTimer(limit)
 	defer t.Stop()
@@ -178,8 +178,8 @@ func (q *questions) wait(ctx context.Context, qu *Question, limit time.Duration)
 	return Answer{}, false
 }
 
-// egressQuestion liefert die offene Frage für host:port oder legt eine an. denied meldet ein
-// in diesem Lauf bereits abgelehntes Ziel.
+// egressQuestion returns the open question for host:port or creates one. denied reports a
+// target that was already denied in this run.
 func (q *questions) egressQuestion(host string, port int) (qu *Question, denied bool) {
 	k := net.JoinHostPort(host, strconv.Itoa(port))
 	q.mu.Lock()
@@ -201,43 +201,43 @@ func (q *questions) egressQuestion(host string, port int) (qu *Question, denied 
 	return qu, false
 }
 
-// askEgress fragt den Daemon nach einem nicht freigegebenen Ziel und wartet auf die Antwort.
+// askEgress asks the daemon about a target that is not allowed and waits for the answer.
 func (s *Server) askEgress(ctx context.Context, host string, port int, limit time.Duration) (bool, string) {
 	qu, denied := s.questions.egressQuestion(host, port)
 	if denied {
-		return false, "im Dashboard abgelehnt"
+		return false, "denied in the dashboard"
 	}
-	s.log.Info("Freigabe angefragt", "host", host, "port", port)
+	s.log.Info("approval requested", "host", host, "port", port)
 	a, ok := s.questions.wait(ctx, qu, limit)
 	if !ok {
-		return false, "keine Entscheidung im Dashboard"
+		return false, "no decision in the dashboard"
 	}
 	if a.Decision != AnswerAllow {
 		if a.Reason == "" {
-			a.Reason = "im Dashboard abgelehnt"
+			a.Reason = "denied in the dashboard"
 		}
 		return false, a.Reason
 	}
 	return true, ""
 }
 
-// hook nimmt die Frage von ade hook pretooluse entgegen und antwortet, sobald der Daemon
-// entschieden hat.
+// hook accepts the question of ade hook pretooluse and answers as soon as the daemon has
+// decided.
 func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "nur POST", http.StatusMethodNotAllowed)
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
 	var call HookCall
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&call); err != nil || len(call.Input) == 0 {
-		writeJSON(w, http.StatusBadRequest, Answer{Decision: AnswerDeny, Reason: "ADE: ungültige Hook-Anfrage"})
+		writeJSON(w, http.StatusBadRequest, Answer{Decision: AnswerDeny, Reason: "ADE: invalid hook request"})
 		return
 	}
 	qu := &Question{Kind: QuestionTool, Hook: &call, waiters: 1}
 	s.questions.add(qu)
 	a, ok := s.questions.wait(r.Context(), qu, MaxQuestionWait)
 	if !ok {
-		writeJSON(w, http.StatusGatewayTimeout, Answer{Decision: AnswerDeny, Reason: "ADE: keine Antwort vom Daemon"})
+		writeJSON(w, http.StatusGatewayTimeout, Answer{Decision: AnswerDeny, Reason: "ADE: no answer from the daemon"})
 		return
 	}
 	writeJSON(w, http.StatusOK, a)
@@ -266,17 +266,17 @@ func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 	var a Answer
 	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&a); err != nil ||
 		(a.Decision != AnswerAllow && a.Decision != AnswerDeny) {
-		http.Error(w, "Antwort: decision muss allow oder deny sein", http.StatusBadRequest)
+		http.Error(w, "answer: decision must be allow or deny", http.StatusBadRequest)
 		return
 	}
 	if !s.questions.answer(r.PathValue("id"), a) {
-		http.Error(w, "Frage nicht (mehr) offen", http.StatusNotFound)
+		http.Error(w, "question not open (any more)", http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Questions holt die offenen Fragen; wait > 0 wartet so lange auf eine Änderung gegenüber
+// Questions fetches the open questions; wait > 0 waits that long for a change compared to
 // version.
 func (c *Client) Questions(ctx context.Context, boot string, version int64, wait time.Duration) (QuestionsResponse, error) {
 	var r QuestionsResponse
@@ -288,7 +288,7 @@ func (c *Client) Questions(ctx context.Context, boot string, version int64, wait
 	return r, err
 }
 
-// Answer beantwortet eine Frage.
+// Answer answers a question.
 func (c *Client) Answer(ctx context.Context, id string, a Answer) error {
 	return c.do(ctx, http.MethodPost, "/questions/"+id, a, nil)
 }

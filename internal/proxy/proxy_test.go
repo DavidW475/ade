@@ -43,12 +43,12 @@ func TestParseRule(t *testing.T) {
 		r, err := ParseRule(tc.in)
 		if tc.err {
 			if err == nil {
-				t.Errorf("ParseRule(%q) = %v, Fehler erwartet", tc.in, r)
+				t.Errorf("ParseRule(%q) = %v, expected an error", tc.in, r)
 			}
 			continue
 		}
 		if err != nil || r.String() != tc.want {
-			t.Errorf("ParseRule(%q) = %q, %v; erwartet %q", tc.in, r.String(), err, tc.want)
+			t.Errorf("ParseRule(%q) = %q, %v; want %q", tc.in, r.String(), err, tc.want)
 		}
 	}
 }
@@ -84,7 +84,7 @@ func TestDecide(t *testing.T) {
 	} {
 		ok, reason := rs.Decide(tc.host, tc.port)
 		if ok != tc.ok || reason != tc.reason {
-			t.Errorf("Decide(%s:%d) = %v %s; erwartet %v %s", tc.host, tc.port, ok, reason, tc.ok, tc.reason)
+			t.Errorf("Decide(%s:%d) = %v %s; want %v %s", tc.host, tc.port, ok, reason, tc.ok, tc.reason)
 		}
 	}
 }
@@ -94,17 +94,17 @@ func TestInternal(t *testing.T) {
 		"100.64.0.1", "0.0.0.0", "::1", "fe80::1", "fd00::1", "::ffff:127.0.0.1", "::ffff:10.0.0.1", "::", "224.0.0.1", "64:ff9b::a00:1",
 		"::7f00:1", "::a00:1", "fec0::1", "2002:7f00:1::1", "2001::1"} {
 		if !Internal(netip.MustParseAddr(s)) {
-			t.Errorf("%s gilt nicht als intern", s)
+			t.Errorf("%s does not count as internal", s)
 		}
 	}
 	for _, s := range []string{"1.1.1.1", "93.184.216.34", "172.32.0.1", "2606:4700::1111", "::ffff:1.1.1.1"} {
 		if Internal(netip.MustParseAddr(s)) {
-			t.Errorf("%s gilt als intern", s)
+			t.Errorf("%s counts as internal", s)
 		}
 	}
 }
 
-// testProxy startet einen Proxy, dessen Verbindungen zu allen Zielen bei backend landen.
+// testProxy starts a proxy whose connections to all targets end up at backend.
 func testProxy(t *testing.T, backend string, opts Options) (*Server, *httptest.Server) {
 	t.Helper()
 	opts.Logger = slog.New(slog.DiscardHandler)
@@ -125,8 +125,8 @@ func proxyClient(ts *httptest.Server) *http.Client {
 	return &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(u)}, Timeout: 5 * time.Second}
 }
 
-// lastEvent wartet kurz auf das letzte Event: Der Proxy zeichnet es erst auf, nachdem er die
-// Antwort fertig kopiert hat; der Client kann den Body da schon gelesen haben.
+// lastEvent waits briefly for the last event: the proxy records it only after it has copied
+// the response; the client may already have read the body by then.
 func lastEvent(t *testing.T, s *Server) Event {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -136,7 +136,7 @@ func lastEvent(t *testing.T, s *Server) Event {
 			return evs[len(evs)-1]
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("kein Event")
+			t.Fatal("no event")
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -152,7 +152,7 @@ func TestNoPolicyBlocksEverything(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("Status %d, erwartet 403", resp.StatusCode)
+		t.Fatalf("status %d, want 403", resp.StatusCode)
 	}
 	if ev := lastEvent(t, s); ev.Allowed || ev.Reason != ReasonNoPolicy {
 		t.Fatalf("Event %+v", ev)
@@ -163,7 +163,7 @@ func TestForwardHTTP(t *testing.T) {
 	var gotHost, gotProxyAuth string
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotHost, gotProxyAuth = r.Host, r.Header.Get("Proxy-Authorization")
-		_, _ = io.WriteString(w, "hallo")
+		_, _ = io.WriteString(w, "hello")
 	}))
 	defer backend.Close()
 	s, ts := testProxy(t, backend.Listener.Addr().String(), Options{})
@@ -172,7 +172,7 @@ func TestForwardHTTP(t *testing.T) {
 	}
 	c := proxyClient(ts)
 
-	req, _ := http.NewRequest(http.MethodGet, "http://allowed.example/pfad", nil)
+	req, _ := http.NewRequest(http.MethodGet, "http://allowed.example/path", nil)
 	req.Header.Set("Proxy-Authorization", "Basic eDp5")
 	resp, err := c.Do(req)
 	if err != nil {
@@ -180,7 +180,7 @@ func TestForwardHTTP(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	if resp.StatusCode != 200 || string(body) != "hallo" || gotHost != "allowed.example" || gotProxyAuth != "" {
+	if resp.StatusCode != 200 || string(body) != "hello" || gotHost != "allowed.example" || gotProxyAuth != "" {
 		t.Fatalf("Status %d, Body %q, Host %q, Proxy-Authorization %q", resp.StatusCode, body, gotHost, gotProxyAuth)
 	}
 	ev := lastEvent(t, s)
@@ -194,7 +194,7 @@ func TestForwardHTTP(t *testing.T) {
 	}
 	body, _ = io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(body), "nicht freigegeben") {
+	if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(body), "not allowed") {
 		t.Fatalf("Status %d, Body %q", resp.StatusCode, body)
 	}
 	if ev := lastEvent(t, s); ev.Allowed || ev.Reason != ReasonNotAllowed || ev.Host != "blocked.example" {
@@ -212,7 +212,7 @@ func TestConnect(t *testing.T) {
 	u, _ := url.Parse(ts.URL)
 	tr := backend.Client().Transport.(*http.Transport).Clone()
 	tr.Proxy = http.ProxyURL(u)
-	tr.TLSClientConfig.ServerName = "example.com" // Zertifikat von httptest
+	tr.TLSClientConfig.ServerName = "example.com" // certificate of httptest
 	c := &http.Client{Transport: tr, Timeout: 5 * time.Second}
 
 	resp, err := c.Get("https://secure.example/")
@@ -225,7 +225,7 @@ func TestConnect(t *testing.T) {
 	if string(body) != "tls-ok" {
 		t.Fatalf("Body %q", body)
 	}
-	// Das Event des Tunnels entsteht beim Schließen.
+	// The tunnel's event is created when it closes.
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		var ev Event
@@ -247,14 +247,14 @@ func TestConnect(t *testing.T) {
 			_ = resp.Body.Close()
 		}
 		if err == nil || !strings.Contains(err.Error(), "Forbidden") {
-			t.Fatalf("%s: Fehler %v, erwartet Forbidden", host, err)
+			t.Fatalf("%s: error %v, want Forbidden", host, err)
 		}
 		if ev := lastEvent(t, s); ev.Allowed || ev.Reason != reason || ev.Host != host {
 			t.Fatalf("Event %+v", ev)
 		}
 	}
 
-	// Nicht freigegebener Port.
+	// Port that is not allowed.
 	conn, err := net.Dial("tcp", u.Host)
 	if err != nil {
 		t.Fatal(err)
@@ -274,7 +274,7 @@ func TestInternalTargetsAreBlocked(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "intern") }))
 	defer backend.Close()
 	_, port, _ := net.SplitHostPort(backend.Listener.Addr().String())
-	// Echter Dialer mit Schutz; die Allowlist erlaubt das Ziel ausdrücklich.
+	// Real dialer with protection; the allowlist explicitly allows the target.
 	s := New(Options{Logger: slog.New(slog.DiscardHandler)})
 	ts := httptest.NewServer(s)
 	defer ts.Close()
@@ -289,14 +289,14 @@ func TestInternalTargetsAreBlocked(t *testing.T) {
 		}
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusForbidden || strings.Contains(string(body), "intern\n") && !strings.Contains(string(body), "interne Adresse") {
+		if resp.StatusCode != http.StatusForbidden || strings.Contains(string(body), "internal\n") && !strings.Contains(string(body), "internal address") {
 			t.Fatalf("%s: Status %d, Body %q", target, resp.StatusCode, body)
 		}
 		if ev := lastEvent(t, s); ev.Allowed || ev.Reason != ReasonInternal {
 			t.Fatalf("%s: Event %+v", target, ev)
 		}
 	}
-	// CONNECT zur Steuer-API des Proxys selbst.
+	// CONNECT to the proxy's own control API.
 	conn, err := net.Dial("tcp", ts.Listener.Addr().String())
 	if err != nil {
 		t.Fatal(err)
@@ -308,7 +308,7 @@ func TestInternalTargetsAreBlocked(t *testing.T) {
 		_ = r.Body.Close()
 	}
 	if err != nil || r.StatusCode != http.StatusForbidden {
-		t.Fatalf("CONNECT intern → %v %v", r, err)
+		t.Fatalf("CONNECT internal → %v %v", r, err)
 	}
 }
 
@@ -319,16 +319,16 @@ func TestProviderInjectsKey(t *testing.T) {
 		got <- seen{r.URL.Path, r.URL.RawQuery, r.Header.Get("X-Api-Key"), r.Header.Get("Authorization"), r.Host}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(200)
-		_, _ = io.WriteString(w, "data: eins\n\n")
+		_, _ = io.WriteString(w, "data: one\n\n")
 		w.(http.Flusher).Flush()
 		time.Sleep(300 * time.Millisecond)
-		_, _ = io.WriteString(w, "data: zwei\n\n")
+		_, _ = io.WriteString(w, "data: two\n\n")
 	}))
 	defer upstream.Close()
 	up, _ := url.Parse(upstream.URL)
 	s, ts := testProxy(t, up.Host, Options{Providers: map[string]Provider{"anthropic": {Upstream: up, Header: "X-Api-Key"}}})
 
-	// Ohne Key: gesperrt.
+	// Without a key: blocked.
 	if err := s.SetPolicy(Policy{}); err != nil {
 		t.Fatal(err)
 	}
@@ -338,15 +338,15 @@ func TestProviderInjectsKey(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("ohne Key: Status %d", resp.StatusCode)
+		t.Fatalf("without key: status %d", resp.StatusCode)
 	}
 
-	if err := s.SetPolicy(Policy{Secrets: map[string]string{"anthropic": "sk-echt"}}); err != nil {
+	if err := s.SetPolicy(Policy{Secrets: map[string]string{"anthropic": "sk-real"}}); err != nil {
 		t.Fatal(err)
 	}
 	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/p/anthropic/v1/messages?beta=true", strings.NewReader(`{"x":1}`))
-	req.Header.Set("X-Api-Key", "platzhalter")
-	req.Header.Set("Authorization", "Bearer platzhalter")
+	req.Header.Set("X-Api-Key", "placeholder")
+	req.Header.Set("Authorization", "Bearer placeholder")
 	start := time.Now()
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
@@ -355,62 +355,62 @@ func TestProviderInjectsKey(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	br := bufio.NewReader(resp.Body)
 	line, _ := br.ReadString('\n')
-	if line != "data: eins\n" || time.Since(start) > 250*time.Millisecond {
-		t.Fatalf("erste Zeile %q nach %s – Streaming gepuffert?", line, time.Since(start))
+	if line != "data: one\n" || time.Since(start) > 250*time.Millisecond {
+		t.Fatalf("first line %q after %s – streaming buffered?", line, time.Since(start))
 	}
 	rest, _ := io.ReadAll(br)
-	if !strings.Contains(string(rest), "data: zwei") {
-		t.Fatalf("Rest %q", rest)
+	if !strings.Contains(string(rest), "data: two") {
+		t.Fatalf("rest %q", rest)
 	}
 	g := <-got
-	if g.path != "/v1/messages" || g.query != "beta=true" || g.key != "sk-echt" || g.auth != "" || g.host != up.Host {
-		t.Fatalf("Upstream sah %+v", g)
+	if g.path != "/v1/messages" || g.query != "beta=true" || g.key != "sk-real" || g.auth != "" || g.host != up.Host {
+		t.Fatalf("upstream saw %+v", g)
 	}
 	ev := lastEvent(t, s)
 	if !ev.Allowed || ev.Kind != KindAPI || ev.Provider != "anthropic" || ev.Path != "/v1/messages" || ev.BytesOut != 7 {
 		t.Fatalf("Event %+v", ev)
 	}
 
-	// Clients mit HTTP_PROXY schicken die Anfrage an die Basis-URL als Proxy-Anfrage.
+	// Clients with HTTP_PROXY send the request to the base URL as a proxy request.
 	viaProxy := proxyClient(ts)
 	req, _ = http.NewRequest(http.MethodPost, "http://proxy:8080/p/anthropic/v1/messages", strings.NewReader(`{}`))
-	req.Header.Set("X-Api-Key", "platzhalter")
+	req.Header.Set("X-Api-Key", "placeholder")
 	resp, err = viaProxy.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, _ = io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	if g := <-got; resp.StatusCode != 200 || g.key != "sk-echt" || g.path != "/v1/messages" {
-		t.Fatalf("über HTTP_PROXY: Status %d, Upstream %+v", resp.StatusCode, g)
+	if g := <-got; resp.StatusCode != 200 || g.key != "sk-real" || g.path != "/v1/messages" {
+		t.Fatalf("via HTTP_PROXY: status %d, upstream %+v", resp.StatusCode, g)
 	}
-	// Ein anderer Host mit /p/ ist dagegen eine normale Proxy-Anfrage (nicht freigegeben).
+	// Another host with /p/ is a normal proxy request instead (not allowed).
 	resp, err = viaProxy.Get("http://evil.example/p/anthropic/v1/messages")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("fremder Host mit /p/: %d", resp.StatusCode)
+		t.Fatalf("foreign host with /p/: %d", resp.StatusCode)
 	}
 
-	resp2, err := http.Get(ts.URL + "/p/unbekannt/x")
+	resp2, err := http.Get(ts.URL + "/p/unknown/x")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = resp2.Body.Close()
 	if resp2.StatusCode != http.StatusNotFound {
-		t.Fatalf("unbekannter Anbieter: %d", resp2.StatusCode)
+		t.Fatalf("unknown provider: %d", resp2.StatusCode)
 	}
 }
 
 func TestSetPolicyRejectsInvalid(t *testing.T) {
 	s := New(Options{Logger: slog.New(slog.DiscardHandler)})
 	if err := s.SetPolicy(Policy{Allow: []string{"*"}}); err == nil {
-		t.Fatal("ungültige Regel angenommen")
+		t.Fatal("invalid rule accepted")
 	}
 	if err := s.SetPolicy(Policy{Secrets: map[string]string{"nope": "x"}}); err == nil {
-		t.Fatal("unbekannter Anbieter angenommen")
+		t.Fatal("unknown provider accepted")
 	}
 }
 
@@ -422,14 +422,14 @@ func TestControlAPI(t *testing.T) {
 	for _, tok := range []string{"", "falsch"} {
 		c := &Client{Base: ts.URL, Token: tok}
 		if _, err := c.Health(context.Background()); !IsUnauthorized(err) {
-			t.Fatalf("Token %q: %v, erwartet 401", tok, err)
+			t.Fatalf("token %q: %v, want 401", tok, err)
 		}
 		if err := c.SetPolicy(context.Background(), Policy{Allow: []string{"example.com"}}); !IsUnauthorized(err) {
-			t.Fatalf("Token %q: %v, erwartet 401", tok, err)
+			t.Fatalf("token %q: %v, want 401", tok, err)
 		}
 	}
 	if s.policy.Load() != nil {
-		t.Fatal("Policy ohne Token gesetzt")
+		t.Fatal("policy set without a token")
 	}
 
 	c := &Client{Base: ts.URL, Token: "geheim"}
@@ -438,16 +438,16 @@ func TestControlAPI(t *testing.T) {
 		t.Fatalf("Health %+v %v", h, err)
 	}
 	if err := c.SetPolicy(context.Background(), Policy{Allow: []string{"*"}}); err == nil {
-		t.Fatal("ungültige Policy angenommen")
+		t.Fatal("invalid policy accepted")
 	}
 	if err := c.SetPolicy(context.Background(), Policy{Allow: []string{"example.com"}}); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _, _ := s.decide(context.Background(), "example.com", 443); !ok {
-		t.Fatal("Policy nicht wirksam")
+		t.Fatal("policy not effective")
 	}
 
-	// Long-Polling: wartet auf das nächste Event.
+	// Long polling: waits for the next event.
 	done := make(chan EventsResponse, 1)
 	go func() {
 		r, err := c.Events(context.Background(), h.Boot, 0, 5*time.Second)
@@ -464,16 +464,16 @@ func TestControlAPI(t *testing.T) {
 			t.Fatalf("Events %+v", r)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("Long-Polling kehrt nicht zurück")
+		t.Fatal("long polling does not return")
 	}
 	r, err := c.Events(context.Background(), h.Boot, 1, 0)
 	if err != nil || len(r.Events) != 0 || r.Next != 1 {
-		t.Fatalf("nach after=1: %+v %v", r, err)
+		t.Fatalf("after after=1: %+v %v", r, err)
 	}
-	// Anderer Boot: von vorn.
+	// Another boot: from the start.
 	r, err = c.Events(context.Background(), "alt", 1, 0)
 	if err != nil || len(r.Events) != 1 {
-		t.Fatalf("anderer Boot: %+v %v", r, err)
+		t.Fatalf("other boot: %+v %v", r, err)
 	}
 }
 
@@ -482,7 +482,7 @@ func TestControlWithoutTokenIsClosed(t *testing.T) {
 	ts := httptest.NewServer(s.ControlHandler())
 	defer ts.Close()
 	if _, err := (&Client{Base: ts.URL}).Health(context.Background()); !IsUnauthorized(err) {
-		t.Fatalf("%v, erwartet 401", err)
+		t.Fatalf("%v, want 401", err)
 	}
 }
 
@@ -536,7 +536,7 @@ func TestRunAndIDEForward(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	if string(body) != "ide" {
-		t.Fatalf("IDE-Weiterleitung: %q", body)
+		t.Fatalf("IDE forwarding: %q", body)
 	}
 	cancel()
 	select {
@@ -545,6 +545,6 @@ func TestRunAndIDEForward(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("Run endet nicht")
+		t.Fatal("Run does not end")
 	}
 }

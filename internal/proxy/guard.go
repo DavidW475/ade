@@ -10,50 +10,50 @@ import (
 	"time"
 )
 
-// blockedPrefixes sind Netze, in die der Proxy nie verbindet – auch nicht, wenn ein Name
-// auf der Allowlist dorthin auflöst: der Proxy-Container selbst (Loopback, Steuer-API),
-// der Host, andere Container und lokale Netze.
+// blockedPrefixes are networks the proxy never connects to – not even if a name on the
+// allowlist resolves there: the proxy container itself (loopback, control API), the host,
+// other containers and local networks.
 var blockedPrefixes = func() []netip.Prefix {
 	var out []netip.Prefix
 	for _, s := range []string{
-		"0.0.0.0/8",          // „dieses“ Netz
-		"10.0.0.0/8",         // privat
-		"100.64.0.0/10",      // Carrier-Grade NAT
-		"127.0.0.0/8",        // Loopback
-		"169.254.0.0/16",     // Link-Local (u. a. Cloud-Metadaten)
-		"172.16.0.0/12",      // privat (Docker-Netze)
-		"192.0.0.0/24",       // IETF-Protokollzuweisungen
-		"192.168.0.0/16",     // privat
-		"198.18.0.0/15",      // Benchmark-Netze
-		"224.0.0.0/4",        // Multicast
-		"240.0.0.0/4",        // reserviert, Broadcast
-		"::/96",              // unspezifiziert, Loopback, IPv4-kompatibel (veraltet, z. B. ::127.0.0.1)
-		"fec0::/10",          // Site-Local (veraltet)
-		"64:ff9b:1::/48",     // lokales NAT64
-		"fc00::/7",           // Unique Local
-		"fe80::/10",          // Link-Local
-		"ff00::/8",           // Multicast
-		"2001:db8::/32",      // Dokumentation
-		"100::/64",           // Discard
-		"2002::/16",          // 6to4 (kann private IPv4 tunneln)
-		"2001::/32",          // Teredo (dito)
-		"::ffff:0:0/96",      // IPv4-mapped – wird vorher entpackt, hier zur Sicherheit
-		"64:ff9b::/96",       // NAT64 (kann private IPv4 abbilden)
-		"192.88.99.0/24",     // 6to4-Relay
-		"203.0.113.0/24",     // Dokumentation
-		"198.51.100.0/24",    // Dokumentation
-		"192.0.2.0/24",       // Dokumentation
-		"255.255.255.255/32", // Broadcast
+		"0.0.0.0/8",          // "this" network
+		"10.0.0.0/8",         // private
+		"100.64.0.0/10",      // carrier-grade NAT
+		"127.0.0.0/8",        // loopback
+		"169.254.0.0/16",     // link-local (among others cloud metadata)
+		"172.16.0.0/12",      // private (Docker networks)
+		"192.0.0.0/24",       // IETF protocol assignments
+		"192.168.0.0/16",     // private
+		"198.18.0.0/15",      // benchmark networks
+		"224.0.0.0/4",        // multicast
+		"240.0.0.0/4",        // reserved, broadcast
+		"::/96",              // unspecified, loopback, IPv4-compatible (deprecated, e.g. ::127.0.0.1)
+		"fec0::/10",          // site-local (deprecated)
+		"64:ff9b:1::/48",     // local NAT64
+		"fc00::/7",           // unique local
+		"fe80::/10",          // link-local
+		"ff00::/8",           // multicast
+		"2001:db8::/32",      // documentation
+		"100::/64",           // discard
+		"2002::/16",          // 6to4 (can tunnel private IPv4)
+		"2001::/32",          // Teredo (ditto)
+		"::ffff:0:0/96",      // IPv4-mapped – unpacked before, here for safety
+		"64:ff9b::/96",       // NAT64 (can map private IPv4)
+		"192.88.99.0/24",     // 6to4 relay
+		"203.0.113.0/24",     // documentation
+		"198.51.100.0/24",    // documentation
+		"192.0.2.0/24",       // documentation
+		"255.255.255.255/32", // broadcast
 	} {
 		out = append(out, netip.MustParsePrefix(s))
 	}
 	return out
 }()
 
-// ErrInternal meldet ein gesperrtes internes Ziel.
-var ErrInternal = errors.New("Ziel ist eine interne Adresse")
+// ErrInternal reports a blocked internal target.
+var ErrInternal = errors.New("target is an internal address")
 
-// Internal meldet, ob ip in einem gesperrten Netz liegt.
+// Internal reports whether ip is in a blocked network.
 func Internal(ip netip.Addr) bool {
 	ip = ip.Unmap()
 	if !ip.IsValid() {
@@ -67,9 +67,9 @@ func Internal(ip netip.Addr) bool {
 	return false
 }
 
-// guardedDialer verbindet nur zu öffentlichen Adressen. Geprüft wird die tatsächlich
-// verwendete IP direkt vor dem connect, damit ein Name nicht zwischen Prüfung und
-// Verbindung umgebogen werden kann (DNS-Rebinding).
+// guardedDialer only connects to public addresses. The IP actually used is checked right
+// before connect, so a name cannot be redirected between the check and the connection
+// (DNS rebinding).
 func guardedDialer() *net.Dialer {
 	return &net.Dialer{
 		Timeout:   15 * time.Second,
@@ -87,5 +87,5 @@ func guardedDialer() *net.Dialer {
 	}
 }
 
-// dialFunc verbindet zu einem Ziel (in Tests ersetzbar).
+// dialFunc connects to a target (replaceable in tests).
 type dialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
