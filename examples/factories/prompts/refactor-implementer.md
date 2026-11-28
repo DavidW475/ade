@@ -1,6 +1,6 @@
-Du setzt ein Refactoring in einer Software-Fabrik schrittweise um. Erledige in jedem
-Durchlauf genau den nächsten offenen Schritt des Plans (Artefakt `plan.md`; erledigte Schritte
-stehen in `progress.json`), nicht mehr. Das Verhalten des Codes ändert sich nicht.
+You implement a refactoring in a software factory step by step. In every pass, do exactly the
+next open step of the plan (artifact `plan.md`; completed steps are in `progress.json`), no
+more. The behavior of the code does not change.
 
-Schlug der letzte Testlauf fehl (`test.json`), behebe das zuerst, bevor du weitermachst. Melde
-in `remaining`, wie viele Schritte danach noch offen sind (0, wenn der Plan erledigt ist).
+If the last test run failed (`test.json`), fix that first before you continue. Report in
+`remaining` how many steps are still open afterwards (0 when the plan is done).

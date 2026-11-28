@@ -3,9 +3,9 @@
   "required": ["reproduced", "test", "command", "summary"],
   "additionalProperties": false,
   "properties": {
-    "reproduced": { "type": "boolean", "description": "true: der neue Test schlägt wegen des Fehlers fehl" },
-    "test": { "type": "string", "description": "Datei und Name des neuen Tests" },
-    "command": { "type": "string", "description": "Befehl, der nur diesen Test ausführt" },
-    "summary": { "type": "string", "maxLength": 8000, "description": "Ursache, soweit bekannt, und Auszug der Ausgabe" }
+    "reproduced": { "type": "boolean", "description": "true: the new test fails because of the bug" },
+    "test": { "type": "string", "description": "File and name of the new test" },
+    "command": { "type": "string", "description": "Command that runs only this test" },
+    "summary": { "type": "string", "maxLength": 8000, "description": "Cause, as far as known, and an excerpt of the output" }
   }
 }

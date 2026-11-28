@@ -1,60 +1,59 @@
-# Projekt-Konfiguration: <repo>/.ade/project.yaml
-# Alle Schlüssel sind optional. Unbekannte Schlüssel sind ein Fehler.
+# Project configuration: <repo>/.ade/project.yaml
+# All keys are optional. Unknown keys are an error. Reference: doc/configuration.md.
 
-# Anzeigename im Dashboard (Default: Verzeichnisname des Repos).
-name: Mein Projekt
+# Display name in the dashboard (default: the repository's directory name).
+name: My project
 
-# Branch, von dem neue Workspaces abzweigen
-# (Default: origin/HEAD bzw. der Branch, der beim Registrieren ausgecheckt war).
+# Branch that new workspaces start from
+# (default: origin/HEAD or the branch that was checked out at registration).
 base_branch: main
 
-# Standard-Adapter für Agent-Sessions: claude, codex oder pty (ab M2 genutzt).
+# Default adapter for agent sessions: claude, codex or pty.
 adapter: claude
 
-# Befehle, die nach dem Anlegen eines Workspaces darin laufen (sh -c, nacheinander,
-# Abbruch beim ersten Fehler). Verfügbar: $ADE_WORKSPACE_ID, $ADE_WORKSPACE_PATH.
+# Commands that run in a workspace after it was created (sh -c, one after another, abort on
+# the first error). Available: $ADE_WORKSPACE_ID, $ADE_WORKSPACE_PATH.
 setup:
   - npm ci
   - go mod download
 
-# Freigaben (doc/architecture.md#43-freigaben): welche Werkzeuge der Agent ohne Rückfrage nutzt.
-# Einträge: Tool oder Tool(muster); Reihenfolge deny → ask → allow, alles andere wartet auf eine
-# Freigabe im Dashboard. Ein Abschnitt ersetzt die Voreinstellung seiner Umgebung.
+# Approvals (doc/architecture.md#43-approvals): which tools the agent uses without asking.
+# Entries: Tool or Tool(pattern); order deny → ask → allow, everything else waits for an
+# approval in the dashboard. A section replaces the default of its environment.
 approvals:
-  # In der Sandbox (Voreinstellung: allow: ["*"]).
+  # In the sandbox (default: allow: ["*"]).
   sandbox:
     allow: ["*"]
     deny: ["Bash(git push *)"]
-  # Ohne Sandbox (Voreinstellung: Lesen und Dateiänderungen im Workspace).
+  # Without a sandbox (default: reading and editing files in the workspace).
   local:
     allow: ["Read(**)", "Glob(**)", "Grep(**)", "Edit(**)", "Write(**)", "TodoWrite", "Bash(go test *)", "Bash(npm test)"]
     ask: ["Edit(.github/**)"]
     deny: ["Read(**/.env)"]
 
-# Budgets in USD (M8); 0 oder weglassen heißt keine Grenze. Wird eine Grenze erreicht, beendet
-# ADE den Agenten (Status „pausiert“) und legt eine Freigabe an: „Budget erhöhen“ gibt einen
-# weiteren Schritt frei (Session: das Session-Budget, Monat: 10 % des Monatsbudgets, mindestens
-# 1 $) und setzt den Agenten fort, „Ablehnen“ beendet ihn.
+# Budgets in USD; 0 or leaving it out means no limit. When a limit is reached, ADE ends the agent
+# (status "paused") and creates an approval: "Raise budget" allows another step (session: the
+# session budget, month: 10 % of the monthly budget, at least $1) and resumes the agent, "Deny"
+# ends it.
 budget:
-  # Je Session; beim Start im Dashboard überschreibbar.
+  # Per session; can be overridden at start in the dashboard.
   session_usd: 5
-  # Alle Sessions des Projekts im Kalendermonat (UTC), auch in verworfenen Workspaces.
+  # All sessions of the project in the calendar month (UTC), also in discarded workspaces.
   monthly_usd: 100
 
-# Auslöser (M10) starten Fabrik-Runs automatisch (doc/factory.md#5-auslöser). Ausgelöste Runs
-# laufen standardmäßig in der Sandbox und brauchen budget.max_cost_usd in der Fabrik.
+# Triggers start factory runs automatically (doc/factory.md#5-triggers). Triggered runs use the
+# sandbox by default and need budget.max_cost_usd in the factory.
 triggers:
-  # Je offenem Issue mit Label ein Run; Titel und Text werden die Aufgabe, der PR schließt
-  # das Issue. Der Issue-Text ist fremde Eingabe – authors einschränken, wenn das Repo
-  # öffentlich ist.
+  # One run per open issue with the label; title and text become the task, the PR closes the
+  # issue. The issue text is untrusted input – restrict authors if the repository is public.
   - name: features
     factory: feature
     github_issues:
       label: "ade:feature"
       authors: [octocat]
       interval: 5m
-  # Nach Zeitplan (Cron, Zeitzone des Systems); verpasste Termine: nur der letzte.
+  # On a schedule (cron, system time zone); missed dates: only the last one.
   - name: nightly-deps
     factory: feature
-    inputs: { task: "Abhängigkeiten aktualisieren, Tests laufen lassen" }
+    inputs: { task: "Update dependencies, run the tests" }
     schedule: { cron: "0 3 * * 1-5" }

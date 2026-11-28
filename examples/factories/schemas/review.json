@@ -3,7 +3,7 @@
   "required": ["verdict", "summary", "comments"],
   "additionalProperties": false,
   "properties": {
-    "verdict": { "enum": ["approve", "changes"], "description": "approve: freigeben; changes: Änderungen nötig" },
+    "verdict": { "enum": ["approve", "changes"], "description": "approve: approve; changes: changes needed" },
     "summary": { "type": "string", "maxLength": 4000 },
     "comments": {
       "type": "array",

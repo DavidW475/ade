@@ -1,12 +1,12 @@
-# Fabrik „review-only“: Zwei Reviewer mit verschiedenen Modellen prüfen einen Branch
-# unabhängig und parallel, ein Aggregator fasst zusammen. Ändert nichts, kein Pull Request;
-# das Ergebnis ist das Artefakt report.md. Aufbau: doc/factory.md.
+# Factory "review-only": two reviewers with different models review a branch independently and
+# in parallel, an aggregator summarizes. Changes nothing, no pull request; the result is the
+# artifact report.md. Structure: doc/factory.md.
 name: review-only
-description: Unabhängige Reviews eines Branches mit Zusammenfassung, ohne Änderungen
+description: Independent reviews of a branch with a summary, without changes
 
 inputs:
-  task: { type: text, required: true, description: "Was geprüft werden soll (Commits, Verzeichnis, Ziel der Änderung)" }
-  branch: { type: branch, description: Zu prüfender Branch (Standard Basis-Branch des Projekts) }
+  task: { type: text, required: true, description: "What should be reviewed (commits, directory, goal of the change)" }
+  branch: { type: branch, description: "Branch to review (default: the project's base branch)" }
 
 roles:
   reviewer-a:
@@ -17,7 +17,7 @@ roles:
     outputs: [{ name: review-a.json, schema: schemas/review.json }]
 
   reviewer-b:
-    adapter: claude        # z. B. codex (ohne model oder mit einem Alias) für ein anderes Modell
+    adapter: claude        # e.g. codex (without model or with an alias) for another model
     model: sonnet
     permissions: read
     prompt: prompts/review-only-reviewer.md
