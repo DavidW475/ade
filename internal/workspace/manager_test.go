@@ -76,7 +76,7 @@ func setup(t *testing.T, projectYAML string) *env {
 	return &env{t: t, repo: repo, dir: dir, store: st, projects: ps, m: m, project: p}
 }
 
-// repoState fasst zusammen, was sich im Haupt-Repo nicht ändern darf.
+// repoState summarizes what must not change in the main repository.
 func repoState(t *testing.T, repo string) string {
 	return gitRun(t, repo, "for-each-ref") + "\n" + gitRun(t, repo, "status", "--porcelain") +
 		"\n" + gitRun(t, repo, "config", "--local", "--list") + "\n" + gitRun(t, repo, "worktree", "list")
@@ -118,13 +118,13 @@ func TestCreateDiffDelete(t *testing.T) {
 		t.Errorf("BaseCommit = %s, want %s", w.BaseCommit, head)
 	}
 	if b := gitRun(t, w.Path, "branch", "--show-current"); b != w.Branch {
-		t.Errorf("Branch im Workspace = %q", b)
+		t.Errorf("branch in the workspace = %q", b)
 	}
 	if remotes := gitRun(t, w.Path, "remote"); remotes != "" {
-		t.Errorf("Workspace hat noch Remotes: %q", remotes)
+		t.Errorf("workspace still has remotes: %q", remotes)
 	}
 
-	// Manuelle Änderungen erscheinen im Diff.
+	// Manual changes appear in the diff.
 	writeFile(t, filepath.Join(w.Path, "README.md"), "hallo welt\n")
 	writeFile(t, filepath.Join(w.Path, "neu.txt"), "neu\n")
 	d, err := e.m.Diff(ctx, w.ID, true)
@@ -134,7 +134,7 @@ func TestCreateDiffDelete(t *testing.T) {
 	if len(d.Files) != 2 || d.Base != w.BaseCommit {
 		t.Fatalf("Diff = %#v", d)
 	}
-	// Committete Änderungen ebenfalls.
+	// Committed changes as well.
 	gitRun(t, w.Path, "add", ".")
 	gitRun(t, w.Path, "commit", "-q", "-m", "arbeit")
 	writeFile(t, filepath.Join(w.Path, "dritte.txt"), "x\n")
@@ -147,24 +147,24 @@ func TestCreateDiffDelete(t *testing.T) {
 	}
 
 	if after := repoState(t, e.repo); after != before {
-		t.Errorf("Haupt-Repo verändert:\nvorher:\n%s\nnachher:\n%s", before, after)
+		t.Errorf("main repository changed:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 
 	if err := e.m.Delete(ctx, w.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(w.Path); !os.IsNotExist(err) {
-		t.Errorf("Workspace-Verzeichnis existiert noch: %v", err)
+		t.Errorf("workspace directory still exists: %v", err)
 	}
 	entries, _ := os.ReadDir(e.dir)
 	if len(entries) != 0 {
-		t.Errorf("Workspace-Verzeichnis nicht leer: %v", entries)
+		t.Errorf("workspace directory not empty: %v", entries)
 	}
 	if _, err := e.m.Get(ctx, w.ID); !errors.Is(err, apperr.ErrNotFound) {
-		t.Errorf("Datensatz existiert noch: %v", err)
+		t.Errorf("record still exists: %v", err)
 	}
 	if after := repoState(t, e.repo); after != before {
-		t.Errorf("Haupt-Repo nach Löschen verändert")
+		t.Errorf("main repository changed after deleting")
 	}
 }
 
@@ -175,15 +175,15 @@ func TestCreateRejectsUnknownBranch(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	if ws, _ := e.store.ListWorkspaces(context.Background(), ""); len(ws) != 0 {
-		t.Errorf("Datensatz angelegt: %v", ws)
+		t.Errorf("record created: %v", ws)
 	}
-	if _, err := e.m.Create(context.Background(), "fehlt", CreateOptions{}); !errors.Is(err, apperr.ErrNotFound) {
-		t.Errorf("unbekanntes Projekt: err = %v", err)
+	if _, err := e.m.Create(context.Background(), "missing", CreateOptions{}); !errors.Is(err, apperr.ErrNotFound) {
+		t.Errorf("unknown project: err = %v", err)
 	}
 }
 
 func TestSetupCommands(t *testing.T) {
-	e := setup(t, "setup:\n  - echo vorbereitet > setup.txt\n  - echo \"id=$ADE_WORKSPACE_ID\"\n")
+	e := setup(t, "setup:\n  - echo prepared > setup.txt\n  - echo \"id=$ADE_WORKSPACE_ID\"\n")
 	ctx := context.Background()
 
 	w, err := e.m.Create(ctx, e.project.ID, CreateOptions{})
@@ -192,36 +192,36 @@ func TestSetupCommands(t *testing.T) {
 	}
 	w = waitStatus(t, e.m, w.ID, store.WorkspaceReady, store.WorkspaceSetupFailed)
 	if w.Status != store.WorkspaceReady {
-		t.Fatalf("Status = %s, Fehler = %s, Log:\n%s", w.Status, w.Error, w.SetupLog)
+		t.Fatalf("status = %s, error = %s, log:\n%s", w.Status, w.Error, w.SetupLog)
 	}
-	if !strings.Contains(w.SetupLog, "$ echo vorbereitet") || !strings.Contains(w.SetupLog, "id="+w.ID) {
+	if !strings.Contains(w.SetupLog, "$ echo prepared") || !strings.Contains(w.SetupLog, "id="+w.ID) {
 		t.Errorf("SetupLog = %q", w.SetupLog)
 	}
 	if _, err := os.Stat(filepath.Join(w.Path, "setup.txt")); err != nil {
-		t.Errorf("Setup-Befehl lief nicht im Workspace: %v", err)
+		t.Errorf("setup command did not run in the workspace: %v", err)
 	}
 }
 
 func TestSetupFailure(t *testing.T) {
-	e := setup(t, "setup:\n  - echo erst\n  - exit 3\n  - echo nie\n")
+	e := setup(t, "setup:\n  - echo first\n  - exit 3\n  - echo never\n")
 	w, err := e.m.Create(context.Background(), e.project.ID, CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	w = waitStatus(t, e.m, w.ID, store.WorkspaceReady, store.WorkspaceSetupFailed)
-	if w.Status != store.WorkspaceSetupFailed || !strings.Contains(w.Error, "Setup-Befehl 2") || strings.Contains(w.SetupLog, "$ echo nie") {
+	if w.Status != store.WorkspaceSetupFailed || !strings.Contains(w.Error, "setup command 2") || strings.Contains(w.SetupLog, "$ echo never") {
 		t.Fatalf("Workspace = %#v", w)
 	}
 }
 
 func TestSetupCommandNotFound(t *testing.T) {
-	e := setup(t, "setup:\n  - ade-gibt-es-nicht --version\n")
+	e := setup(t, "setup:\n  - ade-does-not-exist --version\n")
 	w, err := e.m.Create(context.Background(), e.project.ID, CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	w = waitStatus(t, e.m, w.ID, store.WorkspaceReady, store.WorkspaceSetupFailed)
-	if w.Status != store.WorkspaceSetupFailed || !strings.Contains(w.Error, "exit status 127") || !strings.Contains(w.Error, "Programm nicht gefunden") {
+	if w.Status != store.WorkspaceSetupFailed || !strings.Contains(w.Error, "exit status 127") || !strings.Contains(w.Error, "program not found") {
 		t.Fatalf("Workspace = %#v", w)
 	}
 }
@@ -238,16 +238,16 @@ func TestDeleteCancelsSetup(t *testing.T) {
 		t.Fatal(err)
 	}
 	if time.Since(start) > 10*time.Second {
-		t.Errorf("Löschen hat auf das Setup gewartet")
+		t.Errorf("deleting waited for the setup")
 	}
 	if _, err := os.Stat(w.Path); !os.IsNotExist(err) {
-		t.Errorf("Verzeichnis existiert noch")
+		t.Errorf("directory still exists")
 	}
 }
 
 func TestCreateRejectsInvalidProjectConfig(t *testing.T) {
 	e := setup(t, "")
-	writeFile(t, filepath.Join(e.repo, project.ConfigFile), "adapter: falsch\n")
+	writeFile(t, filepath.Join(e.repo, project.ConfigFile), "adapter: wrong\n")
 	if _, err := e.m.Create(context.Background(), e.project.ID, CreateOptions{}); !errors.Is(err, apperr.ErrInvalid) {
 		t.Fatalf("err = %v", err)
 	}
@@ -257,7 +257,7 @@ func TestCheckPath(t *testing.T) {
 	m := &Manager{dir: "/data/ws"}
 	ok := &store.Workspace{ID: "abc", Path: "/data/ws/abc"}
 	if err := m.checkPath(ok); err != nil {
-		t.Errorf("gültiger Pfad abgelehnt: %v", err)
+		t.Errorf("valid path rejected: %v", err)
 	}
 	for _, w := range []*store.Workspace{
 		{ID: "abc", Path: "/data/ws"},
@@ -267,7 +267,7 @@ func TestCheckPath(t *testing.T) {
 		{ID: "..", Path: "/data"},
 	} {
 		if err := m.checkPath(w); err == nil {
-			t.Errorf("%#v: Fehler erwartet", w)
+			t.Errorf("%#v: expected an error", w)
 		}
 	}
 }
@@ -286,7 +286,7 @@ func TestRecover(t *testing.T) {
 	if got.Status != store.WorkspaceError {
 		t.Errorf("Status = %s", got.Status)
 	}
-	// Ein Workspace ohne Verzeichnis lässt sich trotzdem löschen.
+	// A workspace without a directory can still be deleted.
 	if err := e.m.Delete(ctx, "x1"); err != nil {
 		t.Fatal(err)
 	}
