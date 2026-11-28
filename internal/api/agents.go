@@ -19,7 +19,7 @@ import (
 	"github.com/DavidW475/ade/internal/store"
 )
 
-// WebSocket-Close-Codes für Clients: 4000 heißt „mit ?since=<letzte seq> neu verbinden“.
+// WebSocket close codes for clients: 4000 means “reconnect with ?since=<last seq>”.
 const (
 	wsCloseLagging = 4000
 	wsWriteTimeout = 10 * time.Second
@@ -42,16 +42,16 @@ func (s *Server) routesAgents(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ws/sessions/{id}/pty", s.requireAuth(s.handlePTYWS))
 }
 
-// AdaptersResponse ist die Antwort von GET /api/adapters.
+// AdaptersResponse is the answer of GET /api/adapters.
 type AdaptersResponse struct {
 	Adapters []adapter.Info `json:"adapters"`
-	// PermissionModes sind die Berechtigungsmodi des claude-Adapters.
+	// PermissionModes are the permission modes of the claude adapter.
 	PermissionModes []string `json:"permission_modes"`
-	// Modes sind die Werte für permission_mode je Adapter (codex: Sandbox-Modi).
+	// Modes are the values for permission_mode per adapter (codex: sandbox modes).
 	Modes map[string][]string `json:"modes"`
-	// Providers nennt den Anbieter je Adapter (für die Auswahl der Modell-Aliase).
+	// Providers names the provider per adapter (for choosing model aliases).
 	Providers map[string]string `json:"providers"`
-	// Models sind die Modell-Aliase aus der Konfiguration.
+	// Models are the model aliases from the configuration.
 	Models  []provider.Alias `json:"models"`
 	Default string           `json:"default"`
 }
@@ -103,7 +103,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	if l := q.Get("limit"); l != "" {
 		n, err := strconv.Atoi(l)
 		if err != nil || n < 1 || n > 1000 {
-			s.writeAppError(w, apperr.Invalid("limit muss zwischen 1 und 1000 liegen"))
+			s.writeAppError(w, apperr.Invalid("limit must be between 1 and 1000"))
 			return
 		}
 		f.Limit = n
@@ -132,13 +132,13 @@ func parseSince(r *http.Request) (int64, error) {
 	}
 	n, err := strconv.ParseInt(v, 10, 64)
 	if err != nil || n < 0 {
-		return 0, apperr.Invalid("since muss eine nicht-negative Zahl sein")
+		return 0, apperr.Invalid("since must be a non-negative number")
 	}
 	return n, nil
 }
 
-// handleSessionEvents liefert gespeicherte Events als JSON (für CLI und Tests; das Dashboard
-// nutzt den WebSocket).
+// handleSessionEvents returns stored events as JSON (for CLI and tests; the dashboard uses
+// the WebSocket).
 func (s *Server) handleSessionEvents(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	since, err := parseSince(r)
@@ -149,7 +149,7 @@ func (s *Server) handleSessionEvents(w http.ResponseWriter, r *http.Request) {
 	limit := 1000
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if limit, err = strconv.Atoi(l); err != nil || limit < 1 || limit > 10000 {
-			s.writeAppError(w, apperr.Invalid("limit muss zwischen 1 und 10000 liegen"))
+			s.writeAppError(w, apperr.Invalid("limit must be between 1 and 10000"))
 			return
 		}
 	}
@@ -165,7 +165,7 @@ func (s *Server) handleSessionEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, evs)
 }
 
-// InputRequest ist der Body von POST /api/sessions/{id}/input.
+// InputRequest is the body of POST /api/sessions/{id}/input.
 type InputRequest struct {
 	Text string `json:"text"`
 }
@@ -193,14 +193,14 @@ func (s *Server) handleSessionStop(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, v)
 }
 
-// acceptWS nimmt ein WebSocket-Upgrade an. Host und Origin hat originGuard bereits geprüft;
-// coder/websocket prüft zusätzlich, dass der Origin zum Host passt.
+// acceptWS accepts a WebSocket upgrade. originGuard has already checked host and origin;
+// coder/websocket additionally checks that the origin matches the host.
 func acceptWS(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
 	return websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionDisabled})
 }
 
-// handleEventsWS streamt die Events einer Session: zuerst alle gespeicherten mit
-// seq > since, danach live. Jede Nachricht ist ein Event als JSON.
+// handleEventsWS streams the events of a session: first all stored ones with seq > since,
+// then live ones. Every message is an event as JSON.
 func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	since, err := parseSince(r)
@@ -225,7 +225,7 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 	for last < upto {
 		evs, err := s.opts.Agents.Events(ctx, id, last, upto, replayPage)
 		if err != nil {
-			_ = c.Close(websocket.StatusInternalError, "Events nicht lesbar")
+			_ = c.Close(websocket.StatusInternalError, "events not readable")
 			return
 		}
 		if len(evs) == 0 {
@@ -246,9 +246,9 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 		case e, ok := <-sub.C():
 			if !ok {
 				if sub.Lagged() {
-					_ = c.Close(wsCloseLagging, "zu langsam – mit since neu verbinden")
+					_ = c.Close(wsCloseLagging, "too slow – reconnect with since")
 				} else {
-					_ = c.Close(websocket.StatusGoingAway, "Stream beendet")
+					_ = c.Close(websocket.StatusGoingAway, "stream ended")
 				}
 				return
 			}
@@ -286,8 +286,8 @@ func writeWS(ctx context.Context, c *websocket.Conn, typ websocket.MessageType, 
 	return c.Write(ctx, typ, data)
 }
 
-// ptyControl ist eine Steuernachricht auf dem Terminal-WebSocket (Textnachricht).
-// Binärnachrichten sind Terminal-Daten in beide Richtungen.
+// ptyControl is a control message on the terminal WebSocket (text message).
+// Binary messages are terminal data in both directions.
 type ptyControl struct {
 	Type string `json:"type"` // resize | input (Client → Daemon), exit (Daemon → Client)
 	Cols uint16 `json:"cols,omitempty"`
@@ -295,7 +295,7 @@ type ptyControl struct {
 	Data string `json:"data,omitempty"`
 }
 
-// handlePTYWS verbindet den Browser mit dem Terminal einer Session.
+// handlePTYWS connects the browser to the terminal of a session.
 func (s *Server) handlePTYWS(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	t, err := s.opts.Agents.AttachTerminal(r.Context(), id)
@@ -357,11 +357,11 @@ func (s *Server) handlePTYWS(w http.ResponseWriter, r *http.Request) {
 		case chunk, ok := <-t.Output:
 			if !ok {
 				if !t.Ended() {
-					_ = c.Close(wsCloseLagging, "zu langsam – neu verbinden")
+					_ = c.Close(wsCloseLagging, "too slow – reconnect")
 					return
 				}
 				_ = writeWSJSON(ctx, c, ptyControl{Type: "exit"})
-				_ = c.Close(websocket.StatusNormalClosure, "Prozess beendet")
+				_ = c.Close(websocket.StatusNormalClosure, "process ended")
 				return
 			}
 			if err := writeWS(ctx, c, websocket.MessageBinary, chunk); err != nil {

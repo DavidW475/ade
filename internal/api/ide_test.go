@@ -26,50 +26,50 @@ func TestIDETickets(t *testing.T) {
 	a.now = func() time.Time { return now }
 	parent, _ := a.Redeem(a.NewTicket())
 
-	// Ticket gilt nur für seinen Workspace und nur einmal.
+	// A ticket only applies to its workspace and only once.
 	t1 := a.NewIDETicket("ws1", parent)
 	if _, ok := a.RedeemIDE(t1, "ws2"); ok {
-		t.Error("Ticket für anderen Workspace eingelöst")
+		t.Error("ticket redeemed for another workspace")
 	}
 	if _, ok := a.RedeemIDE(t1, "ws1"); ok {
-		t.Error("verworfenes Ticket erneut eingelöst")
+		t.Error("discarded ticket redeemed again")
 	}
 	sess, ok := a.RedeemIDE(a.NewIDETicket("ws1", parent), "ws1")
 	if !ok {
-		t.Fatal("Ticket nicht eingelöst")
+		t.Fatal("ticket not redeemed")
 	}
 	if !a.ValidIDESession(sess, "ws1") || a.ValidIDESession(sess, "ws2") || a.ValidIDESession("", "ws1") {
-		t.Error("IDE-Session falsch geprüft")
+		t.Error("IDE session checked wrongly")
 	}
-	// Eine IDE-Session ist keine Dashboard-Session.
+	// An IDE session is not a dashboard session.
 	if a.ValidSession(sess) {
-		t.Error("IDE-Session gilt fürs Dashboard")
+		t.Error("IDE session applies to the dashboard")
 	}
 
 	// Abgelaufenes Ticket.
 	t3 := a.NewIDETicket("ws1", parent)
 	now = now.Add(TicketTTL)
 	if _, ok := a.RedeemIDE(t3, "ws1"); ok {
-		t.Error("abgelaufenes Ticket eingelöst")
+		t.Error("expired ticket redeemed")
 	}
 
-	// Logout der Dashboard-Session beendet auch die IDE-Session.
+	// Logging out of the dashboard session also ends the IDE session.
 	a.Logout(parent)
 	if a.ValidIDESession(sess, "ws1") {
-		t.Error("IDE-Session nach Logout gültig")
+		t.Error("IDE session valid after logout")
 	}
 	if _, ok := a.RedeemIDE(a.NewIDETicket("ws1", parent), "ws1"); ok {
-		t.Error("Ticket einer beendeten Session eingelöst")
+		t.Error("ticket of an ended session redeemed")
 	}
 
-	// Ohne Dashboard-Session (CLI mit Secret) gilt die eigene Laufzeit.
+	// Without a dashboard session (CLI with secret) its own lifetime applies.
 	cli, ok := a.RedeemIDE(a.NewIDETicket("ws1", ""), "ws1")
 	if !ok || !a.ValidIDESession(cli, "ws1") {
 		t.Fatal("CLI-Ticket")
 	}
 	now = now.Add(SessionTTL)
 	if a.ValidIDESession(cli, "ws1") {
-		t.Error("abgelaufene IDE-Session gültig")
+		t.Error("expired IDE session valid")
 	}
 }
 
@@ -79,8 +79,8 @@ type ideServer struct {
 	ws   *store.Workspace
 }
 
-// newIDEServer baut einen Server mit Projekt, Workspace und einer IDE, deren Binary fehlt.
-// Das Proxying selbst prüfen die Tests in internal/gateway und internal/ide.
+// newIDEServer builds a server with project, workspace and an IDE whose binary is missing.
+// The tests in internal/gateway and internal/ide check the proxying itself.
 func newIDEServer(t *testing.T) *ideServer {
 	t.Helper()
 	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "ade.db"))
@@ -94,7 +94,7 @@ func newIDEServer(t *testing.T) *ideServer {
 	t.Cleanup(wm.Close)
 	ides := ide.NewManager(ide.Options{
 		Dir:    t.TempDir(),
-		Binary: "/gibt/es/nicht/openvscode-server",
+		Binary: "/does/not/exist/openvscode-server",
 		Logger: log,
 		Workspaces: func(ctx context.Context, id string) (string, error) {
 			w, err := wm.Get(ctx, id)
@@ -135,8 +135,8 @@ func TestIDERoutes(t *testing.T) {
 	if st.State != ide.StateStopped || st.URL != "http://ws-"+x.ws.ID+".localhost:7000/" {
 		t.Fatalf("Status = %#v", st)
 	}
-	api(t, x.s, "GET", "/api/workspaces/fehlt/ide", "", http.StatusNotFound, nil)
-	api(t, x.s, "POST", "/api/workspaces/fehlt/ide", "", http.StatusNotFound, nil)
+	api(t, x.s, "GET", "/api/workspaces/missing/ide", "", http.StatusNotFound, nil)
+	api(t, x.s, "POST", "/api/workspaces/missing/ide", "", http.StatusNotFound, nil)
 
 	api(t, x.s, "POST", base, "", http.StatusAccepted, &st)
 	deadline := time.Now().Add(5 * time.Second)
@@ -147,26 +147,26 @@ func TestIDERoutes(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 		api(t, x.s, "GET", base, "", http.StatusOK, &st)
 	}
-	if !strings.Contains(st.Error, "nicht gefunden") {
-		t.Errorf("Fehler = %q", st.Error)
+	if !strings.Contains(st.Error, "not found") {
+		t.Errorf("error = %q", st.Error)
 	}
 	api(t, x.s, "DELETE", base, "", http.StatusNoContent, nil)
 	api(t, x.s, "GET", base, "", http.StatusOK, &st)
 	if st.State != ide.StateStopped {
-		t.Errorf("Status nach Stop = %#v", st)
+		t.Errorf("status after Stop = %#v", st)
 	}
 
-	// Ohne Anmeldung gibt es weder Status noch Ticket.
+	// Without login there is neither status nor ticket.
 	if w := do(x.s, "GET", base, nil); w.Code != http.StatusUnauthorized {
-		t.Errorf("Status ohne Auth: %d", w.Code)
+		t.Errorf("status without auth: %d", w.Code)
 	}
 	if w := do(x.s, "POST", base+"/ticket", nil); w.Code != http.StatusUnauthorized {
-		t.Errorf("Ticket ohne Auth: %d", w.Code)
+		t.Errorf("ticket without auth: %d", w.Code)
 	}
 }
 
-// TestIDEOnlyWithSession prüft den Weg Dashboard → Ticket → Subdomain durch den ganzen
-// Server (Host-Routing, Origin-Prüfung, Gateway).
+// TestIDEOnlyWithSession checks the path dashboard → ticket → subdomain through the whole
+// server (host routing, origin check, gateway).
 func TestIDEOnlyWithSession(t *testing.T) {
 	x := newIDEServer(t)
 	host := "ws-" + x.ws.ID + ".localhost:7000"
@@ -179,11 +179,11 @@ func TestIDEOnlyWithSession(t *testing.T) {
 		}
 	}
 
-	// Ohne IDE-Cookie: gesperrt – auch mit Dashboard-Cookie oder Daemon-Secret.
+	// Without IDE cookie: locked – even with a dashboard cookie or the daemon secret.
 	dash, _ := x.auth.Redeem(x.auth.NewTicket())
 	for name, mod := range map[string]func(*http.Request){
 		"ohne":             nil,
-		"Dashboard-Cookie": func(r *http.Request) { r.AddCookie(&http.Cookie{Name: SessionCookie, Value: dash}) },
+		"dashboard cookie": func(r *http.Request) { r.AddCookie(&http.Cookie{Name: SessionCookie, Value: dash}) },
 		"Daemon-Secret":    func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+testSecret) },
 	} {
 		if w := do(x.s, "GET", "/", onHost(host, mod)); w.Code != http.StatusUnauthorized {
@@ -191,7 +191,7 @@ func TestIDEOnlyWithSession(t *testing.T) {
 		}
 	}
 
-	// Ticket über das Dashboard holen (mit Dashboard-Session).
+	// Fetch a ticket through the dashboard (with dashboard session).
 	w := do(x.s, "POST", "/api/workspaces/"+x.ws.ID+"/ide/ticket", func(r *http.Request) {
 		r.AddCookie(&http.Cookie{Name: SessionCookie, Value: dash})
 		r.Header.Set("Origin", "http://localhost:7000")
@@ -206,9 +206,9 @@ func TestIDEOnlyWithSession(t *testing.T) {
 		t.Fatalf("Ticket-URL = %q", tr.URL)
 	}
 
-	// Das Ticket gilt nicht auf dem Dashboard und nicht für eine andere IDE.
+	// The ticket does not apply on the dashboard and not for another IDE.
 	if w := do(x.s, "GET", u.RequestURI(), onHost("ws-anders.localhost:7000", nil)); w.Code != http.StatusUnauthorized {
-		t.Errorf("Ticket auf anderer IDE: %d", w.Code)
+		t.Errorf("ticket on another IDE: %d", w.Code)
 	}
 	w = do(x.s, "POST", "/api/workspaces/"+x.ws.ID+"/ide/ticket", func(r *http.Request) {
 		r.AddCookie(&http.Cookie{Name: SessionCookie, Value: dash})
@@ -221,25 +221,25 @@ func TestIDEOnlyWithSession(t *testing.T) {
 		t.Fatalf("Login: %d %s", w.Code, w.Body.String())
 	}
 	cookie := w.Result().Cookies()[0]
-	// Die Dashboard-CSP gilt nicht für die IDE (VS Code bringt eine eigene mit).
+	// The dashboard CSP does not apply to the IDE (VS Code brings its own).
 	if w.Header().Get("X-Frame-Options") != "" {
-		t.Error("Dashboard-Header auf der IDE-Subdomain")
+		t.Error("dashboard header on the IDE subdomain")
 	}
 
-	// Mit Cookie geht die Anfrage an die IDE (hier: Binary fehlt → 502).
+	// With cookie the request goes to the IDE (here: binary missing → 502).
 	w = do(x.s, "GET", "/", onHost(host, func(r *http.Request) { r.AddCookie(cookie) }))
 	if w.Code != http.StatusBadGateway {
-		t.Errorf("mit IDE-Cookie: %d %s", w.Code, w.Body.String())
+		t.Errorf("with IDE cookie: %d %s", w.Code, w.Body.String())
 	}
 
-	// Das IDE-Cookie öffnet nicht das Dashboard.
+	// The IDE cookie does not open the dashboard.
 	if w := do(x.s, "GET", "/api/session", func(r *http.Request) {
 		r.AddCookie(&http.Cookie{Name: SessionCookie, Value: cookie.Value})
 	}); w.Code != http.StatusUnauthorized {
 		t.Errorf("IDE-Session am Dashboard: %d", w.Code)
 	}
 
-	// WebSockets und Schreibzugriffe auf die IDE nur vom eigenen Origin.
+	// WebSockets and write access to the IDE only from its own origin.
 	for origin, want := range map[string]int{
 		"http://" + host:                  http.StatusBadGateway,
 		"http://ws-anders.localhost:7000": http.StatusForbidden,
@@ -256,9 +256,9 @@ func TestIDEOnlyWithSession(t *testing.T) {
 		}
 	}
 
-	// Logout im Dashboard sperrt auch die IDE.
+	// Logging out in the dashboard also locks the IDE.
 	do(x.s, "POST", "/api/auth/logout", func(r *http.Request) { r.AddCookie(&http.Cookie{Name: SessionCookie, Value: dash}) })
 	if w := do(x.s, "GET", "/", onHost(host, func(r *http.Request) { r.AddCookie(cookie) })); w.Code != http.StatusUnauthorized {
-		t.Errorf("nach Logout: %d", w.Code)
+		t.Errorf("after logout: %d", w.Code)
 	}
 }

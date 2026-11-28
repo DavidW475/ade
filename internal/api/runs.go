@@ -23,7 +23,7 @@ func (s *Server) routesRuns(mux *http.ServeMux) {
 func (s *Server) handleListFactories(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("project_id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "project_id fehlt")
+		writeError(w, http.StatusBadRequest, "project_id missing")
 		return
 	}
 	list, err := s.opts.Runs.Factories(r.Context(), id)
@@ -79,8 +79,8 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, v)
 }
 
-// handleRunArtifact liefert ein Artefakt als Text. Es stammt von einem Agenten: nie als HTML
-// ausliefern (nosniff setzt securityHeaders).
+// handleRunArtifact returns an artifact as text. It comes from an agent: never serve it as
+// HTML (securityHeaders sets nosniff).
 func (s *Server) handleRunArtifact(w http.ResponseWriter, r *http.Request) {
 	iteration := 0
 	if q := r.URL.Query().Get("iteration"); q != "" {

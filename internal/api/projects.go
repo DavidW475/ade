@@ -35,7 +35,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ps)
 }
 
-// AddProjectRequest ist der Body von POST /api/projects.
+// AddProjectRequest is the body of POST /api/projects.
 type AddProjectRequest struct {
 	Path string `json:"path"`
 }
@@ -51,11 +51,11 @@ func (s *Server) handleAddProject(w http.ResponseWriter, r *http.Request) {
 		s.writeAppError(w, err)
 		return
 	}
-	s.opts.Logger.Info("Projekt registriert", "id", p.ID, "name", p.Name, "pfad", p.RepoPath)
+	s.opts.Logger.Info("project registered", "id", p.ID, "name", p.Name, "path", p.RepoPath)
 	writeJSON(w, http.StatusCreated, p)
 }
 
-// handleGetProject akzeptiert ID, Name oder Repo-Pfad (für die CLI).
+// handleGetProject accepts ID, name or repository path (for the CLI).
 func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 	p, err := s.opts.Projects.Find(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -80,12 +80,12 @@ func (s *Server) handleRemoveProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.opts.Projects.Remove(ctx, p.ID); err != nil {
 		if errors.Is(err, apperr.ErrConflict) {
-			err = apperr.Conflict("Projekt %s hat noch Workspaces; erst löschen oder das Abmelden erzwingen (ade project remove --force)", p.Name)
+			err = apperr.Conflict("project %s still has workspaces; delete them first or force the removal (ade project remove --force)", p.Name)
 		}
 		s.writeAppError(w, err)
 		return
 	}
-	s.opts.Logger.Info("Projekt entfernt", "id", p.ID, "name", p.Name)
+	s.opts.Logger.Info("project removed", "id", p.ID, "name", p.Name)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -139,13 +139,13 @@ func (s *Server) handleWorkspaceDiff(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, d)
 }
 
-// decodeBody liest einen JSON-Body (höchstens 1 MiB, keine unbekannten Felder).
-// Ein leerer Body ergibt den Nullwert.
+// decodeBody reads a JSON body (at most 1 MiB, no unknown fields).
+// An empty body results in the zero value.
 func decodeBody(r *http.Request, v any) error {
 	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil && !errors.Is(err, io.EOF) {
-		return apperr.Invalid("ungültiger JSON-Body: %v", err)
+		return apperr.Invalid("invalid JSON body: %v", err)
 	}
 	return nil
 }
@@ -160,7 +160,7 @@ func (s *Server) writeAppError(w http.ResponseWriter, err error) {
 	case errors.Is(err, apperr.ErrConflict):
 		code = http.StatusConflict
 	default:
-		s.opts.Logger.Error("API-Fehler", "err", err)
+		s.opts.Logger.Error("API error", "err", err)
 	}
 	writeError(w, code, fmt.Sprint(err))
 }

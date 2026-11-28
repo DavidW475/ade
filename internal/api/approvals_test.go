@@ -45,7 +45,7 @@ func TestApprovalRoutes(t *testing.T) {
 		w := httptest.NewRecorder()
 		s.ServeHTTP(w, r)
 		if w.Code != http.StatusUnauthorized {
-			t.Errorf("%s %s ohne Auth: %d", rt[0], rt[1], w.Code)
+			t.Errorf("%s %s without auth: %d", rt[0], rt[1], w.Code)
 		}
 	}
 
@@ -60,7 +60,7 @@ func TestApprovalRoutes(t *testing.T) {
 		return w
 	}
 	call := `{"session":"s1","input":{"tool_name":"Bash","tool_input":{"command":"make"}}}`
-	// Weder Daemon-Secret noch fremdes Token öffnen den Hook-Endpunkt.
+	// Neither the daemon secret nor a foreign token opens the hook endpoint.
 	for _, tok := range []string{"", testSecret, "falsch"} {
 		if w := hook(tok, call); w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), `"deny"`) {
 			t.Errorf("Token %q: %d %s", tok, w.Code, w.Body.String())
@@ -93,10 +93,10 @@ func TestApprovalRoutes(t *testing.T) {
 	api(t, s, "POST", "/api/approvals/"+id, `{"decision":"vielleicht"}`, http.StatusBadRequest, nil)
 	api(t, s, "POST", "/api/approvals/"+id, `{"decision":"allow","reason":"passt"}`, http.StatusOK, &one)
 	if one.Status != store.ApprovalApproved || one.Reason != "passt" {
-		t.Fatalf("Freigabe %+v", one)
+		t.Fatalf("approval %+v", one)
 	}
 	if a := <-done; a.Decision != proxy.AnswerAllow {
-		t.Fatalf("Antwort %+v", a)
+		t.Fatalf("answer %+v", a)
 	}
 	api(t, s, "POST", "/api/approvals/"+id, `{"decision":"deny"}`, http.StatusConflict, nil)
 	api(t, s, "GET", "/api/approvals/gibtsnicht", "", http.StatusNotFound, nil)

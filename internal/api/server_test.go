@@ -50,7 +50,7 @@ func TestHealth(t *testing.T) {
 		t.Fatalf("Health = %#v", h)
 	}
 	if w.Header().Get("Cache-Control") != "no-store" {
-		t.Errorf("Cache-Control fehlt")
+		t.Errorf("Cache-Control missing")
 	}
 }
 
@@ -68,8 +68,8 @@ func TestHostGuard(t *testing.T) {
 		"LOCALHOST:7000":         http.StatusOK,
 		"127.0.0.1:7000":         http.StatusOK,
 		"[::1]:7000":             http.StatusOK,
-		"ws-42.localhost:7000":   http.StatusNotFound,  // erlaubt, geht ans Gateway (hier ohne IDE)
-		"localhost":              http.StatusForbidden, // Port fehlt
+		"ws-42.localhost:7000":   http.StatusNotFound,  // allowed, goes to the gateway (here without IDE)
+		"localhost":              http.StatusForbidden, // port missing
 		"localhost:8080":         http.StatusForbidden,
 		"evil.example:7000":      http.StatusForbidden,
 		"localhost.evil.example": http.StatusForbidden,
@@ -88,13 +88,13 @@ func TestHostGuard(t *testing.T) {
 func TestOriginGuard(t *testing.T) {
 	s, _ := newTestServer(t, fakeStore{})
 	cases := map[string]int{
-		"":                            http.StatusCreated, // CLI ohne Origin
+		"":                            http.StatusCreated, // CLI without Origin
 		"http://localhost:7000":       http.StatusCreated,
 		"http://127.0.0.1:7000":       http.StatusCreated,
 		"http://localhost:8080":       http.StatusForbidden,
 		"https://localhost:7000":      http.StatusForbidden,
 		"http://evil.example":         http.StatusForbidden,
-		"http://ws-42.localhost:7000": http.StatusForbidden, // IDE-Origin darf die API nicht ändern
+		"http://ws-42.localhost:7000": http.StatusForbidden, // an IDE origin must not change the API
 		"null":                        http.StatusForbidden,
 	}
 	for origin, want := range cases {
@@ -122,7 +122,7 @@ func TestOriginGuard(t *testing.T) {
 		r.Header.Set("Origin", "http://evil.example")
 	})
 	if w.Code != http.StatusForbidden {
-		t.Errorf("WebSocket mit fremdem Origin: Code = %d", w.Code)
+		t.Errorf("WebSocket with foreign origin: code = %d", w.Code)
 	}
 }
 
@@ -144,7 +144,7 @@ func TestLoginFlow(t *testing.T) {
 	s, _ := newTestServer(t, fakeStore{})
 
 	if w := do(s, "GET", "/api/session", nil); w.Code != http.StatusUnauthorized {
-		t.Fatalf("ohne Login: Code = %d", w.Code)
+		t.Fatalf("without login: code = %d", w.Code)
 	}
 
 	w := do(s, "POST", "/api/auth/tickets", func(r *http.Request) {
@@ -158,10 +158,10 @@ func TestLoginFlow(t *testing.T) {
 		t.Fatalf("LoginPath = %q", tr.LoginPath)
 	}
 
-	// Anmeldung über eine IDE-Subdomain ist nicht erlaubt (die Anfrage geht ans Gateway).
+	// Login through an IDE subdomain is not allowed (the request goes to the gateway).
 	w = do(s, "GET", tr.LoginPath, func(r *http.Request) { r.Host = "ws-1.localhost:7000" })
 	if w.Code == http.StatusSeeOther || len(w.Result().Cookies()) != 0 {
-		t.Fatalf("Login über Subdomain: Code = %d, Cookies = %v", w.Code, w.Result().Cookies())
+		t.Fatalf("login through subdomain: code = %d, cookies = %v", w.Code, w.Result().Cookies())
 	}
 
 	w = do(s, "GET", tr.LoginPath, nil)
@@ -176,12 +176,12 @@ func TestLoginFlow(t *testing.T) {
 	session := cookies[0]
 
 	if w := do(s, "GET", "/api/session", func(r *http.Request) { r.AddCookie(session) }); w.Code != http.StatusOK {
-		t.Fatalf("mit Cookie: Code = %d", w.Code)
+		t.Fatalf("with cookie: code = %d", w.Code)
 	}
 
-	// Tickets gelten nur einmal.
+	// Tickets only work once.
 	if w := do(s, "GET", tr.LoginPath, nil); w.Code != http.StatusUnauthorized {
-		t.Fatalf("zweites Einlösen: Code = %d", w.Code)
+		t.Fatalf("second redemption: code = %d", w.Code)
 	}
 
 	w = do(s, "POST", "/api/auth/logout", func(r *http.Request) {
@@ -192,7 +192,7 @@ func TestLoginFlow(t *testing.T) {
 		t.Fatalf("Logout: Code = %d", w.Code)
 	}
 	if w := do(s, "GET", "/api/session", func(r *http.Request) { r.AddCookie(session) }); w.Code != http.StatusUnauthorized {
-		t.Fatalf("nach Logout: Code = %d", w.Code)
+		t.Fatalf("after logout: code = %d", w.Code)
 	}
 }
 
@@ -211,13 +211,13 @@ func TestTicketExpires(t *testing.T) {
 	ticket := a.NewTicket()
 	now = now.Add(TicketTTL)
 	if _, ok := a.Redeem(ticket); ok {
-		t.Fatal("abgelaufenes Ticket wurde akzeptiert")
+		t.Fatal("expired ticket was accepted")
 	}
 
 	ticket = a.NewTicket()
 	id, ok := a.Redeem(ticket)
 	if !ok {
-		t.Fatal("gültiges Ticket abgelehnt")
+		t.Fatal("valid ticket rejected")
 	}
 	now = now.Add(SessionTTL)
 	if a.ValidSession(id) {
@@ -227,7 +227,7 @@ func TestTicketExpires(t *testing.T) {
 
 func TestUnknownAPIPath(t *testing.T) {
 	s, _ := newTestServer(t, fakeStore{})
-	w := do(s, "GET", "/api/gibt-es-nicht", nil)
+	w := do(s, "GET", "/api/does-not-exist", nil)
 	if w.Code != http.StatusNotFound || !strings.Contains(w.Header().Get("Content-Type"), "json") {
 		t.Fatalf("Code = %d, Content-Type = %q", w.Code, w.Header().Get("Content-Type"))
 	}
@@ -249,7 +249,7 @@ func TestSPAHandler(t *testing.T) {
 		{"/projekte/42", "index", http.StatusOK},
 		{"/assets/app-1.js", "console", http.StatusOK},
 		{"/favicon.svg", "svg", http.StatusOK},
-		{"/assets/fehlt.js", "", http.StatusNotFound},
+		{"/assets/missing.js", "", http.StatusNotFound},
 	}
 	for _, c := range cases {
 		w := httptest.NewRecorder()
@@ -262,7 +262,7 @@ func TestSPAHandler(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/assets/app-1.js", nil))
 	if !strings.Contains(w.Header().Get("Cache-Control"), "immutable") {
-		t.Errorf("Assets ohne Cache-Control immutable")
+		t.Errorf("assets without Cache-Control immutable")
 	}
 
 	w = httptest.NewRecorder()
@@ -275,7 +275,7 @@ func TestSPAHandler(t *testing.T) {
 func TestSPAHandlerWithoutFrontend(t *testing.T) {
 	w := httptest.NewRecorder()
 	spaHandler(fstest.MapFS{}).ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "ADE läuft") {
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "ADE is running") {
 		t.Fatalf("Code = %d, Body = %q", w.Code, w.Body.String())
 	}
 }

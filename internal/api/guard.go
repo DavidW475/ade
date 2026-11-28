@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// allowedHost meldet, ob ein Hostname zu localhost gehört. Subdomains von localhost
-// (ws-<id>.localhost, ADR-004) sind erlaubt, alles andere nicht – das verhindert
-// DNS-Rebinding, bei dem eine fremde Domain auf 127.0.0.1 zeigt.
+// allowedHost reports whether a host name belongs to localhost. Subdomains of localhost
+// (ws-<id>.localhost, ADR-004) are allowed, everything else is not – this prevents DNS
+// rebinding, where a foreign domain points to 127.0.0.1.
 func allowedHost(host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	switch host {
@@ -19,7 +19,7 @@ func allowedHost(host string) bool {
 	return strings.HasSuffix(host, ".localhost")
 }
 
-// dashboardHost meldet, ob ein Hostname das Dashboard selbst ist (keine IDE-Subdomain).
+// dashboardHost reports whether a host name is the dashboard itself (no IDE subdomain).
 func dashboardHost(host string) bool {
 	switch strings.ToLower(host) {
 	case "localhost", "127.0.0.1", "::1":
@@ -35,36 +35,36 @@ func splitHost(hostport string) (host, port string) {
 	return strings.Trim(hostport, "[]"), ""
 }
 
-// hostGuard lehnt Anfragen ab, deren Host-Header nicht localhost mit dem Port des
-// Daemons ist.
+// hostGuard rejects requests whose Host header is not localhost with the daemon's
+// port.
 func hostGuard(port string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, p := splitHost(r.Host)
 		if !allowedHost(host) || p != port {
-			http.Error(w, "unzulässiger Host-Header", http.StatusForbidden)
+			http.Error(w, "invalid Host header", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
-// originGuard schützt zustandsändernde Anfragen und WebSocket-Upgrades vor fremden Webseiten
-// (CSRF): Ein mitgeschickter Origin muss das Dashboard auf dem eigenen Port sein, bei einer
-// IDE-Subdomain genau diese Subdomain (eine IDE darf weder das Dashboard noch eine andere
-// IDE ansprechen).
-// Anfragen ohne Origin stammen nicht aus einem Browser-Kontext (z. B. CLI) und brauchen
-// weiterhin eine gültige Authentifizierung.
+// originGuard protects state-changing requests and WebSocket upgrades against foreign websites
+// (CSRF): an Origin that is sent along must be the dashboard on its own port, for an IDE
+// subdomain exactly this subdomain (an IDE may neither address the dashboard nor another
+// IDE).
+// Requests without an Origin do not come from a browser context (e.g. CLI) and still need
+// valid authentication.
 func originGuard(port string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		safe := r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions
 		upgrade := strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 		if !safe || upgrade {
 			if site := r.Header.Get("Sec-Fetch-Site"); site == "cross-site" {
-				http.Error(w, "Cross-Site-Anfrage abgelehnt", http.StatusForbidden)
+				http.Error(w, "cross-site request rejected", http.StatusForbidden)
 				return
 			}
 			if origin := r.Header.Get("Origin"); origin != "" && !allowedOrigin(origin, r.Host, port) {
-				http.Error(w, "unzulässiger Origin", http.StatusForbidden)
+				http.Error(w, "invalid Origin", http.StatusForbidden)
 				return
 			}
 		}
@@ -91,7 +91,7 @@ func allowedOrigin(origin, reqHost, port string) bool {
 	return strings.EqualFold(u.Hostname(), strings.TrimSuffix(host, "."))
 }
 
-// securityHeaders setzt Header, die für alle Antworten gelten.
+// securityHeaders sets headers that apply to all responses.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()

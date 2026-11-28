@@ -15,20 +15,20 @@ func (s *Server) routesUsage(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/usage", s.requireAuth(s.handleUsage))
 }
 
-// UsageResponse ist die Antwort von GET /api/usage.
+// UsageResponse is the answer of GET /api/usage.
 type UsageResponse struct {
-	// Total sind alle Kosten (des Projekts, falls project_id gesetzt ist).
+	// Total are all costs (of the project, if project_id is set).
 	Total store.UsageTotal `json:"total"`
-	// Month sind die Kosten im laufenden Kalendermonat (UTC).
+	// Month are the costs in the current calendar month (UTC).
 	Month      store.UsageTotal `json:"month"`
 	MonthStart time.Time        `json:"month_start"`
-	// MonthlyBudgetUSD ist budget.monthly_usd des Projekts (0: keins).
+	// MonthlyBudgetUSD is the project's budget.monthly_usd (0: none).
 	MonthlyBudgetUSD float64 `json:"monthly_budget_usd,omitempty"`
-	// Projects: Monatssummen je Projekt (ohne project_id).
+	// Projects: monthly sums per project (without project_id).
 	Projects map[string]store.UsageTotal `json:"projects,omitempty"`
-	// Workspaces: Summen je Workspace (mit project_id).
+	// Workspaces: sums per workspace (with project_id).
 	Workspaces map[string]store.UsageTotal `json:"workspaces,omitempty"`
-	// PricesAsOf ist der Stand der eingebauten Preistabelle.
+	// PricesAsOf is the date of the built-in price table.
 	PricesAsOf string `json:"prices_as_of"`
 }
 

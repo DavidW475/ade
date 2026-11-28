@@ -23,31 +23,31 @@ func (s *Server) routesSandbox(mux *http.ServeMux) {
 	}
 }
 
-// Netzwerk-Modi eines Sandbox-Containers (SandboxInfo.Network, WorkspaceSandbox.Network).
+// Network modes of a sandbox container (SandboxInfo.Network, WorkspaceSandbox.Network).
 const (
-	// NetworkProxy: internes Netz, Internet nur über den Egress-Proxy (M6).
+	// NetworkProxy: internal network, internet only through the egress proxy (M6).
 	NetworkProxy = "proxy"
-	// NetworkOpen: normales Docker-Netz (Container aus M5, bis zum nächsten Start).
+	// NetworkOpen: normal Docker network (container from M5, until the next start).
 	NetworkOpen = "open"
 )
 
-// SandboxInfo ist die Antwort von GET /api/sandbox.
+// SandboxInfo is the answer of GET /api/sandbox.
 type SandboxInfo struct {
-	// Available: Die Docker-CLI erreicht einen Docker-Daemon.
+	// Available: the Docker CLI reaches a Docker daemon.
 	Available     bool   `json:"available"`
 	Error         string `json:"error,omitempty"`
 	DockerVersion string `json:"docker_version,omitempty"`
-	// Runtime ist die erkannte Container-Laufzeit (z. B. „Podman (rootless)“).
+	// Runtime is the detected container runtime (e.g. “Podman (rootless)”).
 	Runtime string `json:"runtime,omitempty"`
-	// Image ist das Standard-Image.
+	// Image is the default image.
 	Image string `json:"image"`
-	// Default ist die Voreinstellung für neue Workspaces (defaults.sandbox).
+	// Default is the default for new workspaces (defaults.sandbox).
 	Default bool `json:"default"`
-	// Network beschreibt die Netzwerk-Isolation neuer Container ("proxy").
+	// Network describes the network isolation of new containers ("proxy").
 	Network string `json:"network"`
-	// Presets sind die verfügbaren egress.presets mit ihren Hosts.
+	// Presets are the available egress.presets with their hosts.
 	Presets map[string][]string `json:"presets"`
-	// DefaultPresets gelten ohne egress-Abschnitt.
+	// DefaultPresets apply without an egress section.
 	DefaultPresets []string `json:"default_presets"`
 }
 
@@ -67,7 +67,7 @@ func (s *Server) handleSandboxInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, info)
 }
 
-// GCResponse ist die Antwort von POST /api/sandbox/gc.
+// GCResponse is the answer of POST /api/sandbox/gc.
 type GCResponse struct {
 	DryRun  bool                `json:"dry_run"`
 	Removed []sandbox.Container `json:"removed"`
@@ -90,11 +90,11 @@ func (s *Server) handleSandboxGC(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, GCResponse{DryRun: dry, Removed: removed})
 }
 
-// WorkspaceSandbox ist die Antwort von GET /api/workspaces/{id}/sandbox.
+// WorkspaceSandbox is the answer of GET /api/workspaces/{id}/sandbox.
 type WorkspaceSandbox struct {
 	Sandbox bool   `json:"sandbox"`
 	Image   string `json:"image,omitempty"`
-	// Container fehlt, wenn er (noch) nicht existiert.
+	// Container is missing if it does not exist (yet).
 	Container *sandbox.Container `json:"container,omitempty"`
 	Error     string             `json:"error,omitempty"`
 	Network   string             `json:"network,omitempty"`
@@ -117,30 +117,30 @@ func (s *Server) handleWorkspaceSandbox(w http.ResponseWriter, r *http.Request) 
 			c.Mounts = nil
 			out.Container = c
 			if c.Net != sandbox.NetVersion {
-				out.Network = NetworkOpen // wird beim nächsten Start neu angelegt
+				out.Network = NetworkOpen // recreated on the next start
 			}
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-// EgressPolicy ist die wirksame Netzwerk-Policy eines Workspaces.
+// EgressPolicy is the effective network policy of a workspace.
 type EgressPolicy struct {
 	*sandbox.Egress
-	// EffectiveAllow sind alle erlaubten Einträge (Presets aufgelöst plus allow).
+	// EffectiveAllow are all allowed entries (presets resolved plus allow).
 	EffectiveAllow []string `json:"effective_allow"`
-	// Error ist gesetzt, wenn .ade/sandbox.yaml ungültig ist (dann gilt die Voreinstellung).
+	// Error is set if .ade/sandbox.yaml is invalid (then the defaults apply).
 	Error string `json:"error,omitempty"`
-	// Secrets nennt die Anbieter mit Secret-Injection (nur Namen, nie Keys).
+	// Secrets names the providers with secret injection (names only, never keys).
 	Providers []string `json:"providers"`
 }
 
-// WorkspaceEgress ist die Antwort von GET /api/workspaces/{id}/egress.
+// WorkspaceEgress is the answer of GET /api/workspaces/{id}/egress.
 type WorkspaceEgress struct {
 	Events []store.EgressEvent `json:"events"`
 	Hosts  []store.EgressHost  `json:"hosts"`
 	Policy *EgressPolicy       `json:"policy,omitempty"`
-	// Grants sind Ausnahmen aus Freigaben (projektweit und für diesen Workspace).
+	// Grants are exceptions from approvals (project-wide and for this workspace).
 	Grants []store.EgressGrant `json:"grants"`
 }
 

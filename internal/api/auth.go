@@ -9,20 +9,20 @@ import (
 )
 
 const (
-	// SessionCookie ist der Name des HttpOnly-Cookies für Browser-Sessions.
+	// SessionCookie is the name of the HttpOnly cookie for browser sessions.
 	SessionCookie = "ade_session"
-	// TicketTTL ist die Gültigkeit eines Einmal-Tokens aus `ade start`.
+	// TicketTTL is the validity of a one-time token from `ade start`.
 	TicketTTL = 2 * time.Minute
-	// SessionTTL ist die Gültigkeit einer Browser-Session.
+	// SessionTTL is the validity of a browser session.
 	SessionTTL = 7 * 24 * time.Hour
 )
 
-// Auth verwaltet das Daemon-Secret (für die CLI), Einmal-Tokens (Tickets) und Browser-Sessions.
+// Auth manages the daemon secret (for the CLI), one-time tokens (tickets) and browser sessions.
 //
-// Ablauf (ADR-008): `ade start` weist sich mit dem Secret aus der Datei daemon.secret aus,
-// holt ein Ticket und öffnet /auth/login?ticket=… im Browser. Der Daemon tauscht das Ticket
-// gegen ein HttpOnly-Cookie. Sessions liegen nur im Speicher; nach einem Daemon-Neustart
-// meldet `ade start` den Browser neu an.
+// Flow (ADR-008): `ade start` authenticates with the secret from the file daemon.secret,
+// fetches a ticket and opens /auth/login?ticket=… in the browser. The daemon exchanges the
+// ticket for an HttpOnly cookie. Sessions only live in memory; after a daemon restart
+// `ade start` logs the browser in again.
 type Auth struct {
 	secret string
 	now    func() time.Time
@@ -31,20 +31,20 @@ type Auth struct {
 	tickets  map[string]time.Time // Ticket → Ablaufzeit
 	sessions map[string]time.Time // Session-ID → Ablaufzeit
 
-	// IDE-Tickets und -Sessions gelten nur für einen Workspace (ADR-004, ws-<id>.localhost).
+	// IDE tickets and sessions only apply to one workspace (ADR-004, ws-<id>.localhost).
 	ideTickets  map[string]ideGrant
 	ideSessions map[string]ideGrant
 }
 
-// ideGrant bindet ein IDE-Ticket bzw. eine IDE-Session an einen Workspace und an die
-// Dashboard-Session, aus der sie entstand: Endet diese (Logout), endet auch die IDE-Session.
+// ideGrant binds an IDE ticket or IDE session to a workspace and to the dashboard session it
+// came from: if that ends (logout), the IDE session ends as well.
 type ideGrant struct {
 	workspace string
-	parent    string // Dashboard-Session; leer bei Anfragen mit Daemon-Secret
+	parent    string // dashboard session; empty for requests with the daemon secret
 	expires   time.Time
 }
 
-// NewAuth erzeugt eine Auth-Instanz mit dem gegebenen Daemon-Secret.
+// NewAuth creates an Auth instance with the given daemon secret.
 func NewAuth(secret string) *Auth {
 	return &Auth{
 		secret:      secret,
@@ -56,20 +56,20 @@ func NewAuth(secret string) *Auth {
 	}
 }
 
-// RandomToken erzeugt einen zufälligen, URL-sicheren Token mit 256 Bit.
+// RandomToken creates a random, URL-safe token with 256 bits.
 func RandomToken() string {
 	b := make([]byte, 32)
-	// crypto/rand.Read schlägt laut Doku nie fehl.
+	// According to its docs, crypto/rand.Read never fails.
 	_, _ = rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// CheckSecret vergleicht ein vorgelegtes Secret in konstanter Zeit.
+// CheckSecret compares a presented secret in constant time.
 func (a *Auth) CheckSecret(got string) bool {
 	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(a.secret)) == 1
 }
 
-// NewTicket erzeugt ein Einmal-Token, das innerhalb von TicketTTL eingelöst werden muss.
+// NewTicket creates a one-time token that must be redeemed within TicketTTL.
 func (a *Auth) NewTicket() string {
 	t := RandomToken()
 	a.mu.Lock()
@@ -79,7 +79,7 @@ func (a *Auth) NewTicket() string {
 	return t
 }
 
-// Redeem löst ein Ticket ein und liefert eine neue Session-ID. Jedes Ticket gilt genau einmal.
+// Redeem redeems a ticket and returns a new session ID. Every ticket works exactly once.
 func (a *Auth) Redeem(ticket string) (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -96,7 +96,7 @@ func (a *Auth) Redeem(ticket string) (string, bool) {
 	return id, true
 }
 
-// ValidSession meldet, ob die Session-ID existiert und nicht abgelaufen ist.
+// ValidSession reports whether the session ID exists and has not expired.
 func (a *Auth) ValidSession(id string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -118,15 +118,15 @@ func (a *Auth) validSessionLocked(id string) bool {
 	return true
 }
 
-// Logout beendet eine Session.
+// Logout ends a session.
 func (a *Auth) Logout(id string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	delete(a.sessions, id)
 }
 
-// NewIDETicket erzeugt ein Einmal-Token für die IDE eines Workspaces. parent ist die
-// Dashboard-Session des Aufrufers (leer bei Aufrufen mit Daemon-Secret).
+// NewIDETicket creates a one-time token for a workspace's IDE. parent is the caller's
+// dashboard session (empty for calls with the daemon secret).
 func (a *Auth) NewIDETicket(workspace, parent string) string {
 	t := RandomToken()
 	a.mu.Lock()
@@ -136,8 +136,8 @@ func (a *Auth) NewIDETicket(workspace, parent string) string {
 	return t
 }
 
-// RedeemIDE löst ein IDE-Ticket für workspace ein und liefert eine IDE-Session-ID.
-// Ein Ticket für einen anderen Workspace wird verworfen.
+// RedeemIDE redeems an IDE ticket for workspace and returns an IDE session ID.
+// A ticket for another workspace is discarded.
 func (a *Auth) RedeemIDE(ticket, workspace string) (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -157,7 +157,7 @@ func (a *Auth) RedeemIDE(ticket, workspace string) (string, bool) {
 	return id, true
 }
 
-// ValidIDESession meldet, ob id eine gültige IDE-Session für workspace ist.
+// ValidIDESession reports whether id is a valid IDE session for workspace.
 func (a *Auth) ValidIDESession(id, workspace string) bool {
 	if id == "" {
 		return false

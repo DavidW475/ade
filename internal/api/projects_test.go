@@ -67,13 +67,13 @@ func TestProjectWorkspaceFlow(t *testing.T) {
 		}
 	}
 
-	// Ohne Auth gesperrt.
+	// Locked without auth.
 	r := httptest.NewRequest("GET", "/api/projects", nil)
 	r.Host = "localhost:7000"
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, r)
 	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("ohne Auth: Code = %d", w.Code)
+		t.Fatalf("without auth: code = %d", w.Code)
 	}
 
 	api(t, s, "POST", "/api/projects", `{"path":"`+t.TempDir()+`"}`, http.StatusBadRequest, nil)
@@ -82,7 +82,7 @@ func TestProjectWorkspaceFlow(t *testing.T) {
 	var p project.View
 	api(t, s, "POST", "/api/projects", `{"path":"`+repo+`"}`, http.StatusCreated, &p)
 	if p.ID == "" || p.BaseBranch != "main" {
-		t.Fatalf("Projekt = %#v", p)
+		t.Fatalf("project = %#v", p)
 	}
 	api(t, s, "POST", "/api/projects", `{"path":"`+repo+`"}`, http.StatusConflict, nil)
 
@@ -99,14 +99,14 @@ func TestProjectWorkspaceFlow(t *testing.T) {
 	if ws.Status != store.WorkspaceReady {
 		t.Fatalf("Workspace = %#v", ws)
 	}
-	api(t, s, "POST", "/api/projects/"+p.ID+"/workspaces", `{"base_branch":"fehlt"}`, http.StatusBadRequest, nil)
+	api(t, s, "POST", "/api/projects/"+p.ID+"/workspaces", `{"base_branch":"missing"}`, http.StatusBadRequest, nil)
 
-	if err := os.WriteFile(filepath.Join(ws.Path, "neu.txt"), []byte("hallo\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(ws.Path, "new.txt"), []byte("hello\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var d git.Diff
 	api(t, s, "GET", "/api/workspaces/"+ws.ID+"/diff", "", http.StatusOK, &d)
-	if len(d.Files) != 1 || d.Files[0].Path != "neu.txt" || d.Files[0].Patch == "" {
+	if len(d.Files) != 1 || d.Files[0].Path != "new.txt" || d.Files[0].Patch == "" {
 		t.Fatalf("Diff = %#v", d)
 	}
 	var noPatch git.Diff
@@ -124,7 +124,7 @@ func TestProjectWorkspaceFlow(t *testing.T) {
 	api(t, s, "DELETE", "/api/projects/"+p.ID, "", http.StatusConflict, nil)
 	api(t, s, "DELETE", "/api/projects/"+p.ID+"?force=true", "", http.StatusNoContent, nil)
 	if _, err := os.Stat(ws.Path); !os.IsNotExist(err) {
-		t.Error("Workspace nach force-Löschen noch vorhanden")
+		t.Error("workspace still exists after force delete")
 	}
 	api(t, s, "GET", "/api/workspaces/"+ws.ID, "", http.StatusNotFound, nil)
 }
