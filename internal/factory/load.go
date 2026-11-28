@@ -13,13 +13,13 @@ import (
 	"github.com/DavidW475/ade/examples"
 )
 
-// Herkunft einer Fabrik.
+// Origin of a factory.
 const (
-	SourceProject = "project" // .ade/factories im Repo
-	SourceBuiltin = "builtin" // Vorlage aus examples/factories
+	SourceProject = "project" // .ade/factories in the repository
+	SourceBuiltin = "builtin" // template from examples/factories
 )
 
-// Summary beschreibt eine verfügbare Fabrik.
+// Summary describes an available factory.
 type Summary struct {
 	Name        string           `json:"name"`
 	Description string           `json:"description,omitempty"`
@@ -27,21 +27,21 @@ type Summary struct {
 	Path        string           `json:"path"`
 	Inputs      map[string]Input `json:"inputs,omitempty"`
 	Steps       []StepSummary    `json:"steps,omitempty"`
-	// Error ist gesetzt, wenn die Datei ungültig ist.
+	// Error is set if the file is invalid.
 	Error string `json:"error,omitempty"`
 }
 
-// StepSummary ist ein Schritt für die Übersicht.
+// StepSummary is a step for the overview.
 type StepSummary struct {
 	Name     string `json:"name"`
 	Kind     string `json:"kind"`
 	Role     string `json:"role,omitempty"`
 	ReadOnly bool   `json:"read_only,omitempty"`
-	// Group ist bei Mitgliedern einer parallelen Gruppe die Position des ersten Mitglieds.
+	// Group is, for members of a parallel group, the position of the first member.
 	Group *int `json:"group,omitempty"`
 }
 
-// Steps liefert die Schritte (flach) für die Übersicht.
+// Steps returns the steps (flat) for the overview.
 func (f *Factory) Steps() []StepSummary {
 	flat := f.Flat()
 	out := make([]StepSummary, len(flat))
@@ -57,11 +57,11 @@ func (f *Factory) Steps() []StepSummary {
 	return out
 }
 
-// Load lädt die Fabrik name: zuerst aus .ade/factories/<name>.yaml in repo, sonst die
-// eingebaute Vorlage. Fehlt beides, ist der Fehler fs.ErrNotExist.
+// Load loads the factory name: first from .ade/factories/<name>.yaml in repo, otherwise the
+// built-in template. If both are missing, the error is fs.ErrNotExist.
 func Load(repo, name string) (*Factory, string, error) {
 	if !ValidName(name) {
-		return nil, "", fmt.Errorf("%q ist kein gültiger Fabrik-Name", name)
+		return nil, "", fmt.Errorf("%q is not a valid factory name", name)
 	}
 	f, err := loadProject(repo, name)
 	if err == nil {
@@ -77,7 +77,7 @@ func Load(repo, name string) (*Factory, string, error) {
 	return f, SourceBuiltin, nil
 }
 
-// List liefert alle Fabriken eines Repos (eigene vor gleichnamigen Vorlagen), nach Name.
+// List returns all factories of a repository (own ones before templates of the same name), by name.
 func List(repo string) []Summary {
 	byName := map[string]Summary{}
 	for _, name := range builtinNames() {
@@ -119,8 +119,8 @@ func projectNames(repo string) []string {
 	return names
 }
 
-// loadProject liest eine Fabrik aus dem Repo. Prompts müssen unter .ade/factories liegen;
-// os.Root verhindert, dass Symlinks hinausführen.
+// loadProject reads a factory from the repository. Prompts must be under .ade/factories;
+// os.Root prevents symlinks from leading out.
 func loadProject(repo, name string) (*Factory, error) {
 	root, err := os.OpenRoot(filepath.Join(repo, Dir))
 	if err != nil {
@@ -141,7 +141,7 @@ func loadProject(repo, name string) (*Factory, error) {
 	f, err := Parse(path.Join(Dir, file), data, func(rel string) ([]byte, error) {
 		b, err := root.ReadFile(path.Clean(rel))
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("%s fehlt", path.Join(Dir, rel))
+			return nil, fmt.Errorf("%s is missing", path.Join(Dir, rel))
 		}
 		return b, err
 	})
@@ -149,7 +149,7 @@ func loadProject(repo, name string) (*Factory, error) {
 		return nil, err
 	}
 	if f.Name != name {
-		return nil, &Error{Path: path.Join(Dir, file), Msg: fmt.Sprintf("name: %q passt nicht zum Dateinamen (%s)", f.Name, name)}
+		return nil, &Error{Path: path.Join(Dir, file), Msg: fmt.Sprintf("name: %q does not match the file name (%s)", f.Name, name)}
 	}
 	return f, nil
 }

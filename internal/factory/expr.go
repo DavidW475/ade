@@ -10,32 +10,32 @@ import (
 	"unicode"
 )
 
-// Expr ist eine übersetzte Bedingung (when). Sprache:
+// Expr is a parsed condition (when). Language:
 //
 //	review.verdict == 'changes' || test.failed > 0
 //	!(len(review.comments) == 0) && review.score >= 7
 //
-// Pfade beginnen mit dem Namen eines früheren Schritts und lesen Felder aus seinem
-// strukturierten Artefakt; fehlende Felder sind null. Literale: 'text' oder "text", Zahlen,
-// true, false, null. Operatoren: == != < <= > >= && || ! und Klammern; len(x) liefert die
-// Länge einer Liste, eines Objekts oder einer Zeichenkette. < und > vergleichen nur Zahlen
-// mit Zahlen und Text mit Text (sonst falsch). Wahr sind alle Werte außer false, null, 0,
-// "" und leeren Listen/Objekten.
+// Paths start with the name of an earlier step and read fields from its structured
+// artifact; missing fields are null. Literals: 'text' or "text", numbers, true, false,
+// null. Operators: == != < <= > >= && || ! and parentheses; len(x) returns the length of a
+// list, an object or a string. < and > only compare numbers with numbers and text with text
+// (otherwise false). All values are true except false, null, 0, "" and empty
+// lists/objects.
 type Expr struct {
 	src  string
 	root node
 }
 
-// Lookup liefert das strukturierte Artefakt eines Schritts (ok=false: keins vorhanden).
+// Lookup returns the structured artifact of a step (ok=false: none present).
 type Lookup func(step string) (v any, ok bool)
 
-// maxExprLen begrenzt eine Bedingung.
+// maxExprLen limits a condition.
 const maxExprLen = 2000
 
-// ParseExpr übersetzt eine Bedingung.
+// ParseExpr parses a condition.
 func ParseExpr(src string) (*Expr, error) {
 	if len(src) > maxExprLen {
-		return nil, fmt.Errorf("Bedingung ist zu lang (höchstens %d Zeichen)", maxExprLen)
+		return nil, fmt.Errorf("condition is too long (at most %d characters)", maxExprLen)
 	}
 	toks, err := lex(src)
 	if err != nil {
@@ -47,15 +47,15 @@ func ParseExpr(src string) (*Expr, error) {
 		return nil, err
 	}
 	if t := p.peek(); t.kind != tEOF {
-		return nil, fmt.Errorf("unerwartet %q an Stelle %d", t.text, t.pos+1)
+		return nil, fmt.Errorf("unexpected %q at position %d", t.text, t.pos+1)
 	}
 	return &Expr{src: src, root: n}, nil
 }
 
-// String liefert den Quelltext.
+// String returns the source text.
 func (e *Expr) String() string { return e.src }
 
-// Paths liefert alle Pfade der Bedingung (z. B. [review verdict]).
+// Paths returns all paths of the condition (e.g. [review verdict]).
 func (e *Expr) Paths() [][]string {
 	var out [][]string
 	var walk func(n node)
@@ -76,7 +76,7 @@ func (e *Expr) Paths() [][]string {
 	return out
 }
 
-// Eval wertet die Bedingung aus.
+// Eval evaluates the condition.
 func (e *Expr) Eval(lookup Lookup) bool {
 	return truthy(e.root.eval(lookup))
 }
@@ -119,7 +119,7 @@ func lex(src string) ([]token, error) {
 				b.WriteRune(rs[i])
 			}
 			if i >= len(rs) {
-				return nil, fmt.Errorf("Zeichenkette ab Stelle %d ist nicht geschlossen", start+1)
+				return nil, fmt.Errorf("string from position %d is not closed", start+1)
 			}
 			i++
 			out = append(out, token{kind: tStr, text: b.String(), pos: start})
@@ -130,7 +130,7 @@ func lex(src string) ([]token, error) {
 			}
 			f, err := strconv.ParseFloat(string(rs[start:i]), 64)
 			if err != nil {
-				return nil, fmt.Errorf("ungültige Zahl %q", string(rs[start:i]))
+				return nil, fmt.Errorf("invalid number %q", string(rs[start:i]))
 			}
 			out = append(out, token{kind: tNum, text: string(rs[start:i]), pos: start, num: f})
 		case c == '_' || unicode.IsLetter(c):
@@ -155,9 +155,9 @@ func lex(src string) ([]token, error) {
 				out = append(out, token{kind: tOp, text: string(c), pos: i})
 				i++
 			case '=':
-				return nil, fmt.Errorf("an Stelle %d: Vergleich mit == schreiben", i+1)
+				return nil, fmt.Errorf("at position %d: write comparisons with ==", i+1)
 			default:
-				return nil, fmt.Errorf("unerwartetes Zeichen %q an Stelle %d", c, i+1)
+				return nil, fmt.Errorf("unexpected character %q at position %d", c, i+1)
 			}
 		}
 	}
@@ -171,7 +171,7 @@ type parser struct {
 	i    int
 }
 
-// maxExprDepth begrenzt die Verschachtelung.
+// maxExprDepth limits the nesting.
 const maxExprDepth = 64
 
 func (p *parser) peek() token { return p.toks[p.i] }
@@ -229,7 +229,7 @@ func (p *parser) cmp(depth int) (node, error) {
 			return nil, err
 		}
 		if n := p.peek(); n.kind == tOp && slices.Contains([]string{"==", "!=", "<", "<=", ">", ">="}, n.text) {
-			return nil, fmt.Errorf("an Stelle %d: Vergleiche nicht verketten, Klammern oder && verwenden", n.pos+1)
+			return nil, fmt.Errorf("at position %d: do not chain comparisons, use parentheses or &&", n.pos+1)
 		}
 		return binaryNode{op: t.text, l: l, r: r}, nil
 	}
@@ -238,7 +238,7 @@ func (p *parser) cmp(depth int) (node, error) {
 
 func (p *parser) unary(depth int) (node, error) {
 	if depth > maxExprDepth {
-		return nil, fmt.Errorf("Bedingung ist zu tief verschachtelt")
+		return nil, fmt.Errorf("condition is nested too deeply")
 	}
 	if p.isOp("!") {
 		p.next()
@@ -265,7 +265,7 @@ func (p *parser) primary(depth int) (node, error) {
 				return nil, err
 			}
 			if !p.isOp(")") {
-				return nil, fmt.Errorf("an Stelle %d: ) fehlt", p.peek().pos+1)
+				return nil, fmt.Errorf("at position %d: ) missing", p.peek().pos+1)
 			}
 			p.next()
 			return n, nil
@@ -286,7 +286,7 @@ func (p *parser) primary(depth int) (node, error) {
 					return nil, err
 				}
 				if !p.isOp(")") {
-					return nil, fmt.Errorf("an Stelle %d: ) fehlt", p.peek().pos+1)
+					return nil, fmt.Errorf("at position %d: ) missing", p.peek().pos+1)
 				}
 				p.next()
 				return lenNode{x: x}, nil
@@ -297,21 +297,21 @@ func (p *parser) primary(depth int) (node, error) {
 			p.next()
 			f := p.next()
 			if f.kind != tIdent {
-				return nil, fmt.Errorf("an Stelle %d: Feldname nach . fehlt", f.pos+1)
+				return nil, fmt.Errorf("at position %d: field name after . missing", f.pos+1)
 			}
 			path = append(path, f.text)
 		}
 		if len(path) < 2 {
-			return nil, fmt.Errorf("an Stelle %d: %s ist kein Pfad (<schritt>.<feld>)", t.pos+1, t.text)
+			return nil, fmt.Errorf("at position %d: %s is not a path (<step>.<field>)", t.pos+1, t.text)
 		}
 		return path, nil
 	case tEOF:
-		return nil, fmt.Errorf("Bedingung endet unerwartet")
+		return nil, fmt.Errorf("condition ends unexpectedly")
 	}
-	return nil, fmt.Errorf("unerwartet %q an Stelle %d", t.text, t.pos+1)
+	return nil, fmt.Errorf("unexpected %q at position %d", t.text, t.pos+1)
 }
 
-// --- Auswertung ------------------------------------------------------------------------
+// --- Evaluation -----------------------------------------------------------------------
 
 type node interface{ eval(Lookup) any }
 
