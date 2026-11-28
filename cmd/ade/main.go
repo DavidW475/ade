@@ -1,4 +1,4 @@
-// Command ade ist die Leitstelle für KI-Agenten: Daemon, CLI und eingebettetes Dashboard.
+// Command ade is the control center for AI agents: daemon, CLI and embedded dashboard.
 package main
 
 import (
@@ -21,28 +21,28 @@ import (
 	"github.com/DavidW475/ade/internal/daemon"
 )
 
-// version wird beim Build per -ldflags "-X main.version=…" gesetzt.
+// version is set at build time via -ldflags "-X main.version=…".
 var version = "dev"
 
 const usage = `ade – AI Developer Environment
 
-Verwendung:
-  ade <befehl> [optionen]
+Usage:
+  ade <command> [options]
 
-Befehle:
-  start              Daemon starten (falls nötig) und Dashboard im Browser öffnen
-  serve              Daemon im Vordergrund ausführen
-  project            Projekte verwalten (add, list, remove)
-  run                Run einer Software-Fabrik starten (ade run feature --task "…")
-  gc                 Verwaiste Sandbox-Container entfernen
-  install-service    Daemon als systemd-User-Dienst einrichten und starten
-  uninstall-service  systemd-User-Dienst stoppen und entfernen
-  proxy              Egress-Proxy der Sandbox (startet der Daemon im Container)
-  hook               Freigabe-Hook für Agent-CLIs (bindet der Daemon selbst ein)
-  version            Version ausgeben
-  help               Diese Hilfe anzeigen
+Commands:
+  start              start the daemon (if needed) and open the dashboard in the browser
+  serve              run the daemon in the foreground
+  project            manage projects (add, list, remove)
+  run                start a run of a software factory (ade run feature --task "…")
+  gc                 remove orphaned sandbox containers
+  install-service    set up and start the daemon as a systemd user service
+  uninstall-service  stop and remove the systemd user service
+  proxy              egress proxy of the sandbox (the daemon starts it in the container)
+  hook               approval hook for agent CLIs (the daemon registers it itself)
+  version            print the version
+  help               show this help
 
-Mit "ade <befehl> -h" werden die Optionen eines Befehls angezeigt.
+"ade <command> -h" shows the options of a command.
 `
 
 func main() {
@@ -54,10 +54,10 @@ func main() {
 	}
 }
 
-// versionString liefert Version, Commit und Go-Version, z. B.
+// versionString returns version, commit and Go version, e.g.
 // "ade v0.1.0 (commit 5933db6, go1.25.4 linux/amd64)".
 func versionString() string {
-	commit, modified := "unbekannt", false
+	commit, modified := "unknown", false
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, s := range info.Settings {
 			switch s.Key {
@@ -92,7 +92,7 @@ func exitCode(err error) int {
 func run(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		_, _ = fmt.Fprint(stderr, usage)
-		return usageError{"kein Befehl angegeben"}
+		return usageError{"no command given"}
 	}
 	switch cmd, rest := args[0], args[1:]; cmd {
 	case "start":
@@ -121,18 +121,18 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return nil
 	default:
 		_, _ = fmt.Fprint(stderr, usage)
-		return usageError{fmt.Sprintf("unbekannter Befehl %q", cmd)}
+		return usageError{fmt.Sprintf("unknown command %q", cmd)}
 	}
 }
 
-// loadConfig wertet --config aus und liefert Konfiguration und absoluten Pfad.
-// Mit allowArgs sind Positionsargumente erlaubt (fs.Args()).
+// loadConfig evaluates --config and returns configuration and absolute path.
+// With allowArgs positional arguments are allowed (fs.Args()).
 func loadConfig(fs *flag.FlagSet, args []string, allowArgs ...bool) (*config.Config, string, error) {
 	def, err := config.DefaultPath()
 	if err != nil {
 		return nil, "", err
 	}
-	path := fs.String("config", def, "Pfad zur Konfigurationsdatei")
+	path := fs.String("config", def, "path to the configuration file")
 	if err := fs.Parse(args); err != nil {
 		return nil, "", err
 	}
@@ -150,7 +150,7 @@ func loadConfig(fs *flag.FlagSet, args []string, allowArgs ...bool) (*config.Con
 func cmdServe(args []string, stderr io.Writer) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	debug := fs.Bool("debug", false, "ausführliches Logging")
+	debug := fs.Bool("debug", false, "verbose logging")
 	cfg, _, err := loadConfig(fs, args)
 	if err != nil {
 		return err
@@ -169,7 +169,7 @@ func cmdServe(args []string, stderr io.Writer) error {
 func cmdStart(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("start", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	noBrowser := fs.Bool("no-browser", false, "Browser nicht öffnen, nur die Anmelde-URL ausgeben")
+	noBrowser := fs.Bool("no-browser", false, "do not open the browser, only print the login URL")
 	cfg, cfgPath, err := loadConfig(fs, args)
 	if err != nil {
 		return err
@@ -184,11 +184,11 @@ func cmdStart(args []string, stdout, stderr io.Writer) error {
 	}
 	switch how {
 	case "systemd":
-		_, _ = fmt.Fprintf(stdout, "ADE-Dienst gestartet (%s, Log: %s)\n", h.Version, cfg.LogPath())
+		_, _ = fmt.Fprintf(stdout, "ADE service started (%s, log: %s)\n", h.Version, cfg.LogPath())
 	case "process":
-		_, _ = fmt.Fprintf(stdout, "ADE-Daemon gestartet (%s, Log: %s)\n", h.Version, cfg.LogPath())
+		_, _ = fmt.Fprintf(stdout, "ADE daemon started (%s, log: %s)\n", h.Version, cfg.LogPath())
 	default:
-		_, _ = fmt.Fprintf(stdout, "ADE-Daemon läuft bereits (%s)\n", h.Version)
+		_, _ = fmt.Fprintf(stdout, "ADE daemon is already running (%s)\n", h.Version)
 	}
 
 	login, err := daemon.NewClient(cfg).LoginURL(ctx)
@@ -198,11 +198,11 @@ func cmdStart(args []string, stdout, stderr io.Writer) error {
 	if !*noBrowser {
 		err := browser.Open(login)
 		if err == nil {
-			_, _ = fmt.Fprintf(stdout, "Dashboard geöffnet: %s\n", cfg.BaseURL())
+			_, _ = fmt.Fprintf(stdout, "dashboard opened: %s\n", cfg.BaseURL())
 			return nil
 		}
-		_, _ = fmt.Fprintf(stderr, "Browser konnte nicht geöffnet werden: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "browser could not be opened: %v\n", err)
 	}
-	_, _ = fmt.Fprintf(stdout, "Anmelden (Link gilt einmal, 2 Minuten):\n  %s\n", login)
+	_, _ = fmt.Fprintf(stdout, "Log in (the link works once, for 2 minutes):\n  %s\n", login)
 	return nil
 }

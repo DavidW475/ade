@@ -37,10 +37,10 @@ func TestInstallServiceDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), `serve --config "`+cfg+`"`) {
-		t.Errorf("Ausgabe = %q", out.String())
+		t.Errorf("output = %q", out.String())
 	}
 	if _, err := os.Stat(filepath.Join(unitDir, service.Name)); err == nil {
-		t.Error("--dry-run hat die Unit geschrieben")
+		t.Error("--dry-run wrote the unit")
 	}
 }
 
@@ -52,7 +52,7 @@ func TestUninstallServiceNotInstalled(t *testing.T) {
 	}
 	var out, errOut bytes.Buffer
 	err := run([]string{"uninstall-service", "--config", cfg}, &out, &errOut)
-	if err == nil || !strings.Contains(err.Error(), "nicht installiert") {
+	if err == nil || !strings.Contains(err.Error(), "is not installed") {
 		t.Fatalf("err = %v", err)
 	}
 }

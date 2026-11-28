@@ -14,19 +14,19 @@ import (
 	"github.com/DavidW475/ade/internal/sandbox"
 )
 
-const gcUsage = `Verwendung:
+const gcUsage = `Usage:
   ade gc [--dry-run]
 
-Entfernt verwaiste Sandbox-Container: Container dieser ADE-Instanz ohne Workspace und
-Container anderer Instanzen, deren Datenverzeichnis nicht mehr existiert. Container
-bestehender Workspaces bleiben stehen. Läuft der Daemon, erledigt er das selbst.
+Removes orphaned sandbox containers: containers of this ADE instance without a workspace and
+containers of other instances whose data directory no longer exists. Containers of existing
+workspaces stay. If the daemon is running, it does this itself.
 `
 
 func cmdGC(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("gc", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { _, _ = fmt.Fprint(stderr, gcUsage) }
-	dry := fs.Bool("dry-run", false, "nur auflisten, nichts entfernen")
+	dry := fs.Bool("dry-run", false, "only list, remove nothing")
 	cfg, _, err := loadConfig(fs, args)
 	if err != nil {
 		return err
@@ -55,16 +55,16 @@ func cmdGC(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	verb := "entfernt"
+	verb := "removed"
 	if *dry {
-		verb = "würde entfernt"
+		verb = "would remove"
 	}
 	if len(removed) == 0 {
 		_, _ = fmt.Fprintln(stdout, "Keine verwaisten Sandbox-Container.")
 		return nil
 	}
 	for _, ct := range removed {
-		_, _ = fmt.Fprintf(stdout, "%s %s (Workspace %s, %s)\n", verb, ct.Name, ct.Workspace, ct.State)
+		_, _ = fmt.Fprintf(stdout, "%s %s (workspace %s, %s)\n", verb, ct.Name, ct.Workspace, ct.State)
 	}
 	return nil
 }

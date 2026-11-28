@@ -29,7 +29,7 @@ func TestRunUnknownCommand(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	if err := run(nil, &out, &errOut); err == nil || exitCode(err) != 2 {
-		t.Fatalf("ohne Befehl: err = %v", err)
+		t.Fatalf("without command: err = %v", err)
 	}
 }
 
@@ -40,7 +40,7 @@ func TestServeRejectsInvalidConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	if err := run([]string{"serve", "--config", path}, &out, &errOut); err == nil || !strings.Contains(err.Error(), "Loopback") {
+	if err := run([]string{"serve", "--config", path}, &out, &errOut); err == nil || !strings.Contains(err.Error(), "loopback") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -61,7 +61,7 @@ func TestRunCommandUsage(t *testing.T) {
 		}
 	}
 	var out, errOut bytes.Buffer
-	if err := run([]string{"run", "feature", "--input", "ohne-gleich", "--config", cfg}, &out, &errOut); err == nil {
-		t.Error("--input ohne = angenommen")
+	if err := run([]string{"run", "feature", "--input", "without-equals", "--config", cfg}, &out, &errOut); err == nil {
+		t.Error("--input without = accepted")
 	}
 }
