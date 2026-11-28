@@ -152,9 +152,7 @@ func (s *Store) UpdateWorkspace(ctx context.Context, id string, u WorkspaceUpdat
 	if n, _ := res.RowsAffected(); n == 0 {
 		return apperr.NotFound("workspace %s not found", id)
 	}
-	// The workspace's egress exceptions are not attached to it by a foreign key.
-	_, err = s.db.ExecContext(ctx, `DELETE FROM egress_grants WHERE workspace_id = ?`, id)
-	return err
+	return nil
 }
 
 // DeleteWorkspace deletes a workspace record.
@@ -166,7 +164,9 @@ func (s *Store) DeleteWorkspace(ctx context.Context, id string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return apperr.NotFound("workspace %s not found", id)
 	}
-	return nil
+	// The workspace's egress exceptions are not attached to it by a foreign key.
+	_, err = s.db.ExecContext(ctx, `DELETE FROM egress_grants WHERE workspace_id = ?`, id)
+	return err
 }
 
 // MarkInterruptedWorkspaces sets workspaces whose creation or setup was interrupted by a

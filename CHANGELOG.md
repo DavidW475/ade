@@ -97,6 +97,8 @@ section of each version as release notes.
 
 ### Fixed
 
+- Egress exceptions “for this workspace” no longer disappear on every workspace update (WIP commit,
+  end of setup, PR); they are now removed when the workspace is discarded (#79).
 - Release binaries use the sandbox image with the same version (`ade-agent-base:X.Y.Z`, also for
   pre-releases `-rc.N`) instead of `:latest`; GoReleaser now writes the version with `v` into the
   binary.
