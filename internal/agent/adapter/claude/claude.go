@@ -1,16 +1,16 @@
-// Package claude bindet Claude Code im Print-Modus mit stream-json an.
+// Package claude connects Claude Code in print mode with stream-json.
 //
-// Aufruf (geprüft gegen Claude Code 2.1):
+// Call (checked against Claude Code 2.1):
 //
 //	claude -p --input-format stream-json --output-format stream-json --verbose
 //	       [--model M] [--permission-mode P] [--settings HOOK] [--resume ID]
 //
-// HOOK bindet ade hook pretooluse als PreToolUse-Hook ein (Freigaben, M7).
+// HOOK registers ade hook pretooluse as a PreToolUse hook (approvals, M7).
 //
-// Anweisungen gehen als JSON-Zeilen über stdin ({"type":"user","message":{…}}); der Prozess
-// bleibt nach einem Durchgang ("result") am Leben und wartet auf die nächste Zeile. So sind
-// Folgeanweisungen ohne Neustart möglich. Nach einem Prozessende setzt --resume mit der
-// session_id aus dem init-Event die Unterhaltung fort.
+// Instructions go to stdin as JSON lines ({"type":"user","message":{…}}); the process stays
+// alive after a turn ("result") and waits for the next line. That makes follow-up
+// instructions possible without a restart. After the process ends, --resume with the
+// session_id from the init event continues the conversation.
 package claude
 
 import (
@@ -27,25 +27,25 @@ import (
 	"github.com/DavidW475/ade/internal/approval"
 )
 
-// Binary ist der Name des CLI-Programms.
+// Binary is the name of the CLI program.
 const Binary = "claude"
 
-// ReadOnlyDenied sind die Werkzeuge, die eine Lese-Rolle nicht bekommt.
+// ReadOnlyDenied are the tools a read-only role does not get.
 var ReadOnlyDenied = []string{"Edit", "Write", "NotebookEdit"}
 
-// PermissionModes sind die Werte für --permission-mode, die ADE durchreicht.
+// PermissionModes are the values for --permission-mode that ADE passes on.
 var PermissionModes = []string{"default", "acceptEdits", "auto", "bypassPermissions", "dontAsk", "plan"}
 
-// Adapter ist der Claude-Code-Adapter.
+// Adapter is the Claude Code adapter.
 type Adapter struct {
-	// Binary überschreibt den Programmnamen (Tests).
+	// Binary overrides the program name (tests).
 	Binary string
 }
 
-// New erzeugt den Adapter.
+// New creates the adapter.
 func New() *Adapter { return &Adapter{Binary: Binary} }
 
-// Name implementiert adapter.Adapter.
+// Name implements adapter.Adapter.
 func (a *Adapter) Name() string { return "claude" }
 
 // Capabilities implementiert adapter.Adapter.
@@ -60,18 +60,18 @@ func (a *Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 		bin = Binary
 	}
 	if _, err := exec.LookPath(bin); err != nil && !spec.Sandbox {
-		return nil, fmt.Errorf("%s nicht gefunden – Claude Code installieren und anmelden (https://docs.claude.com/claude-code)", bin)
+		return nil, fmt.Errorf("%s not found – install Claude Code and log in (https://docs.claude.com/claude-code)", bin)
 	}
 	args := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"}
 	if spec.Model != "" {
 		if strings.HasPrefix(spec.Model, "-") {
-			return nil, fmt.Errorf("ungültiges Modell %q", spec.Model)
+			return nil, fmt.Errorf("invalid model %q", spec.Model)
 		}
 		args = append(args, "--model", spec.Model)
 	}
 	if spec.PermissionMode != "" {
 		if !slices.Contains(PermissionModes, spec.PermissionMode) {
-			return nil, fmt.Errorf("unbekannter Berechtigungsmodus %q (erlaubt: %s)", spec.PermissionMode, strings.Join(PermissionModes, ", "))
+			return nil, fmt.Errorf("unknown permission mode %q (allowed: %s)", spec.PermissionMode, strings.Join(PermissionModes, ", "))
 		}
 		args = append(args, "--permission-mode", spec.PermissionMode)
 	}
@@ -79,13 +79,13 @@ func (a *Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 		args = append(args, "--disallowedTools="+strings.Join(ReadOnlyDenied, ","))
 	}
 	if spec.Hook != nil && spec.Hook.Command != "" {
-		// PreToolUse-Hook für alle Werkzeuge: ADE entscheidet (Regeln oder Freigabe im
-		// Dashboard); allow übergeht die Rückfrage der CLI, deny sperrt auch bei bypassPermissions.
+		// PreToolUse hook for all tools: ADE decides (rules or approval in the dashboard);
+		// allow skips the CLI's question, deny blocks even with bypassPermissions.
 		args = append(args, "--settings", approval.HookSettings(spec.Hook.Command, spec.Hook.Timeout))
 	}
 	if spec.ResumeID != "" {
 		if strings.HasPrefix(spec.ResumeID, "-") {
-			return nil, fmt.Errorf("ungültige Resume-ID %q", spec.ResumeID)
+			return nil, fmt.Errorf("invalid resume ID %q", spec.ResumeID)
 		}
 		args = append(args, "--resume", spec.ResumeID)
 	}
@@ -100,10 +100,10 @@ func (a *Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 	return cmd, nil
 }
 
-// EncodeInput implementiert adapter.Adapter: eine Nutzernachricht im stream-json-Format.
+// EncodeInput implements adapter.Adapter: a user message in stream-json format.
 func (a *Adapter) EncodeInput(text string) ([]byte, error) {
 	if strings.TrimSpace(text) == "" {
-		return nil, errors.New("leere Anweisung")
+		return nil, errors.New("empty instruction")
 	}
 	b, err := json.Marshal(inputMessage{Type: "user", Message: inputBody{Role: "user", Content: text}})
 	if err != nil {
@@ -122,14 +122,14 @@ type inputBody struct {
 	Content string `json:"content"`
 }
 
-// line ist eine Zeile der stream-json-Ausgabe (nur die Felder, die ADE nutzt).
+// line is a line of the stream-json output (only the fields ADE uses).
 type line struct {
 	Type      string `json:"type"`
 	Subtype   string `json:"subtype"`
 	SessionID string `json:"session_id"`
 	Model     string `json:"model"`
-	// Message ist bei assistant/user ein Objekt mit content, bei manchen system-Zeilen
-	// (z. B. permission_denied) ein String – deshalb roh lesen.
+	// Message is an object with content for assistant/user, a string for some system lines
+	// (e.g. permission_denied) – therefore read it raw.
 	Message         json.RawMessage `json:"message"`
 	ParentToolUseID string          `json:"parent_tool_use_id"`
 
@@ -161,7 +161,7 @@ type block struct {
 	IsError   bool            `json:"is_error"`
 }
 
-// maxLine begrenzt eine Ausgabezeile (große Datei-Inhalte in Tool-Ergebnissen).
+// maxLine limits an output line (large file contents in tool results).
 const maxLine = 64 << 20
 
 // Parse implementiert adapter.Adapter.
@@ -178,7 +178,7 @@ func (a *Adapter) Parse(r io.Reader, sink adapter.Sink) error {
 type parser struct {
 	sink      adapter.Sink
 	resumeID  string
-	lastTotal float64 // total_cost_usd ist pro Prozess kumuliert
+	lastTotal float64 // total_cost_usd is cumulative per process
 	initDone  bool
 }
 
@@ -188,7 +188,7 @@ func (p *parser) line(raw []byte) {
 	}
 	var l line
 	if err := json.Unmarshal(raw, &l); err != nil || l.Type == "" {
-		// Keine JSON-Zeile (z. B. Warnung auf stdout): als Fehler sichtbar machen.
+		// Not a JSON line (e.g. a warning on stdout): make it visible as an error.
 		text, _ := adapter.Truncate(string(raw), adapter.MaxText)
 		p.sink.Emit(adapter.TypeError, adapter.Error{Message: text})
 		return
@@ -199,11 +199,11 @@ func (p *parser) line(raw []byte) {
 	}
 	switch l.Type {
 	case "system":
-		// Weitere Untertypen (thinking_tokens, permission_denied, …) bringen keine neue
-		// Information: Abgelehnte Werkzeuge erscheinen als tool_result mit is_error.
+		// Further subtypes (thinking_tokens, permission_denied, …) bring no new information:
+		// denied tools appear as tool_result with is_error.
 		if l.Subtype == "init" && !p.initDone {
 			p.initDone = true
-			p.sink.Emit(adapter.TypeStatus, adapter.Status{Status: "running", Model: l.Model, Reason: "Claude Code gestartet"})
+			p.sink.Emit(adapter.TypeStatus, adapter.Status{Status: "running", Model: l.Model, Reason: "Claude Code started"})
 		}
 	case "assistant":
 		for _, b := range blocks(messageContent(l.Message)) {
@@ -214,7 +214,7 @@ func (p *parser) line(raw []byte) {
 					p.sink.Emit(adapter.TypeMessage, adapter.Message{Role: "assistant", Text: text})
 				}
 			case "thinking":
-				// Ohne Freigabe liefert die API das Nachdenken nur als Signatur – leere Blöcke weglassen.
+				// Without approval the API only delivers the thinking as a signature – leave out empty blocks.
 				if strings.TrimSpace(b.Thinking) != "" {
 					text, _ := adapter.Truncate(b.Thinking, adapter.MaxText)
 					p.sink.Emit(adapter.TypeThinking, adapter.Thinking{Text: text})
@@ -224,7 +224,7 @@ func (p *parser) line(raw []byte) {
 			}
 		}
 	case "user":
-		// Nutzer-Nachrichten im Strom sind Werkzeug-Ergebnisse; eigene Anweisungen meldet der Manager.
+		// User messages in the stream are tool results; the manager reports own instructions.
 		for _, b := range blocks(messageContent(l.Message)) {
 			if b.Type != "tool_result" {
 				continue
@@ -257,7 +257,7 @@ func (p *parser) result(l *line) {
 			msg = l.Result
 		}
 		if msg == "" {
-			msg = "Durchgang mit Fehler beendet (" + l.Subtype + ")"
+			msg = "turn ended with an error (" + l.Subtype + ")"
 		}
 		text, _ := adapter.Truncate(msg, adapter.MaxText)
 		p.sink.Emit(adapter.TypeError, adapter.Error{Message: text})
@@ -265,7 +265,7 @@ func (p *parser) result(l *line) {
 	p.sink.TurnDone()
 }
 
-// messageContent liefert message.content, wenn message ein Objekt ist.
+// messageContent returns message.content if message is an object.
 func messageContent(raw json.RawMessage) json.RawMessage {
 	var m struct {
 		Content json.RawMessage `json:"content"`
@@ -276,7 +276,7 @@ func messageContent(raw json.RawMessage) json.RawMessage {
 	return m.Content
 }
 
-// blocks liest message.content: entweder ein String oder eine Liste von Blöcken.
+// blocks reads message.content: either a string or a list of blocks.
 func blocks(raw json.RawMessage) []block {
 	if len(raw) == 0 {
 		return nil
@@ -292,7 +292,7 @@ func blocks(raw json.RawMessage) []block {
 	return nil
 }
 
-// contentText macht aus dem content eines tool_result Text (String oder Blöcke).
+// contentText turns the content of a tool_result into text (string or blocks).
 func contentText(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {

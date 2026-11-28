@@ -24,7 +24,7 @@ func TestRegistry(t *testing.T) {
 		t.Fatalf("pty = %v, %v", a, err)
 	}
 	if _, err := r.Get("gibtsnicht"); err == nil || !strings.Contains(err.Error(), "claude") {
-		t.Fatalf("Fehler = %v", err)
+		t.Fatalf("error = %v", err)
 	}
 	infos := r.Infos()
 	if len(infos) != 3 || infos[0].Name != "claude" || !infos[0].Capabilities.Resume {
@@ -32,7 +32,7 @@ func TestRegistry(t *testing.T) {
 	}
 }
 
-// Das JSON-Schema muss gültiges JSON sein und jeden Event-Typ beschreiben, den Adapter
+// The JSON schema must be valid JSON and describe every event type that adapters
 // erzeugen.
 func TestEventSchemaCoversTypes(t *testing.T) {
 	data, err := os.ReadFile("event.schema.json")
@@ -52,7 +52,7 @@ func TestEventSchemaCoversTypes(t *testing.T) {
 		} `json:"allOf"`
 	}
 	if err := json.Unmarshal(data, &schema); err != nil {
-		t.Fatalf("Schema ist kein gültiges JSON: %v", err)
+		t.Fatalf("schema is not valid JSON: %v", err)
 	}
 	var covered []string
 	for _, c := range schema.AllOf {
@@ -61,7 +61,7 @@ func TestEventSchemaCoversTypes(t *testing.T) {
 	for _, typ := range []string{adapter.TypeStatus, adapter.TypeMessage, adapter.TypeThinking, adapter.TypeToolCall,
 		adapter.TypeToolResult, adapter.TypeCost, adapter.TypeError} {
 		if !slices.Contains(covered, typ) {
-			t.Errorf("Schema beschreibt Typ %q nicht", typ)
+			t.Errorf("schema does not describe type %q", typ)
 		}
 	}
 	if !slices.Equal(schema.Required, []string{"seq", "session_id", "ts", "type", "payload"}) {
@@ -71,7 +71,7 @@ func TestEventSchemaCoversTypes(t *testing.T) {
 
 func TestTruncate(t *testing.T) {
 	if s, cut := adapter.Truncate("abc", 5); s != "abc" || cut {
-		t.Error("kurzer Text gekürzt")
+		t.Error("short text truncated")
 	}
 	if s, cut := adapter.Truncate("aäb", 2); s != "a" || !cut {
 		t.Errorf("Truncate = %q, %v", s, cut)
@@ -89,6 +89,6 @@ func TestPTYCommand(t *testing.T) {
 		t.Fatalf("Command = %+v, %v", c, err)
 	}
 	if _, err := pty.New().EncodeInput("x"); err == nil {
-		t.Error("pty nimmt Eingaben über EncodeInput an")
+		t.Error("pty accepts input through EncodeInput")
 	}
 }

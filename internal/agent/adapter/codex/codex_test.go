@@ -42,7 +42,7 @@ func (s *recSink) cost(t *testing.T) adapter.Cost {
 			return c
 		}
 	}
-	t.Fatal("kein cost-Event")
+	t.Fatal("no cost event")
 	return adapter.Cost{}
 }
 
@@ -60,9 +60,9 @@ func parseFile(t *testing.T, name string, base adapter.Tokens) *recSink {
 	return s
 }
 
-// Aufgezeichnet mit Codex CLI 0.172 gegen einen nachgebauten Responses-Endpunkt: ein
-// Befehl (echo hallo), dann eine Antwort; je Anfrage 1000 Eingabe-Tokens (200 aus dem Cache)
-// und 50 Ausgabe-Tokens.
+// Recorded with Codex CLI 0.172 against a rebuilt Responses endpoint: one command
+// (echo hallo), then an answer; per request 1000 input tokens (200 from the cache) and
+// 50 output tokens.
 func TestParseRecordedTask(t *testing.T) {
 	s := parseFile(t, "task.jsonl", adapter.Tokens{})
 	want := []string{"status", "error", "tool_call", "tool_result", "message", "cost"}
@@ -92,7 +92,7 @@ func TestParseRecordedTask(t *testing.T) {
 	}
 }
 
-// Beim Fortsetzen sind die Zahlen kumuliert; die Basis aus dem ersten Lauf wird abgezogen.
+// When resuming the numbers are cumulative; the baseline from the first run is subtracted.
 func TestParseResumeSubtractsBaseline(t *testing.T) {
 	s := parseFile(t, "resume.jsonl", adapter.Tokens{Input: 1600, CacheRead: 400, Output: 100})
 	c := s.cost(t)
@@ -106,7 +106,7 @@ func TestParseFailedTurnAndNoise(t *testing.T) {
 		`{"type":"thread.started","thread_id":"t1"}`,
 		`{"type":"turn.started"}`,
 		`{"type":"error","message":"Reconnecting... 1/5 (stream disconnected)"}`,
-		`kein json`,
+		`not json`,
 		`{"type":"item.completed","item":{"id":"i1","type":"file_change","changes":[{"path":"a.go","kind":"update"}],"status":"completed"}}`,
 		`{"type":"item.completed","item":{"id":"i2","type":"command_execution","command":"false","aggregated_output":"","exit_code":1,"status":"failed"}}`,
 		`{"type":"turn.failed","error":{"message":"401 Unauthorized"}}`,
@@ -123,7 +123,7 @@ func TestParseFailedTurnAndNoise(t *testing.T) {
 		t.Errorf("file_change = %+v", c)
 	}
 	if r := s.events[5].payload.(adapter.ToolResult); !r.IsError || !strings.Contains(r.Output, "Exit-Code 1") {
-		t.Errorf("Befehl mit Fehler = %+v", r)
+		t.Errorf("command with error = %+v", r)
 	}
 	if e := s.events[7].payload.(adapter.Error); e.Message != "401 Unauthorized" {
 		t.Errorf("error = %+v", e)
@@ -134,7 +134,7 @@ func TestParseFailedTurnAndNoise(t *testing.T) {
 }
 
 func TestCommand(t *testing.T) {
-	a := &Adapter{Binary: "sh"} // sh gibt es sicher
+	a := &Adapter{Binary: "sh"} // sh surely exists
 	cases := []struct {
 		name string
 		spec adapter.Spec
@@ -145,7 +145,7 @@ func TestCommand(t *testing.T) {
 		{"modus", adapter.Spec{Task: "x", PermissionMode: "read-only"}, []string{"--sandbox read-only"}, nil},
 		{"sandbox", adapter.Spec{Task: "x", Sandbox: true, Provider: &adapter.ProviderAccess{BaseURL: "http://proxy:8080/p/openai/v1", KeyEnv: "OPENAI_API_KEY"}},
 			[]string{"--dangerously-bypass-approvals-and-sandbox", "model_provider=ade", `base_url="http://proxy:8080/p/openai/v1"`, `env_key="OPENAI_API_KEY"`}, []string{"--sandbox "}},
-		{"resume", adapter.Spec{Task: "weiter", ResumeID: "t-1"}, []string{"resume t-1 -"}, nil},
+		{"resume", adapter.Spec{Task: "continue", ResumeID: "t-1"}, []string{"resume t-1 -"}, nil},
 		{"lese-rolle", adapter.Spec{Task: "x", ReadOnly: true, PermissionMode: "workspace-write"}, []string{"--sandbox read-only"}, []string{"workspace-write"}},
 		{"lese-rolle sandbox", adapter.Spec{Task: "x", ReadOnly: true, Sandbox: true}, []string{"--dangerously-bypass-approvals-and-sandbox"}, []string{"--sandbox "}},
 	}
@@ -157,7 +157,7 @@ func TestCommand(t *testing.T) {
 		joined := strings.Join(c.Args, " ")
 		for _, w := range tc.want {
 			if !strings.Contains(joined, w) {
-				t.Errorf("%s: %q fehlt in %q", tc.name, w, joined)
+				t.Errorf("%s: %q missing in %q", tc.name, w, joined)
 			}
 		}
 		for _, n := range tc.not {
@@ -178,7 +178,7 @@ func TestCommand(t *testing.T) {
 		{Task: " "},
 	} {
 		if _, err := a.Command(bad); err == nil {
-			t.Errorf("Command(%+v): kein Fehler", bad)
+			t.Errorf("Command(%+v): no error", bad)
 		}
 	}
 }
