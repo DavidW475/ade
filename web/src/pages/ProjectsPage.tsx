@@ -16,10 +16,10 @@ export function ProjectsPage() {
   return (
     <>
       <div className="pagehead">
-        <h1>Projekte</h1>
+        <h1>Projects</h1>
         {usage.data && usage.data.month.count > 0 && (
           <span className="muted">
-            Kosten diesen Monat: <UsageAmount total={usage.data.month} />
+            Costs this month: <UsageAmount total={usage.data.month} />
           </span>
         )}
       </div>
@@ -29,15 +29,15 @@ export function ProjectsPage() {
       <AddProject />
 
       {projects.isPending ? (
-        <p className="muted">Lade Projekte …</p>
+        <p className="muted">Loading projects …</p>
       ) : projects.isError ? (
         <Notice tone="bad">{errorMessage(projects.error)}</Notice>
       ) : projects.data.length === 0 ? (
         <div className="empty">
-          <p>Noch keine Projekte registriert.</p>
+          <p>No projects registered yet.</p>
           <p className="muted">
-            Pfad zu einem Git-Repository oben eintragen oder im Terminal <code>ade project add &lt;pfad&gt;</code>{" "}
-            ausführen.
+            Enter the path to a Git repository above or run <code>ade project add &lt;path&gt;</code>{" "}
+            in the terminal.
           </p>
         </div>
       ) : (
@@ -57,16 +57,16 @@ function ProjectCard({ project: p, month }: { project: Project; month?: UsageTot
       <Link to={`/projects/${p.id}`} className="cardlink">
         <div className="cardtitle">
           <strong>{p.name}</strong>
-          {p.config_error && <Badge tone="bad">Konfiguration ungültig</Badge>}
+          {p.config_error && <Badge tone="bad">configuration invalid</Badge>}
           {p.warnings?.length ? <Badge tone="warn">/mnt</Badge> : null}
         </div>
         <div className="mono muted">{p.repo_path}</div>
         <div className="meta">
-          Basis-Branch <code>{p.base_branch}</code>
+          Base branch <code>{p.base_branch}</code>
           {month && month.count > 0 && (
             <>
               {" "}
-              · Kosten diesen Monat <UsageAmount total={month} />
+              · costs this month <UsageAmount total={month} />
             </>
           )}
         </div>
@@ -94,27 +94,27 @@ function AddProject() {
   return (
     <section className="panel">
       <form className="inline-form" onSubmit={submit}>
-        <label htmlFor="repo-path">Projekt hinzufügen</label>
+        <label htmlFor="repo-path">Add project</label>
         <input
           id="repo-path"
           className="mono"
-          placeholder="/home/ich/git/mein-repo"
+          placeholder="/home/me/git/my-repo"
           value={path}
           onChange={(e) => setPath(e.target.value)}
           autoComplete="off"
           spellCheck={false}
         />
         <button type="submit" className="primary" disabled={add.isPending || !path.trim()}>
-          {add.isPending ? "Prüfe …" : "Hinzufügen"}
+          {add.isPending ? "Checking …" : "Add"}
         </button>
       </form>
-      <p className="hint">Absoluter Pfad in der WSL. Repositories unter /mnt/c sind langsam.</p>
+      <p className="hint">Absolute path in WSL. Repositories under /mnt/c are slow.</p>
       {add.isError && <Notice tone="bad">{errorMessage(add.error)}</Notice>}
       {add.data && (
-        <Notice tone={add.data.warnings?.length || add.data.config_error ? "warn" : "info"} title={`„${add.data.name}“ registriert`}>
+        <Notice tone={add.data.warnings?.length || add.data.config_error ? "warn" : "info"} title={`“${add.data.name}” registered`}>
           {add.data.warnings?.map((w) => <p key={w}>{w}</p>)}
-          {add.data.config_error && <p>Konfiguration: {add.data.config_error}</p>}
-          <Link to={`/projects/${add.data.id}`}>Zum Projekt</Link>
+          {add.data.config_error && <p>Configuration: {add.data.config_error}</p>}
+          <Link to={`/projects/${add.data.id}`}>To the project</Link>
         </Notice>
       )}
     </section>
@@ -127,8 +127,8 @@ function RunningAgents() {
   return (
     <section className="running">
       <div className="sectionhead first">
-        <h2>Laufende Agenten</h2>
-        <Link to="/agents">Alle Agenten</Link>
+        <h2>Running agents</h2>
+        <Link to="/agents">All agents</Link>
       </div>
       <SessionTable sessions={sessions.data} />
     </section>

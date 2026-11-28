@@ -28,14 +28,14 @@ export function ProjectPage() {
   const runs = useRuns({ project_id: id, limit: 20 });
   const usage = useUsage(id);
 
-  if (project.isPending) return <p className="muted">Lade Projekt …</p>;
+  if (project.isPending) return <p className="muted">Loading project …</p>;
   if (project.isError) return <Notice tone="bad">{errorMessage(project.error)}</Notice>;
   const p = project.data;
 
   return (
     <>
       <div className="crumbs">
-        <Link to="/">Projekte</Link> / {p.name}
+        <Link to="/">Projects</Link> / {p.name}
       </div>
       <div className="pagehead">
         <h1>{p.name}</h1>
@@ -45,10 +45,10 @@ export function ProjectPage() {
       <dl className="facts panel">
         <dt>Repository</dt>
         <dd className="mono">{p.repo_path}</dd>
-        <dt>Basis-Branch</dt>
+        <dt>Base branch</dt>
         <dd>
           <code>{p.base_branch}</code>
-          {p.config.base_branch && <span className="muted"> (aus .ade/project.yaml)</span>}
+          {p.config.base_branch && <span className="muted"> (from .ade/project.yaml)</span>}
         </dd>
         {p.config.adapter && (
           <>
@@ -56,16 +56,16 @@ export function ProjectPage() {
             <dd>{p.config.adapter}</dd>
           </>
         )}
-        <dt>Kosten</dt>
+        <dt>Costs</dt>
         <dd>
-          <UsageAmount total={usage.data?.month} empty="0.00 $" /> <span className="muted">diesen Monat</span>
+          <UsageAmount total={usage.data?.month} empty="$0.00" /> <span className="muted">this month</span>
           {usage.data && usage.data.total.count > usage.data.month.count && (
             <span className="muted">
               {" "}
-              · gesamt <UsageAmount total={usage.data.total} />
+              · total <UsageAmount total={usage.data.total} />
             </span>
           )}
-          {p.config.budget?.session_usd ? <span className="muted"> · Budget je Session {formatUSD(p.config.budget.session_usd)}</span> : null}
+          {p.config.budget?.session_usd ? <span className="muted"> · budget per session {formatUSD(p.config.budget.session_usd)}</span> : null}
           <MonthlyBudget spent={usage.data?.month.cost_usd ?? 0} budget={p.config.budget?.monthly_usd} />
         </dd>
         <dt>Setup</dt>
@@ -77,7 +77,7 @@ export function ProjectPage() {
               ))}
             </ul>
           ) : (
-            <span className="muted">keine Befehle</span>
+            <span className="muted">no commands</span>
           )}
         </dd>
       </dl>
@@ -88,43 +88,43 @@ export function ProjectPage() {
         </Notice>
       ))}
       {p.config_error && (
-        <Notice tone="bad" title="Projekt-Konfiguration ungültig">
+        <Notice tone="bad" title="Project configuration invalid">
           <code>{p.config_error}</code>
-          <p>Neue Workspaces lassen sich erst nach der Korrektur anlegen.</p>
+          <p>New workspaces can only be created after it is fixed.</p>
         </Notice>
       )}
 
       <div className="sectionhead">
-        <h2>Fabrik-Runs</h2>
+        <h2>Factory runs</h2>
         <StartRun projectId={p.id} disabled={!!p.config_error} />
       </div>
       {runs.data?.length ? (
         <RunTable runs={runs.data} />
       ) : (
         <div className="empty">
-          <p>Noch keine Runs.</p>
+          <p>No runs yet.</p>
           <p className="muted">
-            Ein Run führt mehrere Rollen-Agenten nacheinander aus – mitgeliefert ist die Fabrik <code>feature</code>, eigene liegen in{" "}
+            A run runs several role agents one after another – the factory <code>feature</code> ships with ADE, own ones live in{" "}
             <code>.ade/factories/</code>.
           </p>
         </div>
       )}
 
       <div className="sectionhead">
-        <h2>Auslöser</h2>
+        <h2>Triggers</h2>
       </div>
       <TriggerList projectId={p.id} />
 
       <div className="sectionhead">
-        <h2>Agenten</h2>
+        <h2>Agents</h2>
         <StartAgent projectId={p.id} defaultAdapter={p.config.adapter} disabled={!!p.config_error} />
       </div>
       {sessions.data?.length ? (
         <SessionTable sessions={sessions.data} />
       ) : (
         <div className="empty">
-          <p>Noch keine Agenten.</p>
-          <p className="muted">Ein Agent arbeitet in einem eigenen Workspace; du siehst ihm live zu und übernimmst das Ergebnis später.</p>
+          <p>No agents yet.</p>
+          <p className="muted">An agent works in its own workspace; you watch it live and take over the result later.</p>
         </div>
       )}
 
@@ -134,13 +134,13 @@ export function ProjectPage() {
       </div>
 
       {workspaces.isPending ? (
-        <p className="muted">Lade Workspaces …</p>
+        <p className="muted">Loading workspaces …</p>
       ) : workspaces.isError ? (
         <Notice tone="bad">{errorMessage(workspaces.error)}</Notice>
       ) : workspaces.data.length === 0 ? (
         <div className="empty">
-          <p>Noch keine Workspaces.</p>
-          <p className="muted">Ein Workspace ist eine eigene Arbeitskopie auf einem eigenen Branch – das Repository bleibt unberührt.</p>
+          <p>No workspaces yet.</p>
+          <p className="muted">A workspace is a separate working copy on its own branch – the repository stays untouched.</p>
         </div>
       ) : (
         <WorkspaceTable workspaces={workspaces.data} projectId={p.id} />
@@ -157,10 +157,10 @@ function WorkspaceTable({ workspaces, projectId }: { workspaces: Workspace[]; pr
           <tr>
             <th>Workspace</th>
             <th>Status</th>
-            <th>Basis</th>
-            <th>Änderungen</th>
-            <th>Angelegt</th>
-            <th aria-label="Aktionen" />
+            <th>Base</th>
+            <th>Changes</th>
+            <th>Created</th>
+            <th aria-label="Actions" />
           </tr>
         </thead>
         <tbody>
@@ -180,10 +180,10 @@ function WorkspaceTable({ workspaces, projectId }: { workspaces: Workspace[]; pr
               <td>
                 {w.changes ? (
                   w.changes.files === 0 ? (
-                    <span className="muted">keine</span>
+                    <span className="muted">none</span>
                   ) : (
                     <>
-                      {w.changes.files} {w.changes.files === 1 ? "Datei" : "Dateien"}{" "}
+                      {w.changes.files} {w.changes.files === 1 ? "file" : "files"}{" "}
                       <LineStats additions={w.changes.additions} deletions={w.changes.deletions} />
                     </>
                   )
@@ -225,7 +225,7 @@ function CreateWorkspace({ projectId, defaultBranch, disabled }: { projectId: st
     <div>
       <form className="inline-form compact" onSubmit={submit}>
         <input
-          aria-label="Basis-Branch"
+          aria-label="Base branch"
           className="mono"
           placeholder={defaultBranch}
           value={branch}
@@ -233,7 +233,7 @@ function CreateWorkspace({ projectId, defaultBranch, disabled }: { projectId: st
           spellCheck={false}
         />
         <button type="submit" className="primary" disabled={disabled || create.isPending}>
-          {create.isPending ? "Lege an …" : "Workspace anlegen"}
+          {create.isPending ? "Creating …" : "Create workspace"}
         </button>
         <SandboxToggle id="cw-sandbox" checked={sandbox} onChange={setSandbox} info={sandboxInfo.data} />
       </form>
@@ -249,12 +249,12 @@ function DeleteWorkspace({ workspace: w, projectId }: { workspace: Workspace; pr
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["workspaces", projectId] }),
   });
   const onClick = () => {
-    const changes = w.changes?.files ? `\n\nAchtung: ${w.changes.files} geänderte Datei(en) gehen verloren.` : "";
-    if (window.confirm(`Workspace ${w.branch} löschen?${changes}`)) del.mutate();
+    const changes = w.changes?.files ? `\n\nCaution: ${w.changes.files} changed file(s) will be lost.` : "";
+    if (window.confirm(`Delete workspace ${w.branch}?${changes}`)) del.mutate();
   };
   return (
     <button type="button" className="danger small" onClick={onClick} disabled={del.isPending} title={del.isError ? errorMessage(del.error) : undefined}>
-      {del.isPending ? "Lösche …" : del.isError ? "Fehler – erneut" : "Löschen"}
+      {del.isPending ? "Deleting …" : del.isError ? "Error – again" : "Delete"}
     </button>
   );
 }
@@ -270,13 +270,13 @@ function RemoveProject({ projectId, name, workspaceCount }: { projectId: string;
     },
   });
   const onClick = () => {
-    const extra = workspaceCount > 0 ? `\n\nDabei werden ${workspaceCount} Workspace(s) gelöscht.` : "";
-    if (window.confirm(`Projekt „${name}“ abmelden? Das Repository bleibt unverändert.${extra}`)) remove.mutate();
+    const extra = workspaceCount > 0 ? `\n\nThis deletes ${workspaceCount} workspace(s).` : "";
+    if (window.confirm(`Unregister project “${name}”? The repository stays unchanged.${extra}`)) remove.mutate();
   };
   return (
     <div>
       <button type="button" className="danger" onClick={onClick} disabled={remove.isPending}>
-        Projekt abmelden
+        Unregister project
       </button>
       {remove.isError && <Notice tone="bad">{errorMessage(remove.error)}</Notice>}
     </div>

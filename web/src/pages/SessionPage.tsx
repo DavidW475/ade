@@ -31,7 +31,7 @@ export function SessionPage() {
     enabled: !!session.data,
   });
 
-  if (session.isPending) return <p className="muted">Lade Session …</p>;
+  if (session.isPending) return <p className="muted">Loading session …</p>;
   if (session.isError) return <Notice tone="bad">{errorMessage(session.error)}</Notice>;
   const s = session.data;
   const refresh = () => void qc.invalidateQueries({ queryKey: ["session", id] });
@@ -39,7 +39,7 @@ export function SessionPage() {
   return (
     <>
       <div className="crumbs">
-        <Link to="/">Projekte</Link> / <Link to={`/projects/${s.project_id}`}>{project.data?.name ?? s.project_id}</Link> /{" "}
+        <Link to="/">Projects</Link> / <Link to={`/projects/${s.project_id}`}>{project.data?.name ?? s.project_id}</Link> /{" "}
         <Link to={`/workspaces/${s.workspace_id}`} className="mono">
           {s.workspace_id}
         </Link>{" "}
@@ -73,13 +73,13 @@ function SessionHeader({ session: s }: { session: Session }) {
         <div className="actions">
           <IdeButton workspaceId={s.workspace_id} />
           {!s.capabilities.terminal && (
-            <button type="button" onClick={() => shell.mutate()} disabled={shell.isPending} title="Neues Terminal im selben Workspace">
-              Terminal im Workspace
+            <button type="button" onClick={() => shell.mutate()} disabled={shell.isPending} title="New terminal in the same workspace">
+              Terminal in the workspace
             </button>
           )}
           {s.live && (
             <button type="button" className="danger" onClick={() => stop.mutate()} disabled={stop.isPending}>
-              {stop.isPending ? "Stoppe …" : "Stoppen"}
+              {stop.isPending ? "Stopping …" : "Stop"}
             </button>
           )}
         </div>
@@ -90,7 +90,7 @@ function SessionHeader({ session: s }: { session: Session }) {
         <dt>Status</dt>
         <dd>
           <SessionStatusBadge status={s.status} terminal={s.capabilities.terminal} />
-          {s.exit_code !== undefined && s.exit_code !== 0 && <span className="muted"> Exit-Code {s.exit_code}</span>}
+          {s.exit_code !== undefined && s.exit_code !== 0 && <span className="muted"> exit code {s.exit_code}</span>}
         </dd>
         <dt>Adapter</dt>
         <dd>
@@ -98,7 +98,7 @@ function SessionHeader({ session: s }: { session: Session }) {
           {s.model && (
             <span className="muted">
               {" "}
-              · Modell {s.model}
+              · model {s.model}
               {s.model_id && ` (${s.model_id})`}
             </span>
           )}
@@ -106,30 +106,30 @@ function SessionHeader({ session: s }: { session: Session }) {
         </dd>
         {(!s.capabilities.terminal || s.cost_usd > 0) && (
           <>
-            <dt>Kosten</dt>
+            <dt>Costs</dt>
             <dd>
               <SessionCost session={s} />
             </dd>
           </>
         )}
-        <dt>Gestartet</dt>
+        <dt>Started</dt>
         <dd>
           {formatTime(s.created_at)}
-          {s.ended_at && <span className="muted"> · beendet {formatTime(s.ended_at)}</span>}
+          {s.ended_at && <span className="muted"> · ended {formatTime(s.ended_at)}</span>}
         </dd>
       </dl>
       {s.status === "paused" ? (
-        <Notice tone="warn" title="Budget überschritten">
+        <Notice tone="warn" title="Budget exceeded">
           {s.error}
           <p>
-            Der Agent ist pausiert. Unter <Link to="/approvals">Freigaben</Link> lässt sich das Budget erhöhen; dann läuft er weiter.
+            The agent is paused. Under <Link to="/approvals">Approvals</Link> you can raise the budget; then it continues.
           </p>
         </Notice>
       ) : (
         s.error && (
           <Notice tone={s.status === "interrupted" ? "warn" : s.status === "failed" ? "bad" : "info"}>
             {s.error}
-            {s.resumable && <p>Die Session lässt sich unten mit einer Anweisung fortsetzen.</p>}
+            {s.resumable && <p>The session can be resumed below with an instruction.</p>}
           </Notice>
         )
       )}
@@ -143,18 +143,18 @@ function SessionCost({ session: s }: { session: Session }) {
   return (
     <>
       {formatUSD(s.cost_usd)}
-      {s.budget_usd ? <span className="muted"> von {formatUSD(s.budget_usd)} Budget</span> : null}
+      {s.budget_usd ? <span className="muted"> of {formatUSD(s.budget_usd)} budget</span> : null}
       {tokens > 0 && (
         <span
           className="muted"
-          title={`Eingabe ${s.input_tokens}, Ausgabe ${s.output_tokens}, Cache gelesen ${s.cache_read_tokens}, Cache geschrieben ${s.cache_write_tokens}`}
+          title={`input ${s.input_tokens}, output ${s.output_tokens}, cache read ${s.cache_read_tokens}, cache written ${s.cache_write_tokens}`}
         >
           {" "}
-          · {formatTokens(s.input_tokens + s.cache_read_tokens + s.cache_write_tokens)} ein / {formatTokens(s.output_tokens)} aus
+          · {formatTokens(s.input_tokens + s.cache_read_tokens + s.cache_write_tokens)} in / {formatTokens(s.output_tokens)} out
         </span>
       )}
-      {s.metered && <span className="muted"> · gemessen am Egress-Proxy</span>}
-      {s.unpriced && <span className="muted"> · Preis für ein Modell unbekannt (pricing in config.yaml)</span>}
+      {s.metered && <span className="muted"> · measured at the egress proxy</span>}
+      {s.unpriced && <span className="muted"> · price for a model unknown (pricing in config.yaml)</span>}
       {s.budget_usd ? (
         <div className="budgetbar" role="meter" aria-valuemin={0} aria-valuemax={s.budget_usd} aria-valuenow={s.cost_usd} aria-label="Budget">
           <span className={ratio >= 1 ? "over" : ratio >= 0.8 ? "near" : ""} style={{ width: `${ratio * 100}%` }} />
@@ -166,7 +166,7 @@ function SessionCost({ session: s }: { session: Session }) {
 
 function AgentView({ session: s }: { session: Session }) {
   const qc = useQueryClient();
-  // Statuswechsel im Stream → Session-Daten (Status, Kosten, live) neu laden.
+  // Status change in the stream → reload session data (status, costs, live).
   const onEvent = useCallback(
     (e: SessionEvent) => {
       if (e.type === "status" || e.type === "cost" || e.type === "usage") void qc.invalidateQueries({ queryKey: ["session", s.id] });
@@ -177,10 +177,10 @@ function AgentView({ session: s }: { session: Session }) {
   return (
     <>
       <div className="sectionhead">
-        <h2>Verlauf</h2>
+        <h2>History</h2>
         <span className="muted streamstate">
           <span className={`dot ${state === "live" ? "ok" : "warn"}`} aria-hidden />{" "}
-          {state === "live" ? "live" : state === "reconnecting" ? "verbinde neu …" : "verbinde …"}
+          {state === "live" ? "live" : state === "reconnecting" ? "reconnecting …" : "connecting …"}
         </span>
       </div>
       <Timeline events={events} live={s.live} />
@@ -209,7 +209,7 @@ function InputBox({ session: s }: { session: Session }) {
   if (!canSend && !s.live)
     return (
       <p className="muted inputhint">
-        {s.capabilities.resume ? "Diese Session lässt sich nicht fortsetzen (keine Session-ID der CLI)." : "Session beendet."}
+        {s.capabilities.resume ? "This session cannot be resumed (no session ID of the CLI)." : "Session ended."}
       </p>
     );
 
@@ -217,13 +217,13 @@ function InputBox({ session: s }: { session: Session }) {
     <form className="inputbox" onSubmit={submit}>
       <textarea
         rows={2}
-        aria-label="Anweisung an den Agenten"
+        aria-label="Instruction to the agent"
         placeholder={
           s.resumable
-            ? "Anweisung zum Fortsetzen (leer: dort weitermachen, wo der Agent aufgehört hat)"
+            ? "Instruction to resume (empty: continue where the agent left off)"
             : s.status === "running"
-              ? "Folgeanweisung – wird nach dem aktuellen Schritt bearbeitet"
-              : "Folgeanweisung"
+              ? "Follow-up instruction – handled after the current step"
+              : "Follow-up instruction"
         }
         value={text}
         disabled={!canSend}
@@ -233,7 +233,7 @@ function InputBox({ session: s }: { session: Session }) {
         }}
       />
       <button type="submit" className="primary" disabled={!canSend || send.isPending || (!text.trim() && !s.resumable)}>
-        {send.isPending ? "Sende …" : s.resumable ? "Fortsetzen" : "Senden"}
+        {send.isPending ? "Sending …" : s.resumable ? "Resume" : "Send"}
       </button>
       {send.isError && <Notice tone="bad">{errorMessage(send.error)}</Notice>}
     </form>

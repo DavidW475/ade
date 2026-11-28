@@ -1,12 +1,12 @@
-// Monaco Diff Editor für die Review-Ansicht. Diese Datei ist ein eigener Chunk (React.lazy):
-// Monaco ist groß und wird nur auf der Workspace-Seite gebraucht.
+// Monaco Diff Editor for the review view. This file is its own chunk (React.lazy): Monaco
+// is large and only needed on the workspace page.
 //
-// Monaco wird lokal gebündelt statt vom CDN geladen – die CSP des Dashboards erlaubt nur
-// 'self'. Nur der Editor-Worker wird gebraucht (Diff-Berechnung); Syntaxhervorhebung kommt
-// von den Monarch-Grammatiken, die Monaco je Sprache nachlädt.
+// Monaco is bundled locally instead of loaded from the CDN – the dashboard's CSP only allows
+// 'self'. Only the editor worker is needed (diff computation); syntax highlighting comes
+// from the Monarch grammars that Monaco loads per language.
 import * as monaco from "monaco-editor/editor/editor.api";
 import "monaco-editor/basic-languages/monaco.contribution";
-// Icon-Schrift (Pfeile, eingeklappte Bereiche), Diff-Navigation und Suche (Strg+F).
+// Icon font (arrows, folded regions), diff navigation and search (Ctrl+F).
 import "monaco-editor/features/codicon/register";
 import "monaco-editor/features/diffEditor/register";
 import "monaco-editor/features/find/register";
@@ -18,7 +18,7 @@ self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 const dark = window.matchMedia("(prefers-color-scheme: dark)");
 
 export interface DiffEditorProps {
-  /** Pfad der Datei; bestimmt die Sprache. */
+  /** Path of the file; determines the language. */
   path: string;
   original: string;
   modified: string;
@@ -60,8 +60,8 @@ export default function DiffEditor({ path, original, modified, sideBySide }: Dif
   useEffect(() => {
     const e = editor.current;
     if (!e) return;
-    // Eindeutige URIs: Monaco erkennt die Sprache an der Endung, Modelle dürfen sich nicht
-    // überschneiden.
+    // Unique URIs: Monaco detects the language by the extension, models must not
+    // overlap.
     const stamp = Date.now().toString(36) + Math.random().toString(36).slice(2);
     const uri = (side: string) => monaco.Uri.from({ scheme: "ade", path: `/${side}/${stamp}/${path}` });
     const next = {

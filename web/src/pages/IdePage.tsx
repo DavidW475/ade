@@ -6,7 +6,7 @@ import { IdeStateBadge } from "../components/ide";
 import { Notice } from "../components/ui";
 import { errorMessage } from "../format";
 
-/** Startseite eines IDE-Tabs: IDE starten, auf sie warten, dann zur Subdomain weiterleiten. */
+/** Start page of an IDE tab: start the IDE, wait for it, then redirect to the subdomain. */
 export function IdePage() {
   const { id = "" } = useParams();
   const [attempt, setAttempt] = useState(0);
@@ -17,7 +17,7 @@ export function IdePage() {
     queryKey: ["ide-start", id, attempt],
     queryFn: async () => {
       const st = await api.startIde(id);
-      qc.setQueryData(["ide", id], st); // alten Fehlerzustand ersetzen
+      qc.setQueryData(["ide", id], st); // replace the old error state
       return st;
     },
     retry: false,
@@ -52,7 +52,7 @@ export function IdePage() {
     document.title = `IDE ${workspace.data?.branch ?? id} – ADE`;
   }, [workspace.data, id]);
 
-  const error = start.error ?? redirectError ?? (state === "error" ? new Error(status.data?.error ?? "unbekannter Fehler") : null);
+  const error = start.error ?? redirectError ?? (state === "error" ? new Error(status.data?.error ?? "unknown error") : null);
 
   return (
     <div className="idelaunch">
@@ -61,10 +61,10 @@ export function IdePage() {
           {workspace.data?.branch ?? id}
         </Link>
       </div>
-      <h1>Browser-IDE</h1>
+      <h1>Browser IDE</h1>
       {error ? (
         <>
-          <Notice tone="bad" title="IDE konnte nicht gestartet werden">
+          <Notice tone="bad" title="IDE could not be started">
             {errorMessage(error)}
           </Notice>
           <button
@@ -74,17 +74,17 @@ export function IdePage() {
               setAttempt((a) => a + 1);
             }}
           >
-            Erneut versuchen
+            Try again
           </button>
         </>
       ) : (
         <p>
           {state && <IdeStateBadge state={state} />}{" "}
           {state === "installing"
-            ? "openvscode-server wird beim ersten Start heruntergeladen (etwa 75 MB) …"
+            ? "openvscode-server is downloaded on the first start (about 75 MB) …"
             : state === "running"
-              ? "Weiterleitung zur IDE …"
-              : "IDE wird gestartet …"}
+              ? "Redirecting to the IDE …"
+              : "Starting the IDE …"}
         </p>
       )}
     </div>

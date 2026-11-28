@@ -4,12 +4,12 @@ import { wsURL, type SessionEvent } from "../api";
 export type StreamState = "connecting" | "live" | "reconnecting";
 
 /**
- * Abonniert den Event-Stream einer Session (WS /ws/sessions/{id}/events).
- * Beim ersten Verbinden kommt die komplette Historie, danach live. Bricht die Verbindung ab
- * (Daemon-Neustart, Netz, Client zu langsam), wird mit ?since=<letzte seq> neu verbunden –
- * so geht nichts verloren und nichts kommt doppelt.
+ * Subscribes to the event stream of a session (WS /ws/sessions/{id}/events).
+ * On the first connection the complete history arrives, then live events. If the connection
+ * breaks (daemon restart, network, client too slow), it reconnects with ?since=<last seq> –
+ * so nothing is lost and nothing arrives twice.
  *
- * Für eine andere Session die Komponente neu einhängen (key={sessionId}).
+ * For another session, remount the component (key={sessionId}).
  */
 export function useSessionEvents(sessionId: string, onEvent?: (e: SessionEvent) => void) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
@@ -25,7 +25,7 @@ export function useSessionEvents(sessionId: string, onEvent?: (e: SessionEvent) 
     let flushTimer: number | undefined;
     let pending: SessionEvent[] = [];
 
-    // Beim Replay kommen viele Events auf einmal: gebündelt in den State übernehmen.
+    // During replay many events arrive at once: take them over into the state in batches.
     const flush = () => {
       flushTimer = undefined;
       const batch = pending;
@@ -65,7 +65,7 @@ export function useSessionEvents(sessionId: string, onEvent?: (e: SessionEvent) 
     };
   }, [sessionId]);
 
-  // Callback ohne Neuverbinden aktualisieren.
+  // Update the callback without reconnecting.
   useEffect(() => {
     onEventRef.current = onEvent;
   });

@@ -1,11 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Der Build landet in internal/api/dist und wird per go:embed ins Binary eingebettet.
-// Im Dev-Modus (npm run dev) leitet Vite /api, /auth und /ws an den Daemon auf :7000 weiter.
+// The build ends up in internal/api/dist and is embedded into the binary via go:embed.
+// In dev mode (npm run dev) Vite forwards /api, /auth and /ws to the daemon on :7000.
 const daemon = {
   target: "http://127.0.0.1:7000",
-  // Der Daemon prüft Host und Origin (ADR-008).
+  // The daemon checks host and origin (ADR-008).
   headers: { Host: "localhost:7000", Origin: "http://localhost:7000" },
 };
 
@@ -14,7 +14,7 @@ export default defineConfig({
   build: {
     outDir: "../internal/api/dist",
     emptyOutDir: true,
-    // Monaco (Diff-Editor) ist ein eigener, erst bei Bedarf geladener Chunk von ~2,7 MB.
+    // Monaco (diff editor) is its own chunk of ~2.7 MB, loaded only on demand.
     chunkSizeWarningLimit: 3000,
   },
   server: {
