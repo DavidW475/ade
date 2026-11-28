@@ -331,7 +331,7 @@ func TestScheduleNoCatchUp(t *testing.T) {
 	e.now = e.now.Add(3*time.Hour + 30*time.Minute)
 	e.svc.Check(e.ctx)
 	st, _ := e.st.GetTriggerState(e.ctx, e.p.ID, "hourly")
-	if len(e.runs.reqs) != 0 || !strings.Contains(st.LastError, "verpasst") {
+	if len(e.runs.reqs) != 0 || !strings.Contains(st.LastError, "missed") {
 		t.Fatalf("%d runs, error %q", len(e.runs.reqs), st.LastError)
 	}
 	e.now = time.Date(2026, 11, 27, 18, 0, 30, 0, time.UTC)

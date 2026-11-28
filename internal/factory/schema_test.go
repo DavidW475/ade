@@ -25,14 +25,14 @@ func TestSchemaValidate(t *testing.T) {
 	cases := map[string]string{
 		`{"verdict":"approve","comments":[]}`:                  "",
 		`{"verdict":"changes","comments":["a","b"],"score":3}`: "",
-		`{"verdict":"maybe","comments":[]}`:                    `$.verdict: erlaubt sind nur "approve", "changes"`,
-		`{"comments":[]}`:                                      "Feld verdict fehlt",
-		`{"verdict":"approve","comments":[""]}`:                "$.comments[0]: mindestens 1 Zeichen",
-		`{"verdict":"approve","comments":["a","b","c"]}`:       "höchstens 2 Einträge",
-		`{"verdict":"approve","comments":[],"score":2.5}`:      "erwartet integer",
-		`{"verdict":"approve","comments":[],"score":11}`:       "höchstens 10",
-		`{"verdict":"approve","comments":[],"extra":1}`:        "Feld extra ist nicht erlaubt",
-		`[1]`: "erwartet object, gefunden array",
+		`{"verdict":"maybe","comments":[]}`:                    `$.verdict: only "approve", "changes" are allowed`,
+		`{"comments":[]}`:                                      "field verdict missing",
+		`{"verdict":"approve","comments":[""]}`:                "$.comments[0]: at least 1 characters",
+		`{"verdict":"approve","comments":["a","b","c"]}`:       "at most 2 entries",
+		`{"verdict":"approve","comments":[],"score":2.5}`:      "expected integer",
+		`{"verdict":"approve","comments":[],"score":11}`:       "at most 10",
+		`{"verdict":"approve","comments":[],"extra":1}`:        "field extra is not allowed",
+		`[1]`: "expected object, found array",
 	}
 	for doc, want := range cases {
 		var v any
@@ -41,24 +41,24 @@ func TestSchemaValidate(t *testing.T) {
 		}
 		got := strings.Join(s.Validate(v), "; ")
 		if want == "" && got != "" || !strings.Contains(got, want) {
-			t.Errorf("%s: %q, erwartet %q", doc, got, want)
+			t.Errorf("%s: %q, want %q", doc, got, want)
 		}
 	}
 }
 
 func TestCompileSchemaErrors(t *testing.T) {
 	for doc, want := range map[string]string{
-		`{"type":"thing"}`:                      `"thing" ist unbekannt`,
-		`{"pattern":"x"}`:                       "pattern wird nicht unterstützt",
-		`{"properties":{"a":{"$ref":"#/x"}}}`:   "Schema .a: Schlüsselwort $ref",
-		`{"additionalProperties":{"type":"x"}}`: "nur als true oder false",
-		`{"minLength":-1}`:                      "ganze Zahl",
-		`[]`:                                    "muss ein Objekt sein",
-		`{"enum":[]}`:                           "nicht leere Liste",
+		`{"type":"thing"}`:                      `"thing" is unknown`,
+		`{"pattern":"x"}`:                       "pattern is not supported",
+		`{"properties":{"a":{"$ref":"#/x"}}}`:   "schema .a: keyword $ref",
+		`{"additionalProperties":{"type":"x"}}`: "only supported as true or false",
+		`{"minLength":-1}`:                      "an integer",
+		`[]`:                                    "must be an object",
+		`{"enum":[]}`:                           "non-empty list",
 	} {
 		_, err := CompileSchema([]byte(doc))
 		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%s: %v, erwartet %q", doc, err, want)
+			t.Errorf("%s: %v, want %q", doc, err, want)
 		}
 	}
 }
@@ -66,8 +66,8 @@ func TestCompileSchemaErrors(t *testing.T) {
 func TestExtractJSON(t *testing.T) {
 	for text, want := range map[string]string{
 		`{"a":1}`: "{\n  \"a\": 1\n}",
-		"Hier das Ergebnis:\n\n```json\n{\"a\": [1, 2]}\n```\n":  "{\n  \"a\": [\n    1,\n    2\n  ]\n}",
-		"```json\n{\"a\":1}\n```\nund dann\n```\n{\"a\":2}\n```": "{\n  \"a\": 2\n}",
+		"Here is the result:\n\n```json\n{\"a\": [1, 2]}\n```\n": "{\n  \"a\": [\n    1,\n    2\n  ]\n}",
+		"```json\n{\"a\":1}\n```\nand then\n```\n{\"a\":2}\n```": "{\n  \"a\": 2\n}",
 		"```\nkein json\n```\n```json\n{\"b\":true}\n```":        "{\n  \"b\": true\n}",
 	} {
 		got, _, err := ExtractJSON(text)
@@ -75,9 +75,9 @@ func TestExtractJSON(t *testing.T) {
 			t.Errorf("%q: %q %v", text, got, err)
 		}
 	}
-	for _, text := range []string{"", "Alles gut!", `{"a":1} und mehr`, "```json\n{kaputt\n```"} {
+	for _, text := range []string{"", "All good!", `{"a":1} and more`, "```json\n{broken\n```"} {
 		if _, _, err := ExtractJSON(text); err == nil {
-			t.Errorf("%q: kein Fehler", text)
+			t.Errorf("%q: no error", text)
 		}
 	}
 }

@@ -51,7 +51,7 @@ flow:
   - { step: deliver, action: pull_request }
 `
 
-// structFactory: Reviewer mit strukturiertem Artefakt → Entwickler.
+// structFactory: reviewer with a structured artifact → implementer.
 const structFactory = `name: s
 inputs:
   task: { required: true }
@@ -63,13 +63,13 @@ flow:
   - { step: fix, role: implementer }
 `
 
-// inputs liefert alle Anweisungen an den Fake-Agenten im Schritt step (JSON-kodiert).
+// inputs returns all instructions to the fake agent in step step (JSON-encoded).
 func (e *env) inputs(step string) string {
 	b, _ := os.ReadFile(filepath.Join(e.resp, step+".log"))
 	return string(b)
 }
 
-// loopRunFactory: Umsetzung → Review → Rücksprung bei Änderungswunsch → Gate mit Rücksprung → PR.
+// loopRunFactory: implementation → review → jump back on change request → gate with jump back → PR.
 const loopRunFactory = `name: l
 inputs:
   task: { required: true }
@@ -86,8 +86,8 @@ flow:
   - { step: deliver, action: pull_request }
 `
 
-// parallelRunFactory: Umsetzung → Review (lesend) und Test (schreibend) parallel → Rücksprung,
-// solange Tests fehlschlagen.
+// parallelRunFactory: implementation → review (read-only) and test (writing) in parallel → jump back
+// as long as tests fail.
 const parallelRunFactory = `name: p
 inputs:
   task: { required: true }
@@ -103,7 +103,7 @@ flow:
   - { step: decide, when: "review.verdict == 'changes' || test.failed > 0", goto: implement }
 `
 
-// unattendedFactory: Entwickler → pull_request ohne Gate (#103).
+// unattendedFactory: implementer → pull_request without a gate (#103).
 const unattendedFactory = `name: u
 inputs:
   task: { required: true }
@@ -114,7 +114,7 @@ flow:
   - { step: deliver, action: pull_request, unattended: true }
 `
 
-// answer legt die nächsten Antworten des Fake-Agenten im Schritt step fest.
+// answer sets the next answers of the fake agent in step step.
 func (e *env) answer(step string, texts ...string) {
 	e.t.Helper()
 	var b strings.Builder
@@ -137,8 +137,8 @@ type env struct {
 	ws      *workspace.Manager
 	project *project.View
 	dataDir string
-	flag    string // solange die Datei fehlt, beendet der Fake-Agent seine Runde nicht
-	resp    string // Antworten des Fake-Agenten je Schritt (eine Zeile je Runde, sonst Echo)
+	flag    string // as long as the file is missing, the fake agent does not finish its turn
+	resp    string // answers of the fake agent per step (one line per turn, otherwise echo)
 	gh      string
 	log     *slog.Logger
 
@@ -153,9 +153,9 @@ func setup(t *testing.T) *env {
 	repo := t.TempDir()
 	gitRun(t, repo, "init", "-q", "-b", "main")
 	for p, c := range map[string]string{
-		"README.md":                          "hallo\n",
+		"README.md":                          "hello\n",
 		".ade/factories/t.yaml":              testFactory,
-		".ade/factories/prompts/planner.md":  "Du planst.",
+		".ade/factories/prompts/planner.md":  "You plan.",
 		".ade/factories/s.yaml":              structFactory,
 		".ade/factories/p.yaml":              parallelRunFactory,
 		".ade/factories/l.yaml":              loopRunFactory,
@@ -197,16 +197,16 @@ func setup(t *testing.T) *env {
 	return e
 }
 
-// script ist der Fake-Agent: meldet eine Resume-ID, schreibt eine Datei ins
-// Arbeitsverzeichnis, wartet, bis die Flag-Datei da ist (und keine Halte-Datei <schritt>.hold),
-// und antwortet dann mit der nächsten vorbereiteten Antwort seines Schritts oder spiegelt die
-// Anweisung. Den Schritt merkt er sich je Session (für Folgeanweisungen und Resume).
+// script is the fake agent: reports a resume ID, writes a file into the working directory,
+// waits until the flag file exists (and no hold file <step>.hold), and then answers with the
+// next prepared answer of its step or mirrors the instruction. It remembers the step per
+// session (for follow-up instructions and resume).
 func (e *env) script() []string {
 	return []string{"sh", "-c", `echo '{"type":"resume_id","payload":{"id":"r1"}}'
 mem="$2/session-$ADE_SESSION_ID"
 step=$(cat "$mem" 2>/dev/null)
 while read -r l; do
-  s=$(printf '%s' "$l" | sed -n 's/.*Du bist ein Schritt (\([a-z0-9_-]*\)).*/\1/p')
+  s=$(printf '%s' "$l" | sed -n 's/.*You are one step (\([a-z0-9_-]*\)).*/\1/p')
   [ -n "$s" ] && step=$s && printf '%s' "$step" > "$mem"
   f="$2/$step"
   [ -n "$step" ] && printf '%s\n' "$l" >> "$f.log"
@@ -217,7 +217,7 @@ while read -r l; do
 done`, "sh", e.flag, e.resp}
 }
 
-// boot startet Agent-Manager, Freigaben und Runner (wie der Daemon, auch nach einem Neustart).
+// boot starts agent manager, approvals and runner (like the daemon, also after a restart).
 func (e *env) boot() {
 	e.t.Helper()
 	fa := &fake.Adapter{AdapterName: "claude", Argv: e.script()}
@@ -256,7 +256,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	deadline := time.Now().Add(15 * time.Second)
 	for !cond() {
 		if time.Now().After(deadline) {
-			t.Fatalf("Zeitüberschreitung: %s", what)
+			t.Fatalf("timeout: %s", what)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -271,14 +271,14 @@ func (e *env) run(id string) *store.Run {
 	return r
 }
 
-// waitStep wartet, bis der Run beim Schritt name mit Status status steht.
+// waitStep waits until the run is at step name with status status.
 func (e *env) waitStep(id, name, status string) store.RunStep {
 	e.t.Helper()
 	var st store.RunStep
 	waitFor(e.t, name+" "+status, func() bool {
 		r := e.run(id)
 		if !store.RunActive(r.Status) && r.Status != store.RunDone {
-			e.t.Fatalf("Run endete mit %s: %s", r.Status, r.Error)
+			e.t.Fatalf("run ended with %s: %s", r.Status, r.Error)
 		}
 		for _, s := range r.Steps {
 			if s.Name == name && s.Status == status {
@@ -300,7 +300,7 @@ func (e *env) decide(approvalID, decision, reason string) {
 
 func TestRunThroughWithRestart(t *testing.T) {
 	e := setup(t)
-	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "t", Task: "Baue X"})
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "t", Task: "Build X"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,45 +312,45 @@ func TestRunThroughWithRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Planer: Antwort wird plan.md, Prompt enthält Rollen-Prompt und Aufgabe; der Lesezugriff
-	// lässt den Workspace unverändert.
+	// Planner: the answer becomes plan.md, the prompt contains role prompt and task; read access
+	// leaves the workspace unchanged.
 	gate := e.waitStep(v.ID, "approve-plan", store.StepWaiting)
 	plan, err := e.runner.ReadArtifact(e.ctx, v.ID, "plan.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"echo: Du planst.", "## Aufgabe", "Baue X", "nur Lesezugriff", "`plan.md`"} {
+	for _, want := range []string{"echo: You plan.", "## Task", "Build X", "only have read access", "`plan.md`"} {
 		if !strings.Contains(string(plan), want) {
-			t.Errorf("plan.md ohne %q:\n%s", want, plan)
+			t.Errorf("plan.md without %q:\n%s", want, plan)
 		}
 	}
 	planner := e.run(v.ID).Steps[0]
 	if _, err := os.Stat(filepath.Join(ws.Path, "touched-"+planner.SessionID)); err == nil {
-		t.Fatal("die Lese-Rolle hat eine Datei im Workspace angelegt")
+		t.Fatal("the read-only role created a file in the workspace")
 	}
 	if s, _ := e.st.GetSession(e.ctx, planner.SessionID); !s.ReadOnly || s.Role != "planner" || s.Status != store.SessionDone {
 		t.Fatalf("Planer-Session %+v", s)
 	}
 	if _, err := os.Stat(filepath.Join(e.dataDir, "snapshots", planner.SessionID)); err == nil {
-		t.Fatal("Schnappschuss des Planers blieb liegen")
+		t.Fatal("the planner's snapshot was left behind")
 	}
 
-	// Neustart am Gate: Die alte Freigabe läuft ab, der Runner legt eine neue an.
+	// Restart at the gate: the old approval expires, the runner creates a new one.
 	e.shutdown()
 	e.boot()
 	e.waitStep(v.ID, "approve-plan", store.StepWaiting)
-	waitFor(t, "neue Freigabe", func() bool { return e.run(v.ID).Steps[1].ApprovalID != gate.ApprovalID })
+	waitFor(t, "new approval", func() bool { return e.run(v.ID).Steps[1].ApprovalID != gate.ApprovalID })
 	gate2 := e.run(v.ID).Steps[1]
 	if a, _ := e.st.GetApproval(e.ctx, gate2.ApprovalID); a.Status != store.ApprovalPending || a.Kind != store.ApprovalGate {
-		t.Fatalf("Freigabe nach Neustart %+v", a)
+		t.Fatalf("approval after restart %+v", a)
 	}
 
-	// Freigabe mit Hinweis → Entwickler bekommt Plan und Hinweis. Er bleibt mitten in der
-	// Runde hängen (Flag fehlt), der Daemon startet neu, die Session wird fortgesetzt.
+	// Approval with a note → the implementer gets plan and note. It gets stuck in the middle of
+	// the turn (flag missing), the daemon restarts, the session is resumed.
 	if err := os.Remove(e.flag); err != nil {
 		t.Fatal(err)
 	}
-	e.decide(gate2.ApprovalID, store.DecisionAllow, "Bitte mit Tests")
+	e.decide(gate2.ApprovalID, store.DecisionAllow, "Please with tests")
 	impl := e.waitStep(v.ID, "implement", store.StepRunning)
 	waitFor(t, "Entwickler arbeitet", func() bool {
 		_, err := os.Stat(filepath.Join(ws.Path, "touched-"+impl.SessionID))
@@ -358,7 +358,7 @@ func TestRunThroughWithRestart(t *testing.T) {
 	})
 	e.shutdown()
 	if s, _ := e.st.GetSession(e.ctx, impl.SessionID); s.Status != store.SessionInterrupted {
-		t.Fatalf("Entwickler nach Shutdown: %s", s.Status)
+		t.Fatalf("implementer after shutdown: %s", s.Status)
 	}
 	writeFile(t, e.flag, "")
 	e.boot()
@@ -368,22 +368,22 @@ func TestRunThroughWithRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(summary), agent.ResumePrompt) {
-		t.Errorf("summary.md stammt nicht aus der fortgesetzten Runde:\n%s", summary)
+		t.Errorf("summary.md does not come from the resumed turn:\n%s", summary)
 	}
-	// Die Schreib-Rolle hat den Workspace geändert, ADE hat den Stand gesichert.
+	// The writing role changed the workspace, ADE saved the state.
 	if out := gitRun(t, ws.Path, "log", "--name-only", "--format=", ws.BaseCommit+"..HEAD"); !strings.Contains(out, "touched-"+impl.SessionID) {
-		t.Fatalf("Änderung des Entwicklers nicht committet: %q", out)
+		t.Fatalf("change of the implementer not committed: %q", out)
 	}
 	review, _ := e.runner.ReadArtifact(e.ctx, v.ID, "review.md")
-	for _, want := range []string{"Artefakt plan.md", "Artefakt summary.md"} {
+	for _, want := range []string{"Artifact plan.md", "Artifact summary.md"} {
 		if !strings.Contains(string(review), want) {
-			t.Errorf("Reviewer-Prompt ohne %q", want)
+			t.Errorf("reviewer prompt without %q", want)
 		}
 	}
 
 	// Letztes Gate → PR.
 	e.decide(final.ApprovalID, store.DecisionAllow, "")
-	waitFor(t, "Run fertig", func() bool { return e.run(v.ID).Status == store.RunDone })
+	waitFor(t, "run done", func() bool { return e.run(v.ID).Status == store.RunDone })
 	got, err := e.runner.Get(e.ctx, v.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -393,7 +393,7 @@ func TestRunThroughWithRestart(t *testing.T) {
 	}
 	for _, st := range got.Steps {
 		if st.Status != store.StepDone {
-			t.Errorf("Schritt %s: %s", st.Name, st.Status)
+			t.Errorf("step %s: %s", st.Name, st.Status)
 		}
 	}
 }
@@ -406,12 +406,12 @@ func TestRunGateDenyAndCancel(t *testing.T) {
 	}
 	gate := e.waitStep(v.ID, "approve-plan", store.StepWaiting)
 	e.decide(gate.ApprovalID, store.DecisionDeny, "falscher Ansatz")
-	waitFor(t, "Run abgebrochen", func() bool { return e.run(v.ID).Status == store.RunCanceled })
+	waitFor(t, "run canceled", func() bool { return e.run(v.ID).Status == store.RunCanceled })
 	if r := e.run(v.ID); !strings.Contains(r.Error, "falscher Ansatz") || r.Steps[1].Status != store.StepCanceled {
 		t.Fatalf("%+v", r)
 	}
 
-	// Abbrechen während eine Rolle arbeitet: Session wird gestoppt.
+	// Cancel while a role is working: the session is stopped.
 	if err := os.Remove(e.flag); err != nil {
 		t.Fatal(err)
 	}
@@ -424,17 +424,17 @@ func TestRunGateDenyAndCancel(t *testing.T) {
 	if err != nil || got.Status != store.RunCanceled {
 		t.Fatalf("Cancel: %+v %v", got, err)
 	}
-	waitFor(t, "Session gestoppt", func() bool {
+	waitFor(t, "session stopped", func() bool {
 		s, _ := e.st.GetSession(e.ctx, st.SessionID)
 		return s.Status == store.SessionStopped
 	})
 	if _, err := e.runner.Cancel(e.ctx, v2.ID); err == nil {
-		t.Fatal("zweites Abbrechen ohne Fehler")
+		t.Fatal("second cancel without an error")
 	}
 }
 
-// TestRunUnattendedSensitive: pull_request ohne Gate wartet auf eine Freigabe, wenn der
-// Agent einen Workflow ändert; ohne solche Änderung entsteht der PR direkt (#103).
+// TestRunUnattendedSensitive: pull_request without a gate waits for an approval if the agent
+// changes a workflow; without such a change the PR is created directly (#103).
 func TestRunUnattendedSensitive(t *testing.T) {
 	e := setup(t)
 	hold := filepath.Join(e.resp, "implement.hold")
@@ -462,31 +462,31 @@ func TestRunUnattendedSensitive(t *testing.T) {
 		t.Fatal(err)
 	}
 	if a.Kind != store.ApprovalGate || !d.Unattended || len(d.Sensitive) != 1 || d.Sensitive[0] != ".github/workflows/ci.yml" || d.OnDeny != "" {
-		t.Fatalf("Freigabe %+v %+v", a, d)
+		t.Fatalf("approval %+v %+v", a, d)
 	}
 	if e.run(v.ID).Status != store.RunWaiting {
-		t.Fatal("Run wartet nicht")
+		t.Fatal("run does not wait")
 	}
 	if got, _ := e.ws.Get(e.ctx, v.WorkspaceID); got.PRURL != "" {
-		t.Fatal("PR vor der Freigabe")
+		t.Fatal("PR before the approval")
 	}
 	e.decide(st.ApprovalID, store.DecisionAllow, "")
-	waitFor(t, "Run fertig", func() bool { return e.run(v.ID).Status == store.RunDone })
+	waitFor(t, "run done", func() bool { return e.run(v.ID).Status == store.RunDone })
 	if got, _ := e.runner.Get(e.ctx, v.ID); got.PRURL == "" {
-		t.Fatalf("kein PR: %+v", got.Run)
+		t.Fatalf("no PR: %+v", got.Run)
 	}
 
-	// Ohne sensible Änderung: PR ohne Freigabe.
+	// Without a sensitive change: PR without approval.
 	v2, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "u", Task: "Doku"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "Run 2 fertig", func() bool { return e.run(v2.ID).Status == store.RunDone })
+	waitFor(t, "run 2 done", func() bool { return e.run(v2.ID).Status == store.RunDone })
 	if r := e.run(v2.ID); r.Steps[1].ApprovalID != "" {
-		t.Fatalf("Freigabe ohne sensible Änderung: %+v", r.Steps[1])
+		t.Fatalf("approval without a sensitive change: %+v", r.Steps[1])
 	}
 
-	// Ablehnen bricht den Run ab, es entsteht kein PR.
+	// Denying cancels the run, no PR is created.
 	writeFile(t, hold, "")
 	v3, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "u", Task: "ADE"})
 	if err != nil {
@@ -500,13 +500,13 @@ func TestRunUnattendedSensitive(t *testing.T) {
 	}
 	st3 := e.waitStep(v3.ID, "deliver", store.StepWaiting)
 	e.decide(st3.ApprovalID, store.DecisionDeny, "nein")
-	waitFor(t, "Run 3 abgebrochen", func() bool { return e.run(v3.ID).Status == store.RunCanceled })
+	waitFor(t, "run 3 canceled", func() bool { return e.run(v3.ID).Status == store.RunCanceled })
 	if got, _ := e.ws.Get(e.ctx, v3.WorkspaceID); got.PRURL != "" {
 		t.Fatal("PR trotz Ablehnung")
 	}
 }
 
-// TestGateShowsSensitive: Das Gate vor dem PR nennt geänderte Workflows.
+// TestGateShowsSensitive: the gate before the PR names changed workflows.
 func TestGateShowsSensitive(t *testing.T) {
 	e := setup(t)
 	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "t", Task: "X"})
@@ -534,11 +534,11 @@ func TestGateShowsSensitive(t *testing.T) {
 func TestRunStartErrors(t *testing.T) {
 	e := setup(t)
 	for name, req := range map[string]StartRequest{
-		"Fabrik fehlt":  {ProjectID: e.project.ID, Factory: "gibtsnicht", Task: "x"},
-		"Aufgabe fehlt": {ProjectID: e.project.ID, Factory: "t"},
-		"Projekt fehlt": {Factory: "t", Task: "x"},
-		"Eingabe fremd": {ProjectID: e.project.ID, Factory: "t", Task: "x", Inputs: map[string]string{"foo": "1"}},
-		// Vorlage: Modell opus ist hier kein Alias und geht unverändert an die CLI.
+		"factory missing": {ProjectID: e.project.ID, Factory: "doesnotexist", Task: "x"},
+		"task missing":    {ProjectID: e.project.ID, Factory: "t"},
+		"project missing": {Factory: "t", Task: "x"},
+		"foreign input":   {ProjectID: e.project.ID, Factory: "t", Task: "x", Inputs: map[string]string{"foo": "1"}},
+		// Template: model opus is not an alias here and goes to the CLI unchanged.
 		"Vorlage feature": {ProjectID: e.project.ID, Factory: "feature", Task: "x"},
 	} {
 		_, err := e.runner.Start(e.ctx, req)
@@ -549,7 +549,7 @@ func TestRunStartErrors(t *testing.T) {
 			continue
 		}
 		if err == nil {
-			t.Errorf("%s: kein Fehler", name)
+			t.Errorf("%s: no error", name)
 		}
 	}
 	list, err := e.runner.Factories(e.ctx, e.project.ID)
@@ -560,39 +560,39 @@ func TestRunStartErrors(t *testing.T) {
 
 func TestRunStructuredArtifact(t *testing.T) {
 	e := setup(t)
-	e.answer("review", `{"verdict": "maybe"}`, "Hier:\n```json\n{\"verdict\": \"changes\", \"comments\": [\"Test fehlt\"]}\n```")
-	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "s", Task: "Prüfe"})
+	e.answer("review", `{"verdict": "maybe"}`, "Here:\n```json\n{\"verdict\": \"changes\", \"comments\": [\"test missing\"]}\n```")
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "s", Task: "Check"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "Run fertig", func() bool { return e.run(v.ID).Status == store.RunDone })
+	waitFor(t, "run done", func() bool { return e.run(v.ID).Status == store.RunDone })
 	r := e.run(v.ID)
 	if r.Steps[0].Fixes != 1 || r.Steps[0].Error != "" {
-		t.Fatalf("Reviewer-Schritt %+v", r.Steps[0])
+		t.Fatalf("reviewer step %+v", r.Steps[0])
 	}
 	review, err := e.runner.ReadArtifact(e.ctx, v.ID, "review.json")
-	if err != nil || string(review) != "{\n  \"verdict\": \"changes\",\n  \"comments\": [\n    \"Test fehlt\"\n  ]\n}" {
+	if err != nil || string(review) != "{\n  \"verdict\": \"changes\",\n  \"comments\": [\n    \"test missing\"\n  ]\n}" {
 		t.Fatalf("review.json %q %v", review, err)
 	}
-	// Die Rolle kannte das Schema und bekam die Prüffehler.
-	for _, want := range []string{"JSON Schema für `review.json`", `$.verdict: erlaubt sind nur`, "Feld comments fehlt"} {
+	// The role knew the schema and got the check errors.
+	for _, want := range []string{"JSON Schema for `review.json`", `$.verdict: only`, "field comments missing"} {
 		if !strings.Contains(e.inputs("review"), want) {
-			t.Errorf("Anweisungen an den Reviewer ohne %q:\n%s", want, e.inputs("review"))
+			t.Errorf("instructions to the reviewer without %q:\n%s", want, e.inputs("review"))
 		}
 	}
 	summary, _ := e.runner.ReadArtifact(e.ctx, v.ID, "summary.md")
-	if !strings.Contains(string(summary), "```json") || !strings.Contains(string(summary), "Test fehlt") {
-		t.Fatalf("Entwickler bekam review.json nicht als JSON:\n%s", summary)
+	if !strings.Contains(string(summary), "```json") || !strings.Contains(string(summary), "test missing") {
+		t.Fatalf("implementer did not get review.json as JSON:\n%s", summary)
 	}
 
-	// Bleibt die Antwort ungültig, scheitert der Run nach MaxFixes Korrekturen.
-	e.answer("review", "nein", "immer noch nicht", `{"verdict": "approve"}`)
-	v2, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "s", Task: "Prüfe"})
+	// If the answer stays invalid, the run fails after MaxFixes corrections.
+	e.answer("review", "no", "still not", `{"verdict": "approve"}`)
+	v2, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "s", Task: "Check"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "Run gescheitert", func() bool { return e.run(v2.ID).Status == store.RunFailed })
-	if r := e.run(v2.ID); !strings.Contains(r.Error, "nach 2 Korrekturen noch ungültig") || r.Steps[0].Fixes != 2 {
+	if r := e.run(v2.ID); !strings.Contains(r.Error, "still invalid after 2 corrections") || r.Steps[0].Fixes != 2 {
 		t.Fatalf("Run %+v", r)
 	}
 }
@@ -600,25 +600,25 @@ func TestRunStructuredArtifact(t *testing.T) {
 func TestRunLoop(t *testing.T) {
 	e := setup(t)
 	e.answer("review",
-		`{"verdict": "changes", "comments": ["Test fehlt"]}`,
+		`{"verdict": "changes", "comments": ["test missing"]}`,
 		`{"verdict": "approve", "comments": []}`,
 		`{"verdict": "approve", "comments": []}`)
 	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "l", Task: "Baue Y"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Reviewer verlangt Änderungen → zweiter Durchlauf → Freigabe am Gate wartet.
+	// The reviewer asks for changes → second pass → approval at the gate waits.
 	final := e.waitStep(v.ID, "final", store.StepWaiting)
 	impl := strings.Split(strings.TrimSpace(e.inputs("implement")), "\n")
 	if len(impl) != 2 {
-		t.Fatalf("Entwickler bekam %d Anweisungen, erwartet 2", len(impl))
+		t.Fatalf("implementer got %d instructions, want 2", len(impl))
 	}
-	if strings.Contains(impl[0], "Artefakt review.json") || strings.Contains(impl[0], "Durchlauf") {
-		t.Errorf("erster Durchlauf mit Review-Feedback: %s", impl[0])
+	if strings.Contains(impl[0], "Artifact review.json") || strings.Contains(impl[0], "## Pass") {
+		t.Errorf("first pass with review feedback: %s", impl[0])
 	}
-	for _, want := range []string{"Durchlauf 2", "Test fehlt", "Artefakt review.json (Schritt review, Rolle reviewer)", "zurück zu implement"} {
+	for _, want := range []string{"Pass 2", "test missing", "Artifact review.json (step review, role reviewer)", "back to implement"} {
 		if !strings.Contains(impl[1], want) {
-			t.Errorf("zweiter Durchlauf ohne %q:\n%s", want, impl[1])
+			t.Errorf("second pass without %q:\n%s", want, impl[1])
 		}
 	}
 	r := e.run(v.ID)
@@ -629,10 +629,10 @@ func TestRunLoop(t *testing.T) {
 		t.Fatalf("History %+v", r.History)
 	}
 
-	// Neustart mitten in der Schleife, dann Ablehnen am Gate mit Begründung → dritter Durchlauf.
+	// Restart in the middle of the loop, then deny at the gate with a reason → third pass.
 	e.shutdown()
 	e.boot()
-	waitFor(t, "neue Freigabe", func() bool { return e.run(v.ID).Steps[4].ApprovalID != final.ApprovalID })
+	waitFor(t, "new approval", func() bool { return e.run(v.ID).Steps[4].ApprovalID != final.ApprovalID })
 	gateID := e.run(v.ID).Steps[4].ApprovalID
 	ga, err := e.st.GetApproval(e.ctx, gateID)
 	if err != nil {
@@ -643,7 +643,7 @@ func TestRunLoop(t *testing.T) {
 		t.Fatalf("Gate-Detail %s %v", ga.Detail, err)
 	}
 	if _, err := e.approvals.Decide(e.ctx, gateID, store.DecisionDeny, " "); !errors.Is(err, apperr.ErrInvalid) {
-		t.Fatalf("Ablehnen ohne Begründung trotz on_deny: %v", err)
+		t.Fatalf("deny without a reason despite on_deny: %v", err)
 	}
 	pv, err := e.runner.Get(e.ctx, v.ID)
 	if err != nil {
@@ -652,17 +652,17 @@ func TestRunLoop(t *testing.T) {
 	if len(pv.Plan) != len(pv.Steps) || pv.Plan[4].Goto != "implement" || pv.Plan[2].Goto != "implement" || pv.Plan[2].When == "" || pv.Plan[0].Goto != "" {
 		t.Fatalf("Plan %+v", pv.Plan)
 	}
-	e.decide(gateID, store.DecisionDeny, "Bitte Doku ergänzen")
-	waitFor(t, "dritter Durchlauf am Gate", func() bool {
+	e.decide(gateID, store.DecisionDeny, "Please add docs")
+	waitFor(t, "third pass at the gate", func() bool {
 		r := e.run(v.ID)
 		return r.Steps[4].Iteration == 2 && r.Steps[4].Status == store.StepWaiting
 	})
 	impl = strings.Split(strings.TrimSpace(e.inputs("implement")), "\n")
-	if len(impl) != 3 || !strings.Contains(impl[2], "Bitte Doku ergänzen") || !strings.Contains(impl[2], "Freigabe final (abgelehnt") {
-		t.Fatalf("dritter Durchlauf ohne Begründung der Ablehnung:\n%s", impl[len(impl)-1])
+	if len(impl) != 3 || !strings.Contains(impl[2], "Please add docs") || !strings.Contains(impl[2], "Approval final (denied") {
+		t.Fatalf("third pass without the reason for the denial:\n%s", impl[len(impl)-1])
 	}
 	e.decide(e.run(v.ID).Steps[4].ApprovalID, store.DecisionAllow, "")
-	waitFor(t, "Run fertig", func() bool { return e.run(v.ID).Status == store.RunDone })
+	waitFor(t, "run done", func() bool { return e.run(v.ID).Status == store.RunDone })
 
 	got, err := e.runner.Get(e.ctx, v.ID)
 	if err != nil {
@@ -678,17 +678,17 @@ func TestRunLoop(t *testing.T) {
 		t.Fatalf("Artefakt review.json %+v", review)
 	}
 	first, err := e.runner.ReadArtifactIteration(e.ctx, v.ID, "review.json", 1)
-	if err != nil || !strings.Contains(string(first), "Test fehlt") {
-		t.Fatalf("review.json aus Durchlauf 1: %q %v", first, err)
+	if err != nil || !strings.Contains(string(first), "test missing") {
+		t.Fatalf("review.json from pass 1: %q %v", first, err)
 	}
 	if latest, _ := e.runner.ReadArtifact(e.ctx, v.ID, "review.json"); !strings.Contains(string(latest), "approve") {
-		t.Fatalf("jüngstes review.json: %s", latest)
+		t.Fatalf("latest review.json: %s", latest)
 	}
 }
 
 func TestRunLoopExhausted(t *testing.T) {
 	e := setup(t)
-	changes := `{"verdict": "changes", "comments": ["noch nicht"]}`
+	changes := `{"verdict": "changes", "comments": ["not yet"]}`
 	e.answer("review", changes, changes, changes)
 	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "l", Task: "Z"})
 	if err != nil {
@@ -696,7 +696,7 @@ func TestRunLoopExhausted(t *testing.T) {
 	}
 	waitFor(t, "Run gescheitert", func() bool { return e.run(v.ID).Status == store.RunFailed })
 	r := e.run(v.ID)
-	if !strings.Contains(r.Error, "nach 3 Durchläufen noch wahr") || r.Steps[0].Iteration != 3 {
+	if !strings.Contains(r.Error, "still true after 3 passes") || r.Steps[0].Iteration != 3 {
 		t.Fatalf("Run %+v", r)
 	}
 }
@@ -713,7 +713,7 @@ func TestRunParallel(t *testing.T) {
 	if v.Steps[2].Group == nil || *v.Steps[2].Group != 1 || v.Steps[0].Group != nil {
 		t.Fatalf("Schritte %+v", v.Steps)
 	}
-	waitFor(t, "Run fertig", func() bool {
+	waitFor(t, "run done", func() bool {
 		r := e.run(v.ID)
 		if r.Status == store.RunFailed {
 			t.Fatalf("Run gescheitert: %s", r.Error)
@@ -723,17 +723,17 @@ func TestRunParallel(t *testing.T) {
 	r := e.run(v.ID)
 	for _, st := range r.Steps[:3] {
 		if st.Iteration != 2 || st.Status != store.StepDone {
-			t.Errorf("Schritt %s: Durchlauf %d, %s", st.Name, st.Iteration, st.Status)
+			t.Errorf("step %s: pass %d, %s", st.Name, st.Iteration, st.Status)
 		}
 	}
-	// Review und Test liefen gleichzeitig: Beide starteten, bevor einer fertig war.
+	// Review and test ran at the same time: both started before either was done.
 	rev, tst := r.Steps[1], r.Steps[2]
 	if rev.StartedAt.After(*tst.EndedAt) || tst.StartedAt.After(*rev.EndedAt) {
-		t.Fatalf("nicht parallel: review %v–%v, test %v–%v", rev.StartedAt, rev.EndedAt, tst.StartedAt, tst.EndedAt)
+		t.Fatalf("not parallel: review %v–%v, test %v–%v", rev.StartedAt, rev.EndedAt, tst.StartedAt, tst.EndedAt)
 	}
 	impl := strings.Split(strings.TrimSpace(e.inputs("implement")), "\n")
-	if len(impl) != 2 || !strings.Contains(impl[1], "TestX") || !strings.Contains(impl[1], "Artefakt review.json") {
-		t.Fatalf("zweiter Durchlauf ohne Test-Ergebnis:\n%s", impl[len(impl)-1])
+	if len(impl) != 2 || !strings.Contains(impl[1], "TestX") || !strings.Contains(impl[1], "Artifact review.json") {
+		t.Fatalf("second pass without test result:\n%s", impl[len(impl)-1])
 	}
 }
 
@@ -755,7 +755,7 @@ func TestRunParallelRestart(t *testing.T) {
 	e.shutdown()
 	for _, st := range e.run(v.ID).Steps[1:3] {
 		if s, _ := e.st.GetSession(e.ctx, st.SessionID); s.Status != store.SessionInterrupted {
-			t.Fatalf("%s nach Shutdown: %s", st.Name, s.Status)
+			t.Fatalf("%s after shutdown: %s", st.Name, s.Status)
 		}
 	}
 	for _, step := range []string{"review", "test"} {
@@ -764,7 +764,7 @@ func TestRunParallelRestart(t *testing.T) {
 		}
 	}
 	e.boot()
-	waitFor(t, "Run fertig", func() bool {
+	waitFor(t, "run done", func() bool {
 		r := e.run(v.ID)
 		if r.Status == store.RunFailed {
 			t.Fatalf("Run gescheitert: %s", r.Error)
@@ -783,7 +783,7 @@ func TestRunParallelFailure(t *testing.T) {
 	}
 	waitFor(t, "Run gescheitert", func() bool { return e.run(v.ID).Status == store.RunFailed })
 	r := e.run(v.ID)
-	if !strings.HasPrefix(r.Error, "Schritt test: ") || r.Steps[2].Status != store.StepFailed {
+	if !strings.HasPrefix(r.Error, "step test: ") || r.Steps[2].Status != store.StepFailed {
 		t.Fatalf("Run %q, Schritte %+v", r.Error, r.Steps)
 	}
 	if s := r.Steps[1].Status; s != store.StepDone && s != store.StepCanceled {
@@ -794,7 +794,7 @@ func TestRunParallelFailure(t *testing.T) {
 func TestRunBranchInput(t *testing.T) {
 	e := setup(t)
 	gitRun(t, e.project.RepoPath, "branch", "feature-x")
-	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "review-only", Task: "Prüfe", Inputs: map[string]string{"branch": "feature-x"}})
+	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "review-only", Task: "Check", Inputs: map[string]string{"branch": "feature-x"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -805,7 +805,7 @@ func TestRunBranchInput(t *testing.T) {
 	if _, err := e.runner.Cancel(e.ctx, v.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "review-only", Task: "Prüfe", Inputs: map[string]string{"branch": "gibtsnicht"}}); err == nil {
-		t.Fatal("unbekannter Branch ohne Fehler")
+	if _, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "review-only", Task: "Check", Inputs: map[string]string{"branch": "doesnotexist"}}); err == nil {
+		t.Fatal("unknown branch without an error")
 	}
 }

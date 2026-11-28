@@ -46,27 +46,27 @@ func TestExprEval(t *testing.T) {
 			continue
 		}
 		if got := e.Eval(lookup); got != want {
-			t.Errorf("%s: %v, erwartet %v", src, got, want)
+			t.Errorf("%s: %v, want %v", src, got, want)
 		}
 	}
 }
 
 func TestExprErrors(t *testing.T) {
 	for src, want := range map[string]string{
-		"":                               "endet unerwartet",
-		"review.verdict = 'x'":           "mit == schreiben",
-		"review.verdict == 'x":           "nicht geschlossen",
-		"review == 'x'":                  "kein Pfad",
-		"(review.a == 1":                 ") fehlt",
-		"review.a == 1 == true":          "nicht verketten",
-		"review.a == 1 review.b":         "unerwartet",
-		"review. == 1":                   "Feldname",
-		"review.a # 1":                   "unerwartetes Zeichen",
-		strings.Repeat("!", 100) + "x.y": "zu tief",
+		"":                               "ends unexpectedly",
+		"review.verdict = 'x'":           "write comparisons with ==",
+		"review.verdict == 'x":           "is not closed",
+		"review == 'x'":                  "is not a path",
+		"(review.a == 1":                 ") missing",
+		"review.a == 1 == true":          "do not chain",
+		"review.a == 1 review.b":         "unexpected",
+		"review. == 1":                   "field name",
+		"review.a # 1":                   "unexpected character",
+		strings.Repeat("!", 100) + "x.y": "too deeply",
 	} {
 		_, err := ParseExpr(src)
 		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%q: %v, erwartet %q", src, err, want)
+			t.Errorf("%q: %v, want %q", src, err, want)
 		}
 	}
 	e, err := ParseExpr("a.b == 1 && len(c.d.e) > 0")
