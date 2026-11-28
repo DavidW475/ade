@@ -1,13 +1,14 @@
-# Beispiele
+# Examples
 
-Beispielkonfigurationen für ADE.
+Example configurations for ADE. Every option is described in the
+[configuration reference](../doc/configuration.md).
 
-| Datei | Zweck |
+| File | Purpose |
 |---|---|
-| [`config.yaml`](config.yaml) | Globale Konfiguration, gehört nach `~/.config/ade/config.yaml` |
-| [`.ade/project.yaml`](.ade/project.yaml) | Projekt-Konfiguration, gehört ins Repo nach `.ade/project.yaml` |
-| [`.ade/sandbox.yaml`](.ade/sandbox.yaml) | Sandbox-Container (Image, Ressourcen, Netzwerk-Regeln), gehört ins Repo nach `.ade/sandbox.yaml` |
-| [`factories/feature.yaml`](factories/feature.yaml) | Fabrik `feature` mit [Prompts](factories/prompts/): Planer → Freigabe → Entwickler → Reviewer → Freigabe → PR. Eingebaut; zum Anpassen nach `.ade/factories/` kopieren |
+| [`config.yaml`](config.yaml) | Global configuration, goes to `~/.config/ade/config.yaml` |
+| [`.ade/project.yaml`](.ade/project.yaml) | Project configuration, goes into the repository as `.ade/project.yaml` |
+| [`.ade/sandbox.yaml`](.ade/sandbox.yaml) | Sandbox container (image, resources, network rules), goes into the repository as `.ade/sandbox.yaml` |
+| [`factories/`](factories/) | Factory templates `feature`, `bugfix`, `refactor` and `review-only` with [prompts](factories/prompts/) and [schemas](factories/schemas/). Built in; copy them to `.ade/factories/` to customize them |
 
-Die Vorlagen unter `factories/` sind ins ade-Binary eingebettet (`embed.go`): `ade run feature`
-funktioniert ohne eigene Datei. Eine gleichnamige Fabrik in `.ade/factories/` hat Vorrang.
+The templates under `factories/` are embedded into the ade binary (`embed.go`): `ade run feature`
+works without an own file. A factory with the same name in `.ade/factories/` takes precedence.

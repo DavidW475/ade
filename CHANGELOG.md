@@ -1,185 +1,186 @@
 # Changelog
 
-Alle nennenswerten Änderungen an ADE. Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
-Versionen nach [Semantic Versioning](https://semver.org/lang/de/). Der Release-Workflow übernimmt den
-Abschnitt der jeweiligen Version als Release-Notizen.
+All notable changes to ADE. Format following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+versions following [Semantic Versioning](https://semver.org/). The release workflow uses the
+section of each version as release notes.
 
-## [Unveröffentlicht]
+## [Unreleased]
 
-### Neu
+### Added
 
-- **Doku für 1.0** (M11, englisch): [Nutzerhandbuch](doc/guide.md) von der Installation bis zum
-  ersten gemergten Ergebnis samt Fehlerbehebung, [Konfigurationsreferenz](doc/configuration.md)
-  mit jeder Option von `config.yaml`, `.ade/project.yaml`, `.ade/sandbox.yaml` und Fabriken (ein
-  Test prüft sie gegen die Go-Structs) und [Contributor-Guide für Adapter](doc/adapters.md).
-- **Installationsskript** (M11): `curl -fsSL https://raw.githubusercontent.com/DavidW475/ade/main/install.sh | sh`
-  lädt das passende Release-Binary, prüft die Prüfsumme, installiert nach `~/.local/bin` und warnt
-  bei fehlenden Voraussetzungen (git ≥ 2.38, docker/podman, gh, claude/codex). `--service` richtet
-  zusätzlich den Dienst ein. Das Skript liegt auch jedem Release bei.
-- **`ade install-service`** und **`ade uninstall-service`**: Daemon als systemd-User-Dienst unter
-  WSL (`systemd=true`). Die Unit übernimmt den `PATH`, schreibt ins Daemon-Log und startet bei
-  Fehlern neu; `ade start` nutzt den Dienst, wenn er für dieselbe Konfiguration installiert ist.
-- **Releases mit Attestierung** (M11): Jeder Tag baut Binaries und die Images `ade-agent-base`
-  und `ade-dev` mit gleicher Version (`:X.Y.Z`), mit SBOM und Build-Provenance
-  (`gh attestation verify …`). Ein Snapshot-Build samt `install.sh` läuft in der CI, wenn sich
-  die Release-Konfiguration ändert. Release-Ablauf in CONTRIBUTING.md.
-- **Automatische Releases** (M11): Steht nach einem Merge auf `main` oben im CHANGELOG eine neue
-  Version `## [X.Y.Z] – JJJJ-MM-TT`, setzt `auto-release.yml` den Tag und startet den
-  Release-Lauf. `scripts/changelog-version.sh` liest und prüft die Überschrift, auch schon im PR.
-- **Fabrik-Vorlagen** (M10): `bugfix` (Fehler per Test reproduzieren, beheben, Tests grün),
-  `review-only` (zwei Reviewer parallel, Zusammenfassung, kein PR) und `refactor` (schrittweise
-  mit Test nach jedem Schritt); `feature` mit Review und Test parallel und Rücksprung bei
-  Änderungswünschen. Neuer Eingabetyp `branch`: Der Workspace des Runs zweigt davon ab.
-- **Docker-Sandbox** (M5): Workspaces lassen sich mit Sandbox anlegen (Schalter beim Agent-Start
-  und beim Anlegen, Standard `defaults.sandbox`). Ein Container pro Workspace sieht nur das
-  Workspace-Verzeichnis (`/workspace`), läuft mit deiner UID, ohne Capabilities und mit Grenzen
-  für Speicher, CPU und Prozesse. Agent-Sessions, Terminals, Setup-Befehle, die Browser-IDE und
-  die git-Befehle des Daemons im Workspace laufen darin.
-- `.ade/sandbox.yaml` (Image, Ressourcen) und `sandbox.image` in der globalen Konfiguration.
+- **Documentation for 1.0** (M11): [user guide](doc/guide.md) from installation to the first
+  merged result including troubleshooting, [configuration reference](doc/configuration.md) with
+  every option of `config.yaml`, `.ade/project.yaml`, `.ade/sandbox.yaml` and factories (a test
+  checks it against the Go structs), and a [contributor guide for adapters](doc/adapters.md).
+- **Install script** (M11): `curl -fsSL https://raw.githubusercontent.com/DavidW475/ade/main/install.sh | sh`
+  downloads the matching release binary, verifies the checksum, installs to `~/.local/bin` and
+  warns about missing requirements (git ≥ 2.38, docker/podman, gh, claude/codex). `--service` also
+  sets up the service. The script is attached to every release as well.
+- **`ade install-service`** and **`ade uninstall-service`**: daemon as a systemd user service under
+  WSL (`systemd=true`). The unit takes over the `PATH`, writes to the daemon log and restarts on
+  failure; `ade start` uses the service if it is installed for the same configuration.
+- **Releases with attestation** (M11): every tag builds binaries and the images `ade-agent-base`
+  and `ade-dev` with the same version (`:X.Y.Z`), with SBOM and build provenance
+  (`gh attestation verify …`). A snapshot build including `install.sh` runs in CI when the
+  release configuration changes. Release process in CONTRIBUTING.md.
+- **Automatic releases** (M11): if, after a merge to `main`, the top of the CHANGELOG has a new
+  version `## [X.Y.Z] – YYYY-MM-DD`, `auto-release.yml` sets the tag and starts the release run.
+  `scripts/changelog-version.sh` reads and checks the heading, already in the PR.
+- **Factory templates** (M10): `bugfix` (reproduce the bug with a test, fix it, tests green),
+  `review-only` (two reviewers in parallel, summary, no PR) and `refactor` (step by step with a
+  test run after each step); `feature` with review and test in parallel and a loop back on change
+  requests. New input type `branch`: the run's workspace starts from it.
+- **Docker sandbox** (M5): workspaces can be created with a sandbox (switch when starting an agent
+  and when creating a workspace, default `defaults.sandbox`). One container per workspace sees
+  only the workspace directory (`/workspace`), runs with your UID, without capabilities and with
+  limits for memory, CPU and processes. Agent sessions, terminals, setup commands, the browser IDE
+  and the daemon's git commands in the workspace run inside it.
+- `.ade/sandbox.yaml` (image, resources) and `sandbox.image` in the global configuration.
 - Image `ghcr.io/davidw475/ade-agent-base` (Debian, git, Node.js, Python, ripgrep, Claude Code,
-  openvscode-server); `make image` baut es lokal.
-- `ade gc` entfernt verwaiste Sandbox-Container; der Daemon gleicht Container beim Start ab.
-- **Egress-Proxy** (M6): Der Sandbox-Container hängt in einem internen Docker-Netz ohne Route nach
-  draußen. Einziger Weg ins Internet ist ein Proxy-Container pro Workspace (`ade proxy`), der nur
-  Ziele aus `egress` in `.ade/sandbox.yaml` durchlässt (Presets `anthropic`, `github-readonly`,
-  `npm`, `pypi`, `go-proxy`, eigene `allow`-/`deny`-Einträge). Änderungen wirken ohne Neustart.
-- **Secret-Injection:** Ist `providers.anthropic.api_key` gesetzt, spricht Claude Code in der
-  Sandbox die API über `http://proxy:8080/p/anthropic` an; der Proxy fügt den Key ein.
-- Ansicht **Netzwerk** im Workspace: Policy, Ziele mit erlaubten und geblockten Anfragen, letzte
-  Anfragen.
-- **Freigaben** (M7): Claude Code fragt vor jedem Werkzeug-Aufruf über den Hook
-  `ade hook pretooluse` bei ADE nach – lokal direkt beim Daemon, in der Sandbox über den
-  Egress-Proxy. Was die Regeln in `approvals` (`.ade/project.yaml`, getrennt für `sandbox` und
-  `local`) nicht erlauben oder sperren, wartet auf eine Entscheidung im Dashboard (Seite
-  **Freigaben** mit Badge, Browser-Benachrichtigung, Anzeige in der Session). Ohne Entscheidung
-  gilt die Anfrage nach `approvals.timeout` (Standard 10m) als abgelehnt.
-- `egress.on_blocked: ask`: Anfragen an nicht freigegebene Ziele warten auf eine Freigabe
-  („Einmal“, „Für diesen Workspace“, „Immer (Projekt)“, „Ablehnen“). Geblockte Hosts lassen sich
-  in der Netzwerk-Ansicht mit einem Klick dauerhaft erlauben; die Ausnahmen speichert der Daemon,
-  das Repo bleibt unverändert.
-- **Adapter `codex`** (M8): Codex CLI lokal und in der Sandbox, mit Timeline (Nachrichten,
-  Befehle, Dateiänderungen) und Fortsetzen über `codex exec resume`. Codex ist im Image
-  `ade-agent-base` enthalten; neues Egress-Preset `openai` (auch in der Voreinstellung).
-- **Secret-Injection für OpenAI:** Mit `providers.openai.api_key` spricht Codex in der Sandbox
-  die API über `http://proxy:8080/p/openai/v1` an; lokal bekommt es den Key als `CODEX_API_KEY`.
-- **Kosten:** Der Egress-Proxy liest die Token-Nutzung aus den API-Antworten (Anthropic, OpenAI;
-  JSON und Streaming). Kosten und Tokens erscheinen live in der Session, im Workspace, im Projekt
-  (Monat und gesamt) und in der Projektübersicht. Ohne Messung am Proxy gilt die Meldung der CLI;
-  Codex-Kosten berechnet ADE aus Tokens. `GET /api/usage`.
-- Eingebaute Preistabelle (Schätzwerte, Stand 2026-11) und `pricing` in der globalen
-  Konfiguration zum Ergänzen.
-- **Modell-Aliase:** `models` in der globalen Konfiguration (z. B. `opus` → Anbieter und
-  Modell-ID); Auswahl im Startdialog, der Anbieter muss zum Adapter passen.
-- **Budgets:** `budget.session_usd` und `budget.monthly_usd` in `.ade/project.yaml`, je Session
-  auch beim Start. Bei Überschreitung pausiert der Agent (Status „pausiert“) und wartet auf eine
-  Budget-Freigabe; „Budget erhöhen“ setzt ihn fort, „Ablehnen“ beendet ihn.
-
-- **Software-Fabrik** (M9): Fabriken in `.ade/factories/<name>.yaml` verketten Rollen-Agenten
-  (Adapter, Modell-Alias, Rechte, Prompt) zu einem Run: lineare Schritte, Gates
-  (`gate: human`) als Freigabe im Dashboard und `action: pull_request` am Ende. Die letzte
-  Antwort einer Rolle wird ihr Artefakt (z. B. `plan.md`) und geht an die folgenden Rollen.
-  Mitgeliefert ist die Vorlage `feature` (Planer → Freigabe → Entwickler → Reviewer → Freigabe
-  → PR). Runs überstehen einen Neustart des Daemons.
-- **Lese-Rollen** (`permissions: read`) können den Workspace nicht ändern: in der Sandbox ein
-  eigener Container mit `/workspace` nur lesend, ohne Sandbox ein Schnappschuss.
-- `ade run <fabrik> --task "…"` (mit `--wait`), Seiten **Runs** und Run-Ansicht mit Pipeline,
-  Gates, Artefakten und Kosten; Startdialog im Projekt. `budget.max_cost_usd` und
-  `budget.max_duration` je Fabrik.
+  openvscode-server); `make image` builds it locally.
+- `ade gc` removes orphaned sandbox containers; the daemon reconciles containers on start.
+- **Egress proxy** (M6): the sandbox container is attached to an internal Docker network without
+  a route to the outside. The only way to the internet is a proxy container per workspace
+  (`ade proxy`) that only lets through targets from `egress` in `.ade/sandbox.yaml` (presets
+  `anthropic`, `github-readonly`, `npm`, `pypi`, `go-proxy`, own `allow`/`deny` entries). Changes
+  apply without a restart.
+- **Secret injection:** if `providers.anthropic.api_key` is set, Claude Code in the sandbox talks
+  to the API through `http://proxy:8080/p/anthropic`; the proxy inserts the key.
+- **Network** view in the workspace: policy, targets with allowed and blocked requests, latest
+  requests.
+- **Approvals** (M7): before every tool call, Claude Code asks ADE through the hook
+  `ade hook pretooluse` – locally the daemon directly, in the sandbox through the egress proxy.
+  Whatever the rules in `approvals` (`.ade/project.yaml`, separately for `sandbox` and `local`) do
+  not allow or deny waits for a decision in the dashboard (**Approvals** page with badge, browser
+  notification, display in the session). Without a decision the request counts as denied after
+  `approvals.timeout` (default 10m).
+- `egress.on_blocked: ask`: requests to targets that are not allowed wait for an approval
+  ("Once", "For this workspace", "Always (project)", "Deny"). Blocked hosts can be allowed
+  permanently with one click in the network view; the daemon stores the exceptions, the
+  repository stays unchanged.
+- **Adapter `codex`** (M8): Codex CLI locally and in the sandbox, with timeline (messages,
+  commands, file changes) and resuming via `codex exec resume`. Codex is included in the image
+  `ade-agent-base`; new egress preset `openai` (also in the defaults).
+- **Secret injection for OpenAI:** with `providers.openai.api_key`, Codex in the sandbox talks to
+  the API through `http://proxy:8080/p/openai/v1`; locally it gets the key as `CODEX_API_KEY`.
+- **Costs:** the egress proxy reads the token usage from the API responses (Anthropic, OpenAI;
+  JSON and streaming). Costs and tokens appear live in the session, the workspace, the project
+  (month and total) and the project overview. Without measurement at the proxy, the CLI's report
+  counts; ADE computes Codex costs from tokens. `GET /api/usage`.
+- Built-in price table (estimates, as of 2026-11) and `pricing` in the global configuration to
+  extend it.
+- **Model aliases:** `models` in the global configuration (e.g. `opus` → provider and model ID);
+  selectable in the start dialog, the provider must match the adapter.
+- **Budgets:** `budget.session_usd` and `budget.monthly_usd` in `.ade/project.yaml`, per session
+  also at start. When exceeded, the agent pauses (status "paused") and waits for a budget
+  approval; "Raise budget" resumes it, "Deny" ends it.
+- **Software factory** (M9): factories in `.ade/factories/<name>.yaml` chain role agents
+  (adapter, model alias, permissions, prompt) into a run: linear steps, gates (`gate: human`) as
+  an approval in the dashboard and `action: pull_request` at the end. A role's last answer becomes
+  its artifact (e.g. `plan.md`) and goes to the following roles. The template `feature` ships with
+  ADE (planner → approval → implementer → reviewer → approval → PR). Runs survive a daemon restart.
+- **Read-only roles** (`permissions: read`) cannot change the workspace: in the sandbox an own
+  container with `/workspace` read-only, without sandbox a snapshot.
+- `ade run <factory> --task "…"` (with `--wait`), **Runs** pages and run view with pipeline,
+  gates, artifacts and costs; start dialog in the project. `budget.max_cost_usd` and
+  `budget.max_duration` per factory.
 - API: `GET /api/factories`, `GET/POST /api/runs`, `GET /api/runs/{id}`,
   `POST /api/runs/{id}/cancel`, `GET /api/runs/{id}/artifacts/{name}`.
-- **Fabrik v2** (M10): strukturierte Artefakte (JSON, optional mit Schema; ungültige Antworten
-  korrigiert die Rolle bis zu zweimal), Bedingungen (`when`), Entscheidungen mit Rücksprung
-  (`goto`, `max_iterations`), Gates mit `on_deny` (Ablehnen mit Begründung springt zurück) und
-  parallele Schritte (`parallel`). Frühere Durchläufe bleiben in `history` sichtbar.
-- **Auslöser** (M10): `triggers` in `.ade/project.yaml` starten Runs automatisch – je offenem
-  GitHub-Issue mit Label (Polling über `gh`, Kommentar bei Start und Ende, der PR schließt das
-  Issue) oder nach Zeitplan (Cron). Ausgelöste Runs laufen standardmäßig in der Sandbox und
-  brauchen ein Fabrik-Budget. API: `GET /api/projects/{id}/triggers`,
-  `POST /api/projects/{id}/triggers/{name}/pause|resume`.
+- **Factory v2** (M10): structured artifacts (JSON, optionally with a schema; the role corrects
+  invalid answers up to twice), conditions (`when`), decisions with loops (`goto`,
+  `max_iterations`), gates with `on_deny` (denying with a reason jumps back) and parallel steps
+  (`parallel`). Earlier passes stay visible in `history`.
+- **Triggers** (M10): `triggers` in `.ade/project.yaml` start runs automatically – per open GitHub
+  issue with a label (polling via `gh`, comment at start and end, the PR closes the issue) or on a
+  schedule (cron). Triggered runs use the sandbox by default and need a factory budget. API:
+  `GET /api/projects/{id}/triggers`, `POST /api/projects/{id}/triggers/{name}/pause|resume`.
 
-### Behoben
+### Fixed
 
-- Release-Binaries nutzen das gleich versionierte Sandbox-Image (`ade-agent-base:X.Y.Z`, auch für
-  Vorabversionen `-rc.N`) statt `:latest`; GoReleaser schreibt die Version jetzt mit `v` ins Binary.
-- `ade gc` und der Container-Abgleich scheitern nicht mehr, wenn ein Container zwischen
-  Auflisten und Inspizieren verschwindet (#66).
+- Release binaries use the sandbox image with the same version (`ade-agent-base:X.Y.Z`, also for
+  pre-releases `-rc.N`) instead of `:latest`; GoReleaser now writes the version with `v` into the
+  binary.
+- `ade gc` and the container reconciliation no longer fail when a container disappears between
+  listing and inspecting (#66).
 
-### Sicherheit
+### Security
 
-- Ein Agent kann in der Repo-Konfiguration seines Workspaces keine Befehle mehr hinterlegen, die
-  der Daemon auf dem Host ausführt (Filter, fsmonitor): Bei Sandbox-Workspaces laufen WIP-Commit,
-  Diff und Datei-Inhalte im Container (#41).
-- Sandbox-Workspaces klonen ohne Hardlinks, damit der Container keine Objektdateien des
-  Haupt-Repos verändern kann.
-- Kein API-Key im Sandbox-Container (weder Umgebung noch `docker inspect`). Programme, die den
-  Proxy umgehen, erreichen nichts; externe Namen lösen im Container nicht auf. Der Proxy verbindet
-  nie zu internen Adressen (Host, Container, private Netze).
-- **Threat-Model** (M11, `doc/threat-model.md`): Werte, Angreifer, Vertrauensgrenzen,
-  Angriffswege mit Gegenmaßnahmen und Restrisiken; Review von Gateway, Proxy und Container-Härtung.
-- Die Datenbank (`ade.db`, `-wal`, `-shm`) ist nur noch für den Nutzer lesbar; ein für andere
-  lesbares Datenverzeichnis setzt der Daemon beim Start auf `0700`.
-- Der Proxy sperrt auch IPv4-kompatible IPv6-Adressen (`::127.0.0.1`) und Site-Local (`fec0::/10`).
-- Binaries werden mit Go 1.26.11 gebaut (`toolchain` in `go.mod`); bisher nahm die CI Go 1.26.0
-  mit bekannten Lücken in der Standardbibliothek (u. a. `crypto/x509`, `net/http`).
-- `monaco-editor` 0.58 (DOMPurify ohne bekannte Lücken); `govulncheck` und `npm audit` bei jedem
-  PR und wöchentlich (`audit.yml`).
-- Fabriken pushen keinen ungeprüften Agent-Code mehr (#103): `action: pull_request` braucht ein
-  Gate (`gate: human` ohne `when`) davor, nach dem keine Rolle mit Schreibrechten mehr läuft.
-  Ohne Gate nur mit `unattended: true`; ändert der Diff dann `.github/workflows/`,
-  `.github/actions/` oder `.ade/`, wartet der Run vor dem Push auf eine Freigabe. Gates und die
-  Review-Ansicht heben solche Änderungen hervor. **Eigene Fabriken ohne Gate vor dem PR lassen
-  sich erst wieder laden, wenn sie ein Gate oder `unattended: true` bekommen.**
+- An agent can no longer store commands in its workspace's repository configuration that the
+  daemon runs on the host (filters, fsmonitor): for sandbox workspaces, WIP commit, diff and file
+  contents run in the container (#41).
+- Sandbox workspaces are cloned without hardlinks, so the container cannot change object files of
+  the main repository.
+- No API key in the sandbox container (neither in the environment nor in `docker inspect`).
+  Programs that bypass the proxy reach nothing; external names do not resolve in the container.
+  The proxy never connects to internal addresses (host, containers, private networks).
+- **Threat model** (M11, `doc/threat-model.md`): assets, attackers, trust boundaries, attack paths
+  with countermeasures and residual risks; review of gateway, proxy and container hardening.
+- The database (`ade.db`, `-wal`, `-shm`) is only readable by the user; the daemon sets a data
+  directory readable by others to `0700` on start.
+- The proxy also blocks IPv4-compatible IPv6 addresses (`::127.0.0.1`) and site-local
+  (`fec0::/10`).
+- Binaries are built with Go 1.26.11 (`toolchain` in `go.mod`); so far CI used Go 1.26.0 with
+  known vulnerabilities in the standard library (among others `crypto/x509`, `net/http`).
+- `monaco-editor` 0.58 (DOMPurify without known vulnerabilities); `govulncheck` and `npm audit`
+  on every PR and weekly (`audit.yml`).
+- Factories no longer push unreviewed agent code (#103): `action: pull_request` needs a gate
+  (`gate: human` without `when`) before it, after which no role with write permission runs.
+  Without a gate only with `unattended: true`; if the diff then changes `.github/workflows/`,
+  `.github/actions/` or `.ade/`, the run waits for an approval before the push. Gates and the
+  review view highlight such changes. **Own factories without a gate before the PR only load
+  again once they get a gate or `unattended: true`.**
 
-### Geändert
+### Changed
 
-- Sandbox-Container bekommen das ade-Binary nur lesend für den Freigabe-Hook und werden dafür beim
-  nächsten Start einmal neu angelegt.
-- Der Berechtigungsmodus von Claude Code gilt nur noch, wenn der Freigabe-Hook nicht verfügbar ist.
-- Sandbox-Container aus M5 (normales Netz) legt ADE beim nächsten Start neu an; Dateien im
-  Workspace bleiben, Änderungen außerhalb von `/workspace` gehen verloren.
-- Ungültige `.ade/sandbox.yaml`: Neue Sandbox-Container starten erst nach der Korrektur, laufende
-  behalten die zuletzt gültige Netzwerk-Policy.
-- `make dev` baut ohne cgo; der Daemon braucht ein statisches Binary für den Proxy-Container.
-- Anfragen an `/p/<anbieter>/` fordert der Proxy unkomprimiert an (für die Token-Zählung).
-- `/api/adapters` liefert zusätzlich Modi je Adapter, Anbieter und Modell-Aliase.
+- **Language:** documentation, comments, messages and the dashboard are in English (#107).
+- Sandbox containers get the ade binary read-only for the approval hook and are therefore
+  recreated once on the next start.
+- Claude Code's permission mode only applies when the approval hook is not available.
+- ADE recreates sandbox containers from M5 (normal network) on the next start; files in the
+  workspace stay, changes outside `/workspace` are lost.
+- Invalid `.ade/sandbox.yaml`: new sandbox containers only start after it is fixed, running ones
+  keep the last valid network policy.
+- `make dev` builds without cgo; the daemon needs a static binary for the proxy container.
+- The proxy requests responses for `/p/<provider>/` uncompressed (for token counting).
+- `/api/adapters` additionally returns modes per adapter, providers and model aliases.
 
 ## [0.1.0] – 2026-11-26
 
-Erste benutzbare Version: Agenten lokal unter WSL2 arbeiten lassen, ihr Ergebnis prüfen und
-übernehmen. **Noch ohne Sandbox** – Agenten laufen mit deinen Rechten; nur in vertrauenswürdigen
-Repositories verwenden (Sandbox folgt mit M5).
+First usable version: let agents work locally under WSL2, review their result and take it over.
+**No sandbox yet** – agents run with your permissions; only use it in trusted repositories
+(the sandbox follows with M5).
 
-### Neu
+### Added
 
-- **Daemon und Dashboard** (M0): `ade start` startet den Daemon auf `127.0.0.1:7000` und öffnet das
-  Dashboard im Windows-Browser; Anmeldung per Einmal-Ticket, Host-/Origin-Prüfung, SQLite-Store,
-  ein einzelnes Binary mit eingebettetem Frontend.
-- **Projekte und Workspaces** (M1): Repositories registrieren (`ade project add`), `.ade/project.yaml`
-  mit Basis-Branch und Setup-Befehlen; jeder Workspace ist ein lokaler Clone mit eigenem Branch
-  `ade/<id>` ohne Remote zum Haupt-Repo.
-- **Agent-Sessions** (M2): Adapter `claude` (Claude Code mit `stream-json`) und `pty` (beliebiger
-  Befehl, z. B. eine Shell); Live-Timeline mit Tool-Aufrufen und Kosten, Terminal im Browser,
-  Folgeanweisungen, Fortsetzen nach einem Daemon-Neustart.
-- **Browser-IDE** (M3): openvscode-server je Workspace unter `ws-<id>.localhost:7000`, startet bei
-  Bedarf und stoppt bei Inaktivität.
-- **Review und Übernahme** (M4):
-  - Am Ende jeder Agent-Runde committet der Daemon offene Änderungen (`ade: wip <session>`) und holt
-    den Branch `ade/<id>` per `fetch` ins Projekt-Repo.
-  - Diff-Ansicht mit Monaco Diff Editor (nebeneinander oder inline), Dateiliste mit Status und
-    Zeilenzahlen; Dateiinhalte werden erst bei Auswahl geladen.
-  - **Mergen** in den Basis-Branch mit Merge-Commit; Konflikte werden vorher erkannt und gemeldet,
-    ohne etwas zu ändern.
-  - **PR erstellen**: Push vom Host und `gh pr create` mit generierter Beschreibung; spätere Pushes
-    aktualisieren den PR. Der Agent selbst hat keine Push-Rechte.
-  - **Feedback geben**: neue Session im selben Workspace mit Kommentar und aktuellem Diff; ihr
-    Ergebnis wird ein weiterer Commit im selben Branch.
-  - **Verwerfen** entfernt Workspace, Branch im Projekt-Repo, Sessions, Logs und IDE-Daten.
-- Release-Binaries für linux/amd64 und linux/arm64.
+- **Daemon and dashboard** (M0): `ade start` starts the daemon on `127.0.0.1:7000` and opens the
+  dashboard in the Windows browser; login with a one-time ticket, host/origin check, SQLite store,
+  a single binary with embedded frontend.
+- **Projects and workspaces** (M1): register repositories (`ade project add`), `.ade/project.yaml`
+  with base branch and setup commands; every workspace is a local clone with its own branch
+  `ade/<id>` without a remote to the main repository.
+- **Agent sessions** (M2): adapters `claude` (Claude Code with `stream-json`) and `pty` (any
+  command, e.g. a shell); live timeline with tool calls and costs, terminal in the browser,
+  follow-up instructions, resuming after a daemon restart.
+- **Browser IDE** (M3): openvscode-server per workspace at `ws-<id>.localhost:7000`, starts on
+  demand and stops when idle.
+- **Review and delivery** (M4):
+  - At the end of every agent turn the daemon commits open changes (`ade: wip <session>`) and
+    fetches the branch `ade/<id>` into the project repository.
+  - Diff view with Monaco Diff Editor (side by side or inline), file list with status and line
+    counts; file contents are only loaded when selected.
+  - **Merge** into the base branch with a merge commit; conflicts are detected and reported
+    beforehand without changing anything.
+  - **Create PR**: push from the host and `gh pr create` with a generated description; later
+    pushes update the PR. The agent itself has no push rights.
+  - **Give feedback**: new session in the same workspace with the comment and the current diff;
+    its result becomes another commit on the same branch.
+  - **Discard** removes workspace, branch in the project repository, sessions, logs and IDE data.
+- Release binaries for linux/amd64 and linux/arm64.
 
-### Behoben
+### Fixed
 
-- Workspaces lassen sich auch anlegen, wenn `workspaces_dir` auf einem anderen Dateisystem liegt
-  als das Repository (#39).
+- Workspaces can also be created when `workspaces_dir` is on a different file system than the
+  repository (#39).
 
-[Unveröffentlicht]: https://github.com/DavidW475/ade/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/DavidW475/ade/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/DavidW475/ade/releases/tag/v0.1.0

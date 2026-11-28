@@ -1,240 +1,246 @@
-# Meilensteine
+# Milestones
 
-Jeder Meilenstein liefert etwas **Benutzbares** und baut auf dem vorherigen auf.
-Pro Meilenstein: Ziel, Umfang, Akzeptanzkriterien und bewusst **nicht** enthaltene Punkte.
+Every milestone delivers something **usable** and builds on the previous one.
+Per milestone: goal, scope, acceptance criteria and points deliberately **not** included.
 
 ```mermaid
 flowchart LR
-    M0[M0 Fundament] --> M1[M1 Projekte & Workspaces]
-    M1 --> M2[M2 Agent-Sessions]
-    M2 --> M3[M3 Browser-IDE]
-    M2 --> M4[M4 Review & Übernahme]
-    M3 --> R1{{v0.1 lokal nutzbar}}
+    M0[M0 Foundation] --> M1[M1 Projects & workspaces]
+    M1 --> M2[M2 Agent sessions]
+    M2 --> M3[M3 Browser IDE]
+    M2 --> M4[M4 Review & delivery]
+    M3 --> R1{{v0.1 usable locally}}
     M4 --> R1
-    R1 --> M5[M5 Docker-Sandbox]
-    M5 --> M6[M6 Egress-Proxy & Secrets]
-    M6 --> R2{{v0.2 sicher}}
-    R2 --> M7[M7 Freigaben]
-    R2 --> M8[M8 Multi-Provider & Kosten]
-    M7 --> M9[M9 Fabrik v1]
+    R1 --> M5[M5 Docker sandbox]
+    M5 --> M6[M6 Egress proxy & secrets]
+    M6 --> R2{{v0.2 secure}}
+    R2 --> M7[M7 Approvals]
+    R2 --> M8[M8 Multi-provider & costs]
+    M7 --> M9[M9 Factory v1]
     M8 --> M9
-    M9 --> R3{{v0.3 Fabriken}}
-    R3 --> M10[M10 Fabrik v2 & Auslöser]
+    M9 --> R3{{v0.3 factories}}
+    R3 --> M10[M10 Factory v2 & triggers]
     M10 --> M11[M11 Release 1.0]
 ```
 
 ---
 
-## M0 – Fundament
+## M0 – Foundation
 
-**Ziel:** Leeres, aber sauberes Projekt, das baut, testet und startet.
+**Goal:** an empty but clean project that builds, tests and starts.
 
-- Go-Modul `github.com/DavidW475/ade`, Struktur laut [architecture.md](architecture.md#10-repo-struktur)
-- `ade serve`: HTTP-Server auf `127.0.0.1:7000`, `GET /api/health`
-- Konfiguration laden (`~/.config/ade/config.yaml`, Defaults wenn nicht vorhanden)
-- SQLite-Store mit Migrationsmechanismus (erste Tabelle: `projects`)
-- Frontend-Gerüst (Vite + React + TS), per `go:embed` ausgeliefert, zeigt „ADE läuft“
-- Auth: Einmal-Token beim Start → Cookie; `Host`/`Origin`-Prüfung
-- `ade start`: Daemon starten (falls nötig) und Browser unter Windows öffnen (`wslview`/`explorer.exe`)
-- GitHub Actions: Lint, Test, Build; `LICENSE` (Apache-2.0), `README.md`, `CONTRIBUTING.md`
+- Go module `github.com/DavidW475/ade`, structure as in [architecture.md](architecture.md#10-repository-layout)
+- `ade serve`: HTTP server on `127.0.0.1:7000`, `GET /api/health`
+- Load the configuration (`~/.config/ade/config.yaml`, defaults if missing)
+- SQLite store with a migration mechanism (first table: `projects`)
+- Frontend scaffold (Vite + React + TS), served via `go:embed`, shows "ADE is running"
+- Auth: one-time token at start → cookie; `Host`/`Origin` check
+- `ade start`: start the daemon (if needed) and open the browser on Windows (`wslview`/`explorer.exe`)
+- GitHub Actions: lint, test, build; `LICENSE` (Apache-2.0), `README.md`, `CONTRIBUTING.md`
 
-**Fertig, wenn:**
-- [x] `make build` erzeugt ein einzelnes Binary mit eingebettetem Frontend
-- [x] `ade start` öffnet das Dashboard im Windows-Browser
-- [x] Anfragen mit fremdem `Host`-Header werden abgelehnt
-- [x] CI ist grün
+**Done when:**
+- [x] `make build` produces a single binary with an embedded frontend
+- [x] `ade start` opens the dashboard in the Windows browser
+- [x] Requests with a foreign `Host` header are rejected
+- [x] CI is green
 
-**Nicht dabei:** Agenten, Docker.
-
----
-
-## M1 – Projekte & Workspaces
-
-**Ziel:** Repos registrieren und isolierte Arbeitskopien anlegen.
-
-- `ade project add <pfad>` und im Dashboard; Warnung bei Pfaden unter `/mnt/*`
-- `.ade/project.yaml` lesen (Basis-Branch, Setup-Befehle)
-- Workspace anlegen: `git clone --local` nach `~/.ade/workspaces/<id>`, Branch `ade/<id>`,
-  `base_commit` speichern
-- Workspace-Liste pro Projekt, Status, Löschen
-- Diff-Endpunkt `GET /api/workspaces/{id}/diff` (Dateiliste + Patches)
-
-**Fertig, wenn:**
-- [x] Ein Repo lässt sich registrieren und erscheint im Dashboard
-- [x] Workspaces lassen sich anlegen und löschen, ohne das Haupt-Repo zu verändern
-- [x] Manuelle Änderungen im Workspace erscheinen im Diff-Endpunkt
-
-**Nicht dabei:** Agenten, Merge.
+**Not included:** agents, Docker.
 
 ---
 
-## M2 – Agent-Sessions (lokal)
+## M1 – Projects & workspaces
 
-**Ziel:** Einen Agenten im Workspace starten und live zusehen.
+**Goal:** register repositories and create isolated working copies.
 
-- Adapter-Interface; Adapter `pty` (beliebiger Befehl) und `claude` (`stream-json`)
-- Prozess mit PTY im Workspace-Verzeichnis, Umgebung kontrolliert
-- Events normalisieren, in SQLite speichern, per WebSocket streamen (mit Replay ab `seq`)
-- Dashboard: Agent starten (Projekt, Aufgabe, Adapter), Timeline, Live-Terminal (xterm.js),
-  Folgeanweisung senden, Stoppen
-- Daemon-Neustart: laufende Sessions als „unterbrochen“ markieren, Fortsetzen falls die CLI es kann
+- `ade project add <path>` and in the dashboard; warning for paths under `/mnt/*`
+- Read `.ade/project.yaml` (base branch, setup commands)
+- Create a workspace: `git clone --local` to `~/.ade/workspaces/<id>`, branch `ade/<id>`,
+  store `base_commit`
+- Workspace list per project, status, deletion
+- Diff endpoint `GET /api/workspaces/{id}/diff` (file list + patches)
 
-**Fertig, wenn:**
-- [x] Claude Code löst eine kleine Aufgabe im Workspace; Tool-Aufrufe erscheinen live in der Timeline
-- [x] Browser schließen und wieder öffnen zeigt die vollständige Historie
-- [x] Ein interaktives Terminal (`pty`-Adapter mit `bash`) funktioniert im Browser
+**Done when:**
+- [x] A repository can be registered and appears in the dashboard
+- [x] Workspaces can be created and deleted without changing the main repository
+- [x] Manual changes in the workspace appear in the diff endpoint
 
-**Nicht dabei:** Sandbox, IDE, Freigaben.
-
----
-
-## M3 – Browser-IDE
-
-**Ziel:** Aus dem Dashboard in den Workspace eines Agenten „hineinspringen“.
-
-- openvscode-server als lokaler Prozess pro Workspace (bei Bedarf starten, bei Inaktivität stoppen)
-- Gateway: `ws-<id>.localhost:7000` → IDE-Port, inkl. WebSocket, Token-Weitergabe
-- Button „IDE öffnen“ in Agent- und Workspace-Ansicht
-- Open VSX als Extension-Quelle konfiguriert
-
-**Fertig, wenn:**
-- [x] Klick auf „IDE öffnen“ zeigt den Workspace mit Dateibaum, Editor und Terminal
-- [x] Änderungen des Agenten erscheinen live in der IDE
-- [x] Die IDE ist ohne gültige ADE-Session nicht erreichbar
-
-**Nicht dabei:** IDE im Container (kommt mit M5).
+**Not included:** agents, merge.
 
 ---
 
-## M4 – Review & Übernahme
+## M2 – Agent sessions (local)
 
-**Ziel:** Ergebnis eines Agenten prüfen und übernehmen. → **Release v0.1**
+**Goal:** start an agent in the workspace and watch it live.
 
-- Diff-Ansicht im Dashboard (Monaco Diff Editor), Dateiliste
-- Aktionen: **Mergen** (lokal in Basis-Branch), **PR erstellen** (Push + `gh pr create` vom Host),
-  **Feedback** (neue Session im selben Workspace mit Kommentar), **Verwerfen**
-- Automatischer WIP-Commit am Session-Ende; Branch per `fetch` ins Haupt-Repo
+- Adapter interface; adapters `pty` (any command) and `claude` (`stream-json`)
+- Process with PTY in the workspace directory, controlled environment
+- Normalize events, store them in SQLite, stream them via WebSocket (with replay from `seq`)
+- Dashboard: start an agent (project, task, adapter), timeline, live terminal (xterm.js), send a
+  follow-up instruction, stop
+- Daemon restart: mark running sessions as "interrupted", resume if the CLI supports it
 
-**Fertig, wenn:**
-- [ ] Kompletter Ablauf: Aufgabe → Agent → Diff ansehen → PR auf GitHub
-- [x] Feedback-Schleife erzeugt einen zweiten Commit im selben Branch
-- [x] Verwerfen entfernt Workspace und Branch rückstandsfrei
+**Done when:**
+- [x] Claude Code solves a small task in the workspace; tool calls appear live in the timeline
+- [x] Closing and reopening the browser shows the complete history
+- [x] An interactive terminal (`pty` adapter with `bash`) works in the browser
 
-**v0.1:** README mit Installationsanleitung, erstes GitHub-Release (Binary für linux/amd64).
-
----
-
-## M5 – Docker-Sandbox
-
-**Ziel:** Agent und IDE laufen isoliert im Container. Details: [sandbox.md](sandbox.md).
-
-- Image `ade-agent-base` (Dockerfile in `images/agent-base`, CI baut und pusht nach GHCR)
-- Pro Workspace: Container mit Mount `/workspace`, Non-Root, `cap-drop ALL`, Limits
-- Agent-Sessions über `docker exec` mit PTY; openvscode-server im Container, Gateway zeigt darauf
-- `.ade/sandbox.yaml`: Image, Ressourcen; Schalter „Sandbox“ beim Agent-Start
-- Labels + `ade gc`; Abgleich nach Daemon-Neustart
-
-**Fertig, wenn:**
-- [x] Agent-Start mit Sandbox: Agent und IDE laufen im Container, Ergebnis landet im Workspace
-- [x] Der Container sieht weder das Haupt-Repo noch `$HOME` des Nutzers
-- [x] `ade gc` entfernt verwaiste Container
-
-**Nicht dabei:** Netzwerk-Einschränkung (Container hat in M5 noch normales Netz – im UI kennzeichnen).
+**Not included:** sandbox, IDE, approvals.
 
 ---
 
-## M6 – Egress-Proxy & Secrets
+## M3 – Browser IDE
 
-**Ziel:** Sandbox darf nur in freigegebene Ziele; keine Secrets im Container. → **Release v0.2**
+**Goal:** "jump" from the dashboard into an agent's workspace.
 
-- Internes Netz pro Workspace + Proxy-Container (`ade proxy`)
-- Allowlist (Presets + eigene Einträge), Hot-Reload der Policy
-- Egress-Events → Dashboard-Ansicht „Netzwerk“ (erlaubt/geblockt)
-- Secret-Injection über Basis-URLs (`/p/<provider>/…`), zuerst für Anthropic
-- DNS-Verhalten prüfen und absichern
+- openvscode-server as a local process per workspace (start on demand, stop when idle)
+- Gateway: `ws-<id>.localhost:7000` → IDE port, incl. WebSocket, token forwarding
+- "Open IDE" button in the agent and workspace views
+- Open VSX configured as the extension source
 
-**Fertig, wenn:**
-- [x] `curl https://example.com` im Container schlägt fehl, `curl https://registry.npmjs.org` (Preset `npm`) klappt
-- [ ] Claude Code arbeitet in der Sandbox, ohne dass der API-Key im Container lesbar ist (`env`, Dateien)
-- [x] Ein Programm, das `HTTP_PROXY` ignoriert, erreicht das Internet nicht
+**Done when:**
+- [x] A click on "Open IDE" shows the workspace with file tree, editor and terminal
+- [x] The agent's changes appear live in the IDE
+- [x] The IDE is not reachable without a valid ADE session
 
----
-
-## M7 – Freigaben & Policies
-
-**Ziel:** Der Mensch entscheidet über kritische Aktionen – zentral und asynchron.
-
-- Freigabe-Service + Warteschlange im Dashboard (mit Badge/Browser-Benachrichtigung)
-- `ade hook pretooluse` für Claude Code; Aufruf über Proxy an den Daemon, blockierend mit Timeout
-- Freigabe bei geblockter Domain („einmal / immer / ablehnen“) → Policy wird aktualisiert
-- Regeln pro Projekt: welche Tools/Befehle ohne Rückfrage erlaubt sind (getrennt für Sandbox/lokal)
-
-**Fertig, wenn:**
-- [x] Ein Agent wartet auf Freigabe, der Nutzer bestätigt im Browser, der Agent macht weiter
-- [x] Eine geblockte Domain kann mit einem Klick dauerhaft erlaubt werden
+**Not included:** IDE in the container (comes with M5).
 
 ---
 
-## M8 – Multi-Provider & Kosten
+## M4 – Review & delivery
 
-**Ziel:** Mehrere Agent-CLIs und Modelle; volle Kostenkontrolle.
+**Goal:** review and take over an agent's result. → **Release v0.1**
 
-- Adapter `codex` (und ggf. weitere); Modell-Aliase in der Konfiguration
-- Proxy zählt Tokens pro Workspace/Session (aus API-Antworten), Kosten im Dashboard
-- Budgets pro Session/Projekt mit Pause + Freigabe bei Überschreitung
-- Optional: LiteLLM als Provider
+- Diff view in the dashboard (Monaco Diff Editor), file list
+- Actions: **Merge** (locally into the base branch), **Create PR** (push + `gh pr create` from the
+  host), **Feedback** (new session in the same workspace with a comment), **Discard**
+- Automatic WIP commit at the end of a session; branch via `fetch` into the main repository
 
-**Fertig, wenn:**
-- [x] Zwei verschiedene Agent-CLIs laufen parallel in getrennten Sandboxen
-- [x] Kosten pro Session werden angezeigt und ein Budget stoppt einen Agenten
+**Done when:**
+- [ ] Complete flow: task → agent → look at the diff → PR on GitHub
+- [x] The feedback loop produces a second commit on the same branch
+- [x] Discard removes workspace and branch without leftovers
 
----
-
-## M9 – Software-Fabrik v1
-
-**Ziel:** Mehrere Rollen-Agenten als Pipeline. Details: [factory.md](factory.md). → **Release v0.3**
-
-- Fabrik-YAML laden und validieren; lineare Schritte, `gate: human`, Artefakte
-- Run-Zustandsmaschine in SQLite, Fortsetzen nach Neustart
-- Lese-Rollen mit read-only Mount
-- Dashboard: Runs, Pipeline-Ansicht, aktuelle Rolle, Artefakte ansehen
-- `ade run <fabrik> --task "…"`
-- Vorlage `feature`
-
-**Fertig, wenn:**
-- [x] `feature`-Fabrik: Planer → (Gate) → Entwickler → Reviewer → (Gate) → PR läuft durch
-- [x] Planer/Reviewer können keine Dateien im Workspace ändern
+**v0.1:** README with installation instructions, first GitHub release (binary for linux/amd64).
 
 ---
 
-## M10 – Fabrik v2 & Auslöser
+## M5 – Docker sandbox
 
-- Parallele Schritte, Bedingungen (`when`), Schleifen mit `max_iterations`
-- Strukturierte Artefakte mit Schema-Validierung
-- Auslöser: GitHub-Issues mit Label, Zeitplan
-- Vorlagen `bugfix`, `review-only`, `refactor`
+**Goal:** agent and IDE run isolated in a container. Details: [sandbox.md](sandbox.md).
 
-**Fertig, wenn:**
-- [x] Reviewer lehnt ab → Entwickler bekommt Kommentare → zweiter Durchlauf → Freigabe
-- [x] Ein gelabeltes GitHub-Issue startet automatisch einen Run und endet als PR
+- Image `ade-agent-base` (Dockerfile in `images/agent-base`, CI builds and pushes to GHCR)
+- Per workspace: container with mount `/workspace`, non-root, `cap-drop ALL`, limits
+- Agent sessions via `docker exec` with PTY; openvscode-server in the container, the gateway
+  points to it
+- `.ade/sandbox.yaml`: image, resources; "Sandbox" switch when starting an agent
+- Labels + `ade gc`; reconciliation after a daemon restart
+
+**Done when:**
+- [x] Agent start with sandbox: agent and IDE run in the container, the result ends up in the workspace
+- [x] The container sees neither the main repository nor the user's `$HOME`
+- [x] `ade gc` removes orphaned containers
+
+**Not included:** network restriction (in M5 the container still has a normal network – mark it
+in the UI).
+
+---
+
+## M6 – Egress proxy & secrets
+
+**Goal:** the sandbox may only reach approved targets; no secrets in the container.
+→ **Release v0.2**
+
+- Internal network per workspace + proxy container (`ade proxy`)
+- Allowlist (presets + own entries), hot reload of the policy
+- Egress events → dashboard view "Network" (allowed/blocked)
+- Secret injection through base URLs (`/p/<provider>/…`), first for Anthropic
+- Check and secure the DNS behavior
+
+**Done when:**
+- [x] `curl https://example.com` in the container fails, `curl https://registry.npmjs.org` (preset `npm`) works
+- [ ] Claude Code works in the sandbox without the API key being readable in the container (`env`, files)
+- [x] A program that ignores `HTTP_PROXY` does not reach the internet
+
+---
+
+## M7 – Approvals & policies
+
+**Goal:** the human decides about critical actions – centrally and asynchronously.
+
+- Approval service + queue in the dashboard (with badge/browser notification)
+- `ade hook pretooluse` for Claude Code; call through the proxy to the daemon, blocking with a
+  timeout
+- Approval for a blocked domain ("once / always / deny") → the policy is updated
+- Rules per project: which tools/commands are allowed without asking (separately for
+  sandbox/local)
+
+**Done when:**
+- [x] An agent waits for an approval, the user confirms in the browser, the agent continues
+- [x] A blocked domain can be allowed permanently with one click
+
+---
+
+## M8 – Multi-provider & costs
+
+**Goal:** several agent CLIs and models; full cost control.
+
+- Adapter `codex` (and possibly others); model aliases in the configuration
+- The proxy counts tokens per workspace/session (from API responses), costs in the dashboard
+- Budgets per session/project with pause + approval when exceeded
+- Optional: LiteLLM as a provider
+
+**Done when:**
+- [x] Two different agent CLIs run in parallel in separate sandboxes
+- [x] Costs per session are shown and a budget stops an agent
+
+---
+
+## M9 – Software factory v1
+
+**Goal:** several role agents as a pipeline. Details: [factory.md](factory.md). → **Release v0.3**
+
+- Load and validate factory YAML; linear steps, `gate: human`, artifacts
+- Run state machine in SQLite, resuming after a restart
+- Read-only roles with a read-only mount
+- Dashboard: runs, pipeline view, current role, view artifacts
+- `ade run <factory> --task "…"`
+- Template `feature`
+
+**Done when:**
+- [x] `feature` factory: planner → (gate) → implementer → reviewer → (gate) → PR runs through
+- [x] Planner/reviewer cannot change files in the workspace
+
+---
+
+## M10 – Factory v2 & triggers
+
+- Parallel steps, conditions (`when`), loops with `max_iterations`
+- Structured artifacts with schema validation
+- Triggers: GitHub issues with a label, schedule
+- Templates `bugfix`, `review-only`, `refactor`
+
+**Done when:**
+- [x] Reviewer rejects → implementer gets comments → second pass → approval
+- [x] A labeled GitHub issue automatically starts a run and ends as a PR
 
 ---
 
 ## M11 – Release 1.0
 
-- Installationsskript, `ade install-service` (systemd user service in WSL)
-- Rootless Docker / Podman getestet
-- Sicherheitsreview (Gateway, Proxy, Container-Härtung), Threat-Model-Dokument
-- Doku: Nutzerhandbuch, Konfigurationsreferenz, Adapter schreiben (Contributor-Guide)
-- Releases via GoReleaser, Images versioniert in GHCR
+- Install script, `ade install-service` (systemd user service in WSL)
+- Rootless Docker / Podman tested
+- Security review (gateway, proxy, container hardening), threat model document
+- Docs: user guide, configuration reference, writing adapters (contributor guide)
+- Releases via GoReleaser, images versioned in GHCR
+- Repository language English (docs, code, UI)
 
 ---
 
-## Spätere Ideen (Backlog)
+## Later ideas (backlog)
 
-- TLS-Interception im Proxy für Regeln auf Pfad-/Methodenebene
-- Wegwerf-WSL-Distros als alternative Sandbox (`wsl --import`)
-- Gemeinsames Gedächtnis / Projektwissen über Sessions hinweg
-- MCP-Hub: MCP-Server zentral verwalten und pro Rolle freigeben
-- Mobile-Ansicht für Freigaben unterwegs
-- Mehrbenutzerbetrieb / Team-Server
+- TLS interception in the proxy for rules on path/method level
+- Disposable WSL distros as an alternative sandbox (`wsl --import`)
+- Shared memory / project knowledge across sessions
+- MCP hub: manage MCP servers centrally and allow them per role
+- Mobile view for approvals on the go
+- Multi-user operation / team server

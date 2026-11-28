@@ -244,7 +244,7 @@ ade run feature --task "Add login with GitHub" --wait
 ```
 
 Or **Runs → Start run** in the dashboard. ADE ships four templates: `feature`, `bugfix`,
-`refactor` and `review-only` ([factory.md](factory.md#6-vorlagen)). The **Runs** page shows the
+`refactor` and `review-only` ([factory.md](factory.md#6-templates)). The **Runs** page shows the
 steps, their sessions, the artifacts (plan, review, test report) and the open gates. A note you
 add when approving a gate goes to the following roles; denying a gate with `on_deny` sends the
 run back with your reason as feedback.
@@ -297,7 +297,7 @@ different `listen` and `data_dir` (`ade start --config …`).
   `sandbox.docker` set). The dashboard shows the detected runtime on the sandbox page.
 - Image pull fails: check `docker pull ghcr.io/davidw475/ade-agent-base:latest` and disk space.
 - Rootless Docker in WSL: if containers have no network, load `br_netfilter`
-  (`sudo modprobe br_netfilter`), see [sandbox.md](sandbox.md#6-container-laufzeiten).
+  (`sudo modprobe br_netfilter`), see [sandbox.md](sandbox.md#6-container-runtimes).
 - `.ade/sandbox.yaml` invalid: the dashboard shows the error; new containers start only after
   it is fixed.
 - Leftover containers after a crash: `ade gc`.

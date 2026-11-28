@@ -1,451 +1,461 @@
-# Architekturentscheidungen (ADRs)
+# Architecture decisions (ADRs)
 
-Kurzform: Kontext → Entscheidung → Konsequenzen. Neue Entscheidungen unten anhängen;
-überholte als *ersetzt durch ADR-xxx* markieren, nicht löschen.
+Short form: context → decision → consequences. Append new decisions at the bottom; mark outdated
+ones as *superseded by ADR-xxx* instead of deleting them.
 
-## ADR-001: Daemon + Web-UI statt Desktop-App
+## ADR-001: Daemon + web UI instead of a desktop app
 
-- **Kontext:** Agenten laufen lange; die UI soll unter Windows angenehm sein. WSLg-Fenster haben
-  Eigenheiten (Skalierung, Zwischenablage, Fensterrahmen).
-- **Entscheidung:** Ein Daemon in der WSL, UI im Windows-Browser über `localhost`.
-- **Konsequenzen:** Kein WSLg nötig; Agenten überleben das Schließen der UI; ein Desktop-Wrapper
-  (z. B. Wails) bleibt später optional möglich. Sicherheit des localhost-Servers muss ernst
-  genommen werden (ADR-008).
+- **Context:** agents run for a long time; the UI should be pleasant on Windows. WSLg windows have
+  quirks (scaling, clipboard, window frames).
+- **Decision:** a daemon in WSL, the UI in the Windows browser via `localhost`.
+- **Consequences:** no WSLg needed; agents survive closing the UI; a desktop wrapper (e.g. Wails)
+  remains possible later. The security of the localhost server must be taken seriously (ADR-008).
 
-## ADR-002: Go für das Backend
+## ADR-002: Go for the backend
 
-- **Kontext:** Viele Prozesse, PTYs, Docker, Proxy, Nebenläufigkeit; einfache Verteilung gewünscht.
-- **Entscheidung:** Go, ein statisches Binary mit eingebettetem Frontend.
-- **Konsequenzen:** Docker- und Proxy-Ökosystem in Go ist ausgereift; Proxy kann im selben Binary
-  leben (`ade proxy`).
+- **Context:** many processes, PTYs, Docker, proxy, concurrency; simple distribution desired.
+- **Decision:** Go, one static binary with an embedded frontend.
+- **Consequences:** the Docker and proxy ecosystem in Go is mature; the proxy can live in the
+  same binary (`ade proxy`).
 
-## ADR-003: openvscode-server als Browser-IDE
+## ADR-003: openvscode-server as the browser IDE
 
-- **Kontext:** VS-Code-Erlebnis im Browser, Open Source, ohne einen eigenen Fork zu pflegen.
-- **Entscheidung:** openvscode-server (MIT) pro Workspace; Extensions aus Open VSX.
-- **Konsequenzen:** Kein Microsoft-Marketplace, keine proprietären Microsoft-Extensions
-  (z. B. Pylance, Remote-Extensions). Alternative code-server bleibt austauschbar.
+- **Context:** VS Code experience in the browser, open source, without maintaining an own fork.
+- **Decision:** openvscode-server (MIT) per workspace; extensions from Open VSX.
+- **Consequences:** no Microsoft marketplace, no proprietary Microsoft extensions (e.g. Pylance,
+  remote extensions). The alternative code-server stays interchangeable.
 
-## ADR-004: Subdomain-Routing für IDEs
+## ADR-004: Subdomain routing for IDEs
 
-- **Kontext:** VS Code unter einem Unterpfad ist fehleranfällig; mehrere IDEs sollen sich nicht
-  Cookies/Storage teilen.
-- **Entscheidung:** `ws-<id>.localhost:7000` statt `/ide/<id>/`.
-- **Konsequenzen:** Eigener Origin pro IDE; Auth-Cookie muss für die Subdomain gesetzt werden
-  (Token-Übergabe beim ersten Aufruf).
+- **Context:** VS Code under a sub-path is error-prone; several IDEs should not share
+  cookies/storage.
+- **Decision:** `ws-<id>.localhost:7000` instead of `/ide/<id>/`.
+- **Consequences:** own origin per IDE; the auth cookie must be set for the subdomain (token
+  handover on the first call).
 
-## ADR-005: Workspace = lokaler Git-Clone statt Worktree
+## ADR-005: Workspace = local Git clone instead of worktree
 
-- **Kontext:** Ein `git worktree` verweist per `.git`-Datei auf das Haupt-Repo. Im Container
-  funktioniert das nur, wenn das Haupt-Repo mitgemountet wird – dann könnte der Agent dessen
-  Hooks, Konfiguration und andere Branches verändern.
-- **Entscheidung:** `git clone --local` pro Workspace (Objekte per Hardlink, daher günstig);
-  Ergebnisse holt der Daemon per `git fetch` ins Haupt-Repo.
-- **Konsequenzen:** Ein Mechanismus für lokal und Sandbox; volle Isolation; etwas mehr
-  Speicher für Arbeitsdateien.
+- **Context:** a `git worktree` points to the main repository through a `.git` file. In the
+  container this only works if the main repository is mounted as well – then the agent could
+  change its hooks, configuration and other branches.
+- **Decision:** `git clone --local` per workspace (objects via hardlink, therefore cheap); the
+  daemon fetches results into the main repository with `git fetch`.
+- **Consequences:** one mechanism for local and sandbox; full isolation; somewhat more disk space
+  for working files.
 
-## ADR-006: Netzisolation über internes Docker-Netz + Proxy-Container
+## ADR-006: Network isolation through an internal Docker network + proxy container
 
-- **Kontext:** `HTTP_PROXY` ist nur eine Bitte an Programme.
-- **Entscheidung:** Agent-Container nur im `--internal`-Netz; einziger Ausgang ist der
-  Proxy-Container mit Allowlist.
-- **Konsequenzen:** Isolation ist erzwungen; Programme ohne Proxy-Unterstützung haben kein Netz
-  (gewollt). DNS-Verhalten muss geprüft werden.
+- **Context:** `HTTP_PROXY` is only a request to programs.
+- **Decision:** agent containers only in an `--internal` network; the only exit is the proxy
+  container with an allowlist.
+- **Consequences:** isolation is enforced; programs without proxy support have no network
+  (intended). The DNS behavior must be checked.
 
-## ADR-007: Secrets per Proxy-Injection
+## ADR-007: Secrets via proxy injection
 
-- **Kontext:** Agenten können durch Prompt-Injection manipuliert werden.
-- **Entscheidung:** API-Keys bleiben im Daemon/Proxy; Agent-CLIs sprechen über Basis-URLs mit dem
-  Proxy, der den Key einsetzt. Git-Push nur durch den Daemon.
-- **Konsequenzen:** Keys sind aus dem Container nicht auslesbar; Token-Zählung und Budgets am
-  Proxy möglich. CLIs ohne Basis-URL-Option brauchen Sonderbehandlung.
+- **Context:** agents can be manipulated through prompt injection.
+- **Decision:** API keys stay in the daemon/proxy; agent CLIs talk to the proxy through base URLs,
+  and the proxy inserts the key. Git push only by the daemon.
+- **Consequences:** keys cannot be read from the container; token counting and budgets are
+  possible at the proxy. CLIs without a base URL option need special treatment.
 
-## ADR-008: localhost-Härtung
+## ADR-008: localhost hardening
 
-- **Kontext:** Jede Webseite im Browser kann Anfragen an `localhost` schicken (CSRF, DNS-Rebinding).
-- **Entscheidung:** Nur `127.0.0.1` binden, `Host`- und `Origin`-Prüfung, Session-Cookie über
-  Einmal-Token aus `ade start`.
-- **Konsequenzen:** Etwas mehr Aufwand beim Start; Grundvoraussetzung, weil der Daemon Code
-  ausführen kann.
+- **Context:** every website in the browser can send requests to `localhost` (CSRF, DNS
+  rebinding).
+- **Decision:** bind only `127.0.0.1`, `Host` and `Origin` check, session cookie via a one-time
+  token from `ade start`.
+- **Consequences:** a bit more effort at start; a basic requirement because the daemon can execute
+  code.
 
-## ADR-009: Lizenz Apache-2.0
+## ADR-009: License Apache-2.0
 
-- **Kontext:** Open Source auf GitHub; möglichst breite Nutzung; Abhängigkeiten sind MIT/Apache.
-- **Entscheidung:** Apache-2.0 (Patentklausel, kompatibel mit allen geplanten Abhängigkeiten).
-- **Konsequenzen:** Kommerzielle Nutzung und geschlossene Forks erlaubt. Lizenzhinweise der
-  Abhängigkeiten (openvscode-server, Monaco, xterm.js …) werden mitgeliefert (`NOTICE`/
-  Image-Labels). Markennamen (VS Code, Claude, Docker) nicht im Produktnamen.
+- **Context:** open source on GitHub; usage as broad as possible; dependencies are MIT/Apache.
+- **Decision:** Apache-2.0 (patent clause, compatible with all planned dependencies).
+- **Consequences:** commercial use and closed forks are allowed. License notices of the
+  dependencies (openvscode-server, Monaco, xterm.js …) are shipped (`NOTICE`/image labels).
+  Trademarks (VS Code, Claude, Docker) not in the product name.
 
-## ADR-010: Anbieter-Zugang nur über API-Keys oder offizielle CLIs
+## ADR-010: Provider access only via API keys or official CLIs
 
-- **Kontext:** Anbieter erlauben Drittanwendungen meist nicht, Abo-Logins (z. B. Claude Pro/Max,
-  ChatGPT Plus) für eigene Zwecke zu verwenden.
-- **Entscheidung:** ADE nutzt API-Keys des Nutzers oder startet offizielle CLIs, die der Nutzer
-  selbst installiert und angemeldet hat. ADE baut keine eigenen Abo-Login-Flows.
-- **Konsequenzen:** Vor jedem Release die aktuellen Nutzungsbedingungen der unterstützten
-  Anbieter prüfen.
+- **Context:** providers usually do not allow third-party applications to use subscription logins
+  (e.g. Claude Pro/Max, ChatGPT Plus) for their own purposes.
+- **Decision:** ADE uses the user's API keys or starts official CLIs that the user installed and
+  logged in to themselves. ADE does not build own subscription login flows.
+- **Consequences:** check the current terms of use of the supported providers before every
+  release.
 
-## ADR-011: Claude Code als Prozess mit stream-json-Ein- und -Ausgabe
+## ADR-011: Claude Code as a process with stream-json input and output
 
-- **Kontext:** Für eine Timeline braucht ADE strukturierte Events; Folgeanweisungen sollen ohne
-  Neustart möglich sein, und nach einem Daemon-Neustart soll sich eine Session fortsetzen lassen.
-- **Entscheidung:** Der `claude`-Adapter startet `claude -p --input-format stream-json
-  --output-format stream-json --verbose` mit Pipes (kein PTY). Anweisungen gehen als JSON-Zeilen
-  über stdin; der Prozess bleibt zwischen Durchgängen am Leben (Status `idle`). Die `session_id`
-  aus der Ausgabe wird gespeichert; nach Prozessende setzt `--resume <id>` die Unterhaltung fort.
-  Beendet sich der Daemon, gelten Sessions als `interrupted` und werden nicht weiter ausgeführt.
-- **Konsequenzen:** Eine Folgeanweisung während eines Durchgangs wird danach bearbeitet. Kein
-  Terminal-Stream für Claude-Sessions; wer interaktiv arbeiten will, öffnet ein `pty`-Terminal im
-  selben Workspace. Berechtigungen laufen bis M7 über `--permission-mode` (Standard im Dashboard:
-  `acceptEdits`); Werkzeuge, die eine Bestätigung bräuchten, lehnt die CLI im Print-Modus ab.
-  Das stream-json-Format ist nicht formal spezifiziert: Der Parser ignoriert unbekannte Zeilen,
-  Tests nutzen aufgezeichnete Ausgaben (`internal/agent/adapter/claude/testdata`).
+- **Context:** for a timeline ADE needs structured events; follow-up instructions should be
+  possible without a restart, and a session should be resumable after a daemon restart.
+- **Decision:** the `claude` adapter starts `claude -p --input-format stream-json
+  --output-format stream-json --verbose` with pipes (no PTY). Instructions go to stdin as JSON
+  lines; the process stays alive between turns (status `idle`). The `session_id` from the output
+  is stored; after the process ends, `--resume <id>` continues the conversation. If the daemon
+  stops, sessions count as `interrupted` and are not continued.
+- **Consequences:** a follow-up instruction during a turn is handled afterwards. No terminal stream
+  for Claude sessions; whoever wants to work interactively opens a `pty` terminal in the same
+  workspace. Until M7, permissions go through `--permission-mode` (default in the dashboard:
+  `acceptEdits`); in print mode the CLI rejects tools that would need a confirmation. The
+  stream-json format is not formally specified: the parser ignores unknown lines, tests use
+  recorded output (`internal/agent/adapter/claude/testdata`).
 
-## ADR-012: Browser-IDE lokal mit festgelegter openvscode-server-Version und eigener Subdomain-Session
+## ADR-012: Browser IDE locally with a pinned openvscode-server version and an own subdomain session
 
-- **Kontext:** Bis M5 läuft die IDE ohne Container. openvscode-server ist nicht installiert und
-  wird nicht über einen Paketmanager verteilt. Die IDE führt Code aus (Terminal, Erweiterungen)
-  und darf das Dashboard nicht steuern können.
-- **Entscheidung:** ADE lädt eine festgelegte Version (`ide.Version`, Prüfsumme je Architektur im
-  Code) beim ersten Start nach `<data_dir>/ide/` und bricht bei falscher Prüfsumme ab;
-  `ide.binary` in der Konfiguration ersetzt den Download. Pro Workspace läuft ein Prozess auf
-  `127.0.0.1` mit freiem Port und zufälligem Connection-Token, der nur in einer Datei steht
-  (`--connection-token-file`). Das Gateway setzt das Token-Cookie `vscode-tkn` selbst. Anmeldung an
-  `ws-<id>.localhost` über ein Einmal-Ticket aus `POST /api/workspaces/{id}/ide/ticket`, das an
-  den Workspace und die Dashboard-Session gebunden ist; es wird gegen ein Host-only-Cookie
-  `ade_ide` (HttpOnly, `SameSite=Lax`) getauscht. Logout im Dashboard beendet auch die
-  IDE-Sessions. Erweiterungen teilen sich alle IDEs, Einstellungen und Serverdaten liegen je
-  Workspace. Ohne offene Verbindung stoppt ADE eine IDE nach `ide.idle_timeout` (Standard 15 min).
-- **Konsequenzen:** Lax statt Strict, weil `localhost` und `ws-<id>.localhost` verschiedene Sites
-  sind und der Sprung aus dem Dashboard eine Cross-Site-Navigation ist. Origin-Prüfung: Auf einer
-  IDE-Subdomain ist nur deren eigener Origin erlaubt, auf dem Dashboard keine IDE. Die
-  Dashboard-CSP gilt nicht für IDE-Subdomains. Die IDE erbt dieselbe gefilterte Umgebung wie
-  Agenten (kein `GH_TOKEN`, kein `SSH_AUTH_SOCK`). Webviews lädt VS Code von `vscode-cdn.net`, dafür
-  braucht es Internet. Beim Anheben der Version müssen beide Prüfsummen neu berechnet werden.
+- **Context:** until M5 the IDE runs without a container. openvscode-server is not installed and
+  not distributed through a package manager. The IDE executes code (terminal, extensions) and must
+  not be able to control the dashboard.
+- **Decision:** ADE downloads a pinned version (`ide.Version`, checksum per architecture in the
+  code) on first start to `<data_dir>/ide/` and aborts on a wrong checksum; `ide.binary` in the
+  configuration replaces the download. Per workspace a process runs on `127.0.0.1` with a free port
+  and a random connection token that is only stored in a file (`--connection-token-file`). The
+  gateway sets the token cookie `vscode-tkn` itself. Login to `ws-<id>.localhost` through a one-time
+  ticket from `POST /api/workspaces/{id}/ide/ticket` that is bound to the workspace and the
+  dashboard session; it is exchanged for a host-only cookie `ade_ide` (HttpOnly, `SameSite=Lax`).
+  Logging out of the dashboard also ends the IDE sessions. All IDEs share the extensions; settings
+  and server data are per workspace. Without an open connection ADE stops an IDE after
+  `ide.idle_timeout` (default 15 min).
+- **Consequences:** Lax instead of Strict, because `localhost` and `ws-<id>.localhost` are
+  different sites and the jump from the dashboard is a cross-site navigation. Origin check: on an
+  IDE subdomain only its own origin is allowed, on the dashboard no IDE. The dashboard CSP does not
+  apply to IDE subdomains. The IDE inherits the same filtered environment as agents (no
+  `GH_TOKEN`, no `SSH_AUTH_SOCK`). VS Code loads webviews from `vscode-cdn.net`, which needs
+  internet. When raising the version, both checksums must be recomputed.
 
-## ADR-013: Übernahme ins Projekt-Repo durch den Daemon
+## ADR-013: Delivery into the project repository by the daemon
 
-- **Kontext:** Bis M3 hat ADE das Projekt-Repo nur gelesen (ADR-005). Für Review und Übernahme
-  (M4) muss das Ergebnis eines Agenten dorthin, ohne dass der Agent Zugriff auf das Repo oder
-  Push-Rechte bekommt, und ohne den Arbeitsbaum des Nutzers ungefragt zu verändern.
-- **Entscheidung:** Der Daemon schreibt ins Projekt-Repo nur über `internal/git` und nur so:
-  1. ohne Nutzeraktion ausschließlich `refs/heads/ade/<id>` (WIP-Commit im Workspace, dann
-     `fetch` mit Force-Refspec – der Namensraum `ade/*` gehört ADE);
-  2. „Mergen“: immer ein Merge-Commit (`--no-ff`). Konflikte werden vorher mit
-     `git merge-tree --write-tree` erkannt; dann ändert sich nichts. Ist der Basis-Branch
-     ausgecheckt, läuft `git merge` in diesem Arbeitsbaum (git selbst verweigert den Merge bei
-     berührten lokalen Änderungen), sonst `commit-tree` + `update-ref` mit Vergleichswert;
-  3. „PR erstellen“: `git push origin ade/<id>` und `gh pr create` mit den Zugangsdaten des
-     Nutzers auf dem Host;
-  4. „Verwerfen“: `git branch -D ade/<id>` (nicht, wenn der Branch ausgecheckt ist).
-  Befehle im Workspace laufen mit `core.hooksPath=/dev/null` und `core.fsmonitor=false`, Commits
-  ohne Signatur. Fehlt eine Git-Identität, committet ADE als `ADE <ade@localhost>`.
-- **Konsequenzen:** Git ≥ 2.38 ist Voraussetzung. Merge-Commits im Haupt-Repo durchlaufen die
-  Hooks und die Signatur-Einstellung des Nutzers wie ein normales `git merge`. Ein Agent kann in
-  der Repo-Konfiguration des Workspaces weitere Befehle hinterlegen (z. B. Clean-Filter), die beim
-  WIP-Commit des Daemons laufen; bis zur Sandbox (M5) laufen Agenten ohnehin mit Nutzerrechten,
-  danach muss der Daemon diese Konfiguration ignorieren oder im Container committen (#41).
-  Der Monaco-Editor wird lokal gebündelt (kein CDN, Dashboard-CSP nur `'self'`) und als eigener
-  Chunk erst auf der Workspace-Seite geladen.
+- **Context:** until M3 ADE only read the project repository (ADR-005). For review and delivery
+  (M4) an agent's result must get there without giving the agent access to the repository or push
+  rights, and without changing the user's working tree unasked.
+- **Decision:** the daemon writes into the project repository only through `internal/git` and
+  only like this:
+  1. without a user action exclusively `refs/heads/ade/<id>` (WIP commit in the workspace, then
+     `fetch` with a force refspec – the namespace `ade/*` belongs to ADE);
+  2. "Merge": always a merge commit (`--no-ff`). Conflicts are detected beforehand with
+     `git merge-tree --write-tree`; then nothing changes. If the base branch is checked out,
+     `git merge` runs in that working tree (git itself refuses the merge when local changes are
+     touched), otherwise `commit-tree` + `update-ref` with the expected old value;
+  3. "Create PR": `git push origin ade/<id>` and `gh pr create` with the user's credentials on the
+     host;
+  4. "Discard": `git branch -D ade/<id>` (not if the branch is checked out).
+  Commands in the workspace run with `core.hooksPath=/dev/null` and `core.fsmonitor=false`,
+  commits without a signature. If there is no Git identity, ADE commits as `ADE <ade@localhost>`.
+- **Consequences:** Git ≥ 2.38 is required. Merge commits in the main repository go through the
+  user's hooks and signing setting like a normal `git merge`. An agent can store further commands
+  in the workspace's repository configuration (e.g. clean filters) that run during the daemon's
+  WIP commit; until the sandbox (M5) agents run with user permissions anyway, after that the daemon
+  must ignore this configuration or commit in the container (#41). The Monaco editor is bundled
+  locally (no CDN, dashboard CSP only `'self'`) and loaded as its own chunk only on the workspace
+  page.
 
+## ADR-014: Docker sandbox through the Docker CLI, the daemon's git in the container
 
-## ADR-014: Docker-Sandbox über die Docker-CLI, git des Daemons im Container
+- **Context:** M5 isolates agent, setup and IDE in one container per workspace. For that ADE needs
+  container management, `docker exec` with a PTY and signals to processes in the container. In
+  addition the daemon runs git commands in the workspace, whose repository configuration belongs
+  to the agent (#41).
+- **Decision:**
+  1. ADE calls the **Docker CLI** (like the git binary), not the Go client. `docker exec -it` runs
+     in the same PTY code as local processes, the CLI passes on size changes, and no big
+     dependency is added.
+  2. Container `ade-ws-<id>`: the only mount is the workspace as `/workspace`, user = UID/GID of
+     the user, `--cap-drop ALL`, `no-new-privileges`, `--init`, limits from `.ade/sandbox.yaml`
+     (read from the project repository), main process `sleep infinity`. Labels `ade.managed`,
+     `ade.workspace`, `ade.data_dir`; `ade.data_dir` separates several ADE instances.
+  3. Since the CLI does not pass signals to `docker exec`, ADE ends processes in the container by
+     their environment (`ADE_SESSION_ID=<id>` or `ADE_IDE_OWNER`): a small script in the container
+     signals all processes with this variable – like a process group.
+  4. Environment variables go to `docker exec --env KEY` without a value and with their value into
+     the CLI's environment, so that e.g. API keys do not show up in the process list.
+  5. Sandbox is a property of the workspace (set at creation). Sandbox workspaces are cloned
+     without hardlinks: shared inodes would allow the container to overwrite object files of the
+     main repository.
+  6. **#41:** for sandbox workspaces all of the daemon's git commands in the workspace (WIP
+     commit, diff, file contents, temporary index) run in the container via `docker exec`
+     (`git.Worktree` with runner). Filters, fsmonitor or hooks from the workspace configuration
+     therefore only take effect in the sandbox. The `fetch` into the main repository still runs on
+     the host; `upload-pack` does not run commands from the repository configuration.
+  7. On daemon start orphaned containers are removed and the others stopped (ends processes of
+     the last run); they start again on demand. When stopping, the daemon stops its containers.
+     `ade gc` removes orphaned containers even without a running daemon.
+  8. The IDE runs in the container on port 3000, Docker publishes it only on `127.0.0.1`.
+- **Consequences:** every git query of a sandbox workspace costs a few `docker exec`
+  (~50–100 ms). The workspace list starts no containers and shows no change counts for stopped
+  ones. Until M6 the container has a normal network; an API key from the configuration is
+  readable in the container. Rootless Docker and different UIDs work, but the file owners in the
+  workspace only match the user with classic Docker.
 
-- **Kontext:** M5 isoliert Agent, Setup und IDE in einem Container pro Workspace. Dafür braucht
-  ADE Container-Verwaltung, `docker exec` mit PTY und Signale an Prozesse im Container. Außerdem
-  führt der Daemon git-Befehle im Workspace aus, dessen Repo-Konfiguration dem Agenten gehört (#41).
-- **Entscheidung:**
-  1. ADE ruft die **Docker-CLI** auf (wie das git-Binary), nicht den Go-Client. `docker exec -it`
-     läuft im selben PTY-Code wie lokale Prozesse, Größenänderungen reicht die CLI weiter, und es
-     kommt keine große Abhängigkeit hinzu.
-  2. Container `ade-ws-<id>`: einziger Mount ist der Workspace als `/workspace`, User = UID/GID
-     des Nutzers, `--cap-drop ALL`, `no-new-privileges`, `--init`, Grenzen aus `.ade/sandbox.yaml`
-     (gelesen aus dem Projekt-Repo), Hauptprozess `sleep infinity`. Labels `ade.managed`,
-     `ade.workspace`, `ade.data_dir`; über `ade.data_dir` trennen sich mehrere ADE-Instanzen.
-  3. Da die CLI Signale nicht an `docker exec` weiterreicht, beendet ADE Prozesse im Container
-     über ihre Umgebung (`ADE_SESSION_ID=<id>` bzw. `ADE_IDE_OWNER`): ein kleines Skript im
-     Container signalisiert alle Prozesse mit dieser Variable – wie eine Prozessgruppe.
-  4. Umgebungsvariablen gehen ohne Wert an `docker exec --env KEY` und mit Wert in die Umgebung
-     der CLI, damit z. B. API-Keys nicht in der Prozessliste stehen.
-  5. Sandbox ist eine Eigenschaft des Workspaces (festgelegt beim Anlegen). Sandbox-Workspaces
-     klonen ohne Hardlinks: Geteilte Inodes würden dem Container erlauben, Objektdateien des
-     Haupt-Repos zu überschreiben.
-  6. **#41:** Bei Sandbox-Workspaces laufen alle git-Befehle des Daemons im Workspace (WIP-Commit,
-     Diff, Datei-Inhalte, temporärer Index) per `docker exec` im Container (`git.Worktree` mit
-     Runner). Filter, fsmonitor oder Hooks aus der Workspace-Konfiguration wirken damit nur in der
-     Sandbox. Das `fetch` ins Haupt-Repo läuft weiter auf dem Host; `upload-pack` führt keine
-     Befehle aus der Repo-Konfiguration aus.
-  7. Beim Daemon-Start werden verwaiste Container entfernt und die übrigen gestoppt (beendet
-     Prozesse des letzten Laufs); sie starten bei Bedarf wieder. Beim Beenden stoppt der Daemon
-     seine Container. `ade gc` entfernt verwaiste Container auch ohne laufenden Daemon.
-  8. Die IDE läuft im Container auf Port 3000, Docker veröffentlicht ihn nur auf `127.0.0.1`.
-- **Konsequenzen:** Jede git-Abfrage eines Sandbox-Workspaces kostet einige `docker exec`
-  (~50–100 ms). Die Workspace-Liste startet keine Container und zeigt für gestoppte keine
-  Änderungszahlen. Der Container hat bis M6 normales Netz; ein API-Key aus der Konfiguration ist
-  im Container lesbar. Rootless Docker und abweichende UIDs funktionieren, die Datei-Eigentümer im
-  Workspace stimmen aber nur bei klassischem Docker mit dem Nutzer überein.
+## ADR-015: Egress proxy as its own container, secret injection through the control API
 
-## ADR-015: Egress-Proxy als eigener Container, Secret-Injection über die Steuer-API
+- **Context:** M6 restricts the sandbox's network to approved targets and keeps API keys out of
+  the container (doc/sandbox.md). Docker does not publish ports for containers in `--internal`
+  networks, and the daemon only listens on the host's `127.0.0.1`.
+- **Decision:**
+  1. Per workspace an internal network `ade-ws-<id>` and a proxy container `ade-proxy-<id>` in the
+     shared network `ade-egress` (without traffic between containers) and in the internal network
+     (alias `proxy`). The isolation is enforced by the network; `HTTP(S)_PROXY` is a convenience.
+  2. The proxy is `ade proxy` from the same binary: the daemon copies its (static) binary to
+     `<data_dir>/sandbox/ade-proxy` and mounts it read-only into the default image. Proxy and
+     daemon therefore always have the same version, without an own image.
+  3. The daemon controls the proxy through an HTTP control API on a published port (`127.0.0.1`),
+     protected by a random token per container (passed through the Docker CLI's environment, not
+     in the process list). Policy and keys only go through it; the proxy keeps them in memory.
+     The daemon collects events by long polling.
+  4. The daemon reaches the IDE through a TCP forwarding of the proxy to `agent:3000`.
+  5. The proxy never connects to internal addresses; the IP is checked at `connect`.
+  6. External DNS resolution in the agent container is additionally disabled via
+     `--dns 192.0.2.1`.
+  7. Containers from M5 (without label `ade.net`) are recreated on the next start.
+  8. With an invalid `sandbox.yaml` the defaults do not apply: running proxies keep the last valid
+     policy, new containers do not start.
+- **Consequences:** one additional container (~10 MB RAM) per running workspace. The daemon must
+  be built without cgo (`make build`, `make dev`); it reports a dynamically linked binary at start.
+  Without TLS interception the allowlist only applies at host level. If programs other than agent
+  sessions (IDE terminal) use the Anthropic API, they use the CLI's own login through the
+  allowlist.
 
-- **Kontext:** M6 beschränkt das Netz der Sandbox auf freigegebene Ziele und hält API-Keys aus dem
-  Container heraus (doc/sandbox.md). Docker veröffentlicht für Container in `--internal`-Netzen
-  keine Ports, und der Daemon lauscht nur auf `127.0.0.1` des Hosts.
-- **Entscheidung:**
-  1. Pro Workspace ein internes Netz `ade-ws-<id>` und ein Proxy-Container `ade-proxy-<id>` im
-     gemeinsamen Netz `ade-egress` (ohne Verkehr zwischen Containern) und im internen Netz
-     (Alias `proxy`). Erzwungen wird die Isolation durch das Netz; `HTTP(S)_PROXY` ist Bequemlichkeit.
-  2. Der Proxy ist `ade proxy` aus demselben Binary: Der Daemon kopiert sein (statisches)
-     Binary nach `<data_dir>/sandbox/ade-proxy` und mountet es nur lesend ins Standard-Image.
-     Proxy und Daemon haben so immer dieselbe Version, ohne eigenes Image.
-  3. Der Daemon steuert den Proxy über eine HTTP-Steuer-API auf einem veröffentlichten Port
-     (`127.0.0.1`), geschützt durch ein zufälliges Token je Container (über die Umgebung der
-     Docker-CLI übergeben, nicht in der Prozessliste). Policy und Keys gehen nur darüber; der
-     Proxy hält sie im Speicher. Events holt der Daemon per Long-Polling ab.
-  4. Die IDE erreicht der Daemon über eine TCP-Weiterleitung des Proxys an `agent:3000`.
-  5. Der Proxy verbindet nie zu internen Adressen; geprüft wird die IP beim `connect`.
-  6. Externe DNS-Auflösung im Agent-Container ist zusätzlich per `--dns 192.0.2.1` abgeschaltet.
-  7. Container aus M5 (ohne Label `ade.net`) werden beim nächsten Start neu angelegt.
-  8. Bei ungültiger `sandbox.yaml` gilt nicht die Voreinstellung: laufende Proxys behalten die
-     letzte gültige Policy, neue Container starten nicht.
-- **Konsequenzen:** Ein zusätzlicher Container (~10 MB RAM) pro laufendem Workspace. Der Daemon
-  muss ohne cgo gebaut sein (`make build`, `make dev`); ein dynamisch gelinktes Binary meldet er
-  beim Start. Ohne TLS-Interception gilt die Allowlist nur auf Host-Ebene. Hängen andere
-  Programme als Agent-Sessions (IDE-Terminal) an der Anthropic-API, nutzen sie die eigene
-  Anmeldung der CLI über die Allowlist.
+## ADR-016: Approvals through a PreToolUse hook, in the sandbox through the egress proxy
 
-## ADR-016: Freigaben über einen PreToolUse-Hook, in der Sandbox über den Egress-Proxy
+- **Context:** M7 lets a human decide about critical tool calls and network exceptions,
+  asynchronously in the dashboard. Claude Code runs in print mode (ADR-011) and rejects tools that
+  would need a question without a hook. The proxy container does not reach the daemon (it only
+  listens on the host's `127.0.0.1`), but the daemon reaches the proxy through the control API
+  (ADR-015). The daemon only changes a project's main repository during delivery.
+- **Decision:**
+  1. The Claude adapter registers `ade hook pretooluse` via `--settings` as a `PreToolUse` hook for
+     all tools. The hook always answers `allow` or `deny`, `deny` on any error (fail closed). Its
+     timeout is `approvals.timeout` plus some margin.
+  2. The daemon decides: first the rules from `approvals` in `.ade/project.yaml` (deny → ask →
+     allow, separately for sandbox and local, defaults: everything in the sandbox, locally reading
+     and editing files in the workspace), otherwise an approval in the queue that blocks until the
+     decision or the timeout. Bash allow rules never match compound commands; path patterns apply
+     relative to the workspace, locally after resolving symlinks. With an invalid `project.yaml` no
+     rule allows anything.
+  3. Locally the hook calls `POST /api/hook/pretooluse` with a token per session (only valid for
+     questions of this session, ends with the process).
+  4. In the sandbox the ade binary is mounted read-only at `/opt/ade/ade`; the hook asks
+     `http://proxy:8080/ade/hook/pretooluse`. The proxy holds the question, the daemon collects open
+     questions by long polling through the control API (`GET /questions`) and answers them
+     (`POST /questions/{id}`). The same queue carries egress questions with
+     `egress.on_blocked: ask`: the request waits (default 2 min), equal targets share one
+     question, after "Deny" the proxy does not ask again until it restarts.
+  5. The daemon stores egress approvals "for this workspace" and "always (project)" as exceptions
+     in SQLite and adds them to the policy instead of changing `.ade/sandbox.yaml` in the main
+     repository. Wildcards still belong in the file.
+  6. Open approvals of an earlier daemon run count as expired at start.
+- **Consequences:** every tool call costs a process start and a local HTTP request. Containers
+  without the hook binary are recreated once (`ade.net=proxy-2`); the state in the container file
+  system is lost (e.g. a subscription login under `/home/ade`). The CLI's permission mode only
+  applies when no hook is available. Terminal sessions (`pty`) have no hook. Exceptions from the
+  dashboard are not in the repository; the network view shows them and can remove them.
 
-- **Kontext:** M7 lässt einen Menschen über kritische Werkzeug-Aufrufe und Netzwerk-Ausnahmen
-  entscheiden, asynchron im Dashboard. Claude Code läuft im Print-Modus (ADR-011) und lehnt
-  Werkzeuge, die eine Rückfrage bräuchten, ohne Hook ab. Der Proxy-Container erreicht den Daemon
-  nicht (er lauscht nur auf `127.0.0.1` des Hosts), der Daemon erreicht den Proxy aber über die
-  Steuer-API (ADR-015). Das Haupt-Repo eines Projekts ändert der Daemon nur bei der Übernahme.
-- **Entscheidung:**
-  1. Der Claude-Adapter bindet `ade hook pretooluse` per `--settings` als `PreToolUse`-Hook für
-     alle Werkzeuge ein. Der Hook antwortet immer mit `allow` oder `deny`, bei jedem Fehler `deny`
-     (fail closed). Sein Timeout ist `approvals.timeout` plus Spielraum.
-  2. Der Daemon entscheidet: zuerst die Regeln aus `approvals` in `.ade/project.yaml`
-     (deny → ask → allow, getrennt für Sandbox und lokal, Voreinstellung: Sandbox alles, lokal
-     Lesen und Dateiänderungen im Workspace), sonst eine Freigabe in der Warteschlange, die bis
-     zur Entscheidung oder zum Timeout blockiert. Bash-Allow-Regeln passen nie auf
-     zusammengesetzte Befehle; Pfadmuster gelten relativ zum Workspace, lokal nach Auflösen von
-     Symlinks. Bei ungültiger `project.yaml` erlaubt keine Regel etwas.
-  3. Lokal ruft der Hook `POST /api/hook/pretooluse` mit einem Token je Session auf (nur für
-     Fragen dieser Session gültig, endet mit dem Prozess).
-  4. In der Sandbox wird das ade-Binary nur lesend nach `/opt/ade/ade` gemountet; der Hook fragt
-     `http://proxy:8080/ade/hook/pretooluse`. Der Proxy hält die Frage fest, der Daemon holt
-     offene Fragen per Long-Polling über die Steuer-API ab (`GET /questions`) und beantwortet sie
-     (`POST /questions/{id}`). Dieselbe Warteschlange trägt Egress-Fragen bei
-     `egress.on_blocked: ask`: Die Anfrage wartet (Standard 2 min), gleiche Ziele teilen sich eine
-     Frage, nach „Ablehnen“ fragt der Proxy bis zu seinem Neustart nicht erneut.
-  5. Egress-Freigaben „für diesen Workspace“ und „immer (Projekt)“ speichert der Daemon als
-     Ausnahmen in SQLite und fügt sie der Policy hinzu, statt `.ade/sandbox.yaml` im Haupt-Repo
-     zu ändern. Platzhalter gehören weiter in die Datei.
-  6. Offene Freigaben eines früheren Daemon-Laufs gelten beim Start als abgelaufen.
-- **Konsequenzen:** Jeder Werkzeug-Aufruf kostet einen Prozessstart und eine lokale HTTP-Anfrage.
-  Container ohne Hook-Binary werden einmal neu angelegt (`ade.net=proxy-2`); dabei geht der
-  Zustand im Container-Dateisystem verloren (z. B. ein Abo-Login unter `/home/ade`). Der
-  Berechtigungsmodus der CLI gilt nur noch, wenn kein Hook verfügbar ist. Terminal-Sessions
-  (`pty`) haben keinen Hook. Ausnahmen aus dem Dashboard stehen nicht im Repo; die Netzwerk-
-  Ansicht zeigt sie an und kann sie entfernen.
+## ADR-017: Costs from one source per session, budgets through pause and approval
 
-## ADR-017: Kosten aus einer Quelle je Session, Budgets über Pause und Freigabe
+- **Context:** M8 should show costs per session and enforce budgets, also for CLIs that do not
+  report USD (Codex). In the sandbox the egress proxy sees every API response when it inserts the
+  key (ADR-007); Claude Code reports its costs itself at the end of every turn. Both together would
+  count twice. Codex ignores `OPENAI_BASE_URL`, and `codex exec` handles one instruction per
+  process with cumulative token counts per conversation.
+- **Decision:**
+  1. Every usage is an entry in `usage` (on the project, not the workspace, so monthly budgets
+     include discarded workspaces) and is added to the session. Per session one source applies: if
+     the proxy measures (sandbox with secret injection for the adapter's provider), only it counts,
+     otherwise the CLI's report. Proxy usage without a measuring session only counts for the
+     workspace.
+  2. The proxy reads the responses of `/p/<provider>/` while passing them through (JSON up to
+     16 MiB, SSE line by line) and requests them uncompressed for that. It only reports tokens and
+     model; the daemon computes USD with a built-in, overridable price table (prefix of the model
+     ID, longest match).
+  3. Codex gets the proxy base URL as an own provider via `-c`; the parser offsets its cumulative
+     numbers against the session's tokens counted up to the process start.
+  4. The daemon checks budgets (session, the project's calendar month) after every usage. When
+     exceeded, it ends the process (status `paused`) and creates an approval of kind `budget`
+     (24 h). Allowing raises the budget by one step and resumes the session; denying or expiry ends
+     it (`stopped`).
+- **Consequences:** costs from the price table are estimates; unknown models only count tokens and
+  are marked. A budget only takes effect after the response that exceeds it (a running request is
+  not aborted); without the proxy only at the end of a turn. Whatever bypasses the proxy
+  (subscription login via CONNECT) cannot be counted. Pausing ends the process; only adapters with
+  resume can continue.
 
-- **Kontext:** M8 soll Kosten pro Session zeigen und Budgets durchsetzen, auch für CLIs, die
-  keine USD melden (Codex). Der Egress-Proxy sieht in der Sandbox jede API-Antwort, wenn er den
-  Key einfügt (ADR-007); Claude Code meldet seine Kosten selbst am Ende jedes Durchgangs. Beide
-  zusammen würden doppelt zählen. Codex beachtet `OPENAI_BASE_URL` nicht, und `codex exec`
-  bearbeitet eine Anweisung je Prozess mit kumulierten Token-Zahlen pro Unterhaltung.
-- **Entscheidung:**
-  1. Jede Nutzung ist ein Eintrag in `usage` (am Projekt, nicht am Workspace, damit Monatsbudgets
-     verworfene Workspaces mitzählen) und wird zur Session addiert. Je Session gilt eine Quelle:
-     Misst der Proxy (Sandbox mit Secret-Injection für den Anbieter des Adapters), zählt nur er,
-     sonst die Meldung der CLI. Proxy-Nutzung ohne messende Session zählt nur für den Workspace.
-  2. Der Proxy liest die Antworten von `/p/<anbieter>/` beim Durchreichen mit (JSON bis 16 MiB,
-     SSE zeilenweise) und fordert sie dafür unkomprimiert an. Er meldet nur Tokens und Modell;
-     USD rechnet der Daemon mit einer eingebauten, überschreibbaren Preistabelle (Präfix der
-     Modell-ID, längster Treffer).
-  3. Codex bekommt die Proxy-Basis-URL als eigenen Provider per `-c`; seine kumulierten Zahlen
-     verrechnet der Parser mit den bis zum Prozessstart gezählten Tokens der Session.
-  4. Budgets (Session, Kalendermonat des Projekts) prüft der Daemon nach jeder Nutzung. Bei
-     Überschreitung beendet er den Prozess (Status `paused`) und legt eine Freigabe der Art
-     `budget` an (24 h). Erlauben erhöht das Budget um einen Schritt und setzt die Session mit
-     Resume fort; Ablehnen oder Ablauf beendet sie (`stopped`).
-- **Konsequenzen:** Kosten aus der Preistabelle sind Schätzwerte; unbekannte Modelle zählen nur
-  Tokens und sind markiert. Ein Budget greift erst nach der Antwort, die es überschreitet (eine
-  laufende Anfrage wird nicht abgebrochen); ohne Proxy erst am Ende eines Durchgangs. Was am Proxy
-  vorbei läuft (Abo-Login über CONNECT), kann er nicht zählen. Pausieren beendet den Prozess;
-  fortsetzen können nur Adapter mit Resume.
+## ADR-018: Factory runs from normal sessions, artifacts outside the workspace, read-only roles through an own container
 
-## ADR-018: Fabrik-Runs aus normalen Sessions, Artefakte außerhalb des Workspaces, Lese-Rollen über eigenen Container
+- **Context:** M9 chains role agents into a run (doc/factory.md). Every role should stay a normal
+  session (timeline, approvals, costs, sandbox), the run should survive a daemon restart, and
+  read-only roles must not change the shared workspace. A running container cannot be remounted
+  afterwards; `docker exec` cannot add mounts.
+- **Decision:**
+  1. The runner (`internal/factory`) keeps the state in `runs` and `run_steps` and advances it
+     under a lock per run. It is driven by status changes of the sessions (listener on the agent
+     manager), decisions at gates, a tick and the start. The definition is stored as JSON at start.
+  2. A role is done when its session becomes `idle` or `done`. Its last answer is the artifact; ADE
+     stores it under `<data_dir>/runs/<id>/` (not `.ade/runs/` in the workspace as planned before)
+     and passes it to the following roles in the prompt. A waiting agent is ended as soon as the
+     step is done; the workspace is saved in the process.
+  3. Gates are approvals of kind `gate` (7 days). After a restart the runner recreates open gates
+     and resumes interrupted sessions.
+  4. In the sandbox, read-only roles run in a second container per workspace (`ade-ws-<id>-ro`,
+     role `reader`) with `/workspace` as a read-only bind mount, in the same internal network
+     behind the same proxy. Without a sandbox they work in a snapshot (`git clone --shared` of the
+     workspace) under `<data_dir>/snapshots/<session>`; the adapters additionally block their write
+     tools.
+  5. Sandbox applies to the whole run, not per role (one workspace).
+- **Consequences:** in M9 artifacts are free text; several or structured artifacts per role come
+  with M10. Without a sandbox "read-only" is an agreement, not protection: an agent with Bash
+  access can write outside the snapshot (like any local agent). The reader container doubles a
+  workspace's memory needs while a read-only role runs; it stays until the workspace is stopped or
+  discarded. A time limit makes the run fail instead of asking for an approval.
 
-- **Kontext:** M9 verkettet Rollen-Agenten zu einem Run (doc/factory.md). Jede Rolle soll eine
-  normale Session bleiben (Timeline, Freigaben, Kosten, Sandbox), der Run einen Neustart des
-  Daemons überstehen, und Lese-Rollen dürfen den gemeinsamen Workspace nicht ändern. Ein
-  laufender Container lässt sich nicht nachträglich anders mounten; `docker exec` kann keine
-  Mounts hinzufügen.
-- **Entscheidung:**
-  1. Der Runner (`internal/factory`) hält den Zustand in `runs` und `run_steps` und schreibt ihn
-     unter einem Lock je Run fort. Auslöser sind Statuswechsel der Sessions (Listener am
-     Agent-Manager), Entscheidungen an Gates, ein Takt und der Start. Die Definition wird beim
-     Start als JSON gespeichert.
-  2. Eine Rolle ist fertig, wenn ihre Session `idle` oder `done` wird. Ihre letzte Antwort ist
-     das Artefakt; ADE speichert es unter `<data_dir>/runs/<id>/` (nicht `.ade/runs/` im
-     Workspace wie zuvor geplant) und gibt es den folgenden Rollen im Prompt mit. Ein wartender
-     Agent wird beendet, sobald der Schritt fertig ist; der Workspace wird dabei gesichert.
-  3. Gates sind Freigaben der Art `gate` (7 Tage). Nach einem Neustart legt der Runner offene
-     Gates neu an und setzt unterbrochene Sessions über Resume fort.
-  4. Lese-Rollen laufen in der Sandbox in einem zweiten Container je Workspace
-     (`ade-ws-<id>-ro`, Rolle `reader`) mit `/workspace` als Read-only-Bind-Mount, im selben
-     internen Netz hinter demselben Proxy. Ohne Sandbox arbeiten sie in einem Schnappschuss
-     (`git clone --shared` des Workspaces) unter `<data_dir>/snapshots/<session>`; die Adapter
-     sperren zusätzlich ihre Schreibwerkzeuge.
-  5. Sandbox gilt für den ganzen Run, nicht je Rolle (ein Workspace).
-- **Konsequenzen:** Artefakte sind in M9 Freitext; mehrere oder strukturierte Artefakte je Rolle
-  kommen mit M10. Ohne Sandbox ist „nur lesen“ eine Absprache, kein Schutz: Ein Agent mit
-  Bash-Zugriff kann außerhalb des Schnappschusses schreiben (wie jeder lokale Agent). Der
-  Lese-Container verdoppelt den Speicherbedarf eines Workspaces, solange eine Lese-Rolle läuft;
-  er bleibt bis zum Stoppen oder Verwerfen des Workspaces bestehen. Ein Zeitlimit lässt den Run
-  scheitern, statt nach einer Freigabe zu fragen.
+## ADR-019: Loops as new passes, an own expression language and a schema subset
 
-## ADR-019: Schleifen als neue Durchläufe, eigene Ausdruckssprache und Schema-Teilmenge
+- **Context:** M10 brings structured artifacts, conditions and jumps back to factories
+  (doc/factory.md). Earlier passes should stay traceable, dependencies few, and a condition from
+  the repository must not be able to do anything but compare values.
+- **Decision:**
+  1. Every execution of a step is its own row in `run_steps` (`pos` = position in the flow,
+     `iteration` = pass). A jump back creates new rows for the positions from the target to the
+     jumping step. The API returns the latest execution per position (`steps`, `steps[current]`
+     stays the current step) and the older ones under `history`.
+  2. Artifacts are stored as the latest version under `<data_dir>/runs/<id>/<name>` and per pass
+     under `iterations/<n>/<name>`.
+  3. Conditions are an own small language (paths, literals, comparisons, `&& || !`, `len`), not a
+     script and not a library like CEL or expr: no access to anything but the artifacts, no loops,
+     no functions except `len`.
+  4. Schemas are a checked subset of JSON Schema without `$ref`, `oneOf`, `pattern` etc.; unknown
+     keywords are an error when loading instead of being silently ignored.
+  5. Invalid structured answers go back to the same session as a follow-up instruction (at most
+     two corrections) instead of restarting the role.
+- **Consequences:** `max_iterations` counts the passes of a step, not of a specific loop; nested
+  loops share the count. Whoever needs regular expressions or references in schemas has to do
+  without until an extension. The number of rows per run grows with the passes (at most
+  `max_iterations` × steps).
 
-- **Kontext:** M10 bringt strukturierte Artefakte, Bedingungen und Rücksprünge in Fabriken
-  (doc/factory.md). Frühere Durchläufe sollen nachvollziehbar bleiben, Abhängigkeiten sparsam
-  sein, und eine Bedingung aus dem Repo darf nichts anderes können als Werte vergleichen.
-- **Entscheidung:**
-  1. Jede Ausführung eines Schritts ist eine eigene Zeile in `run_steps` (`pos` = Position im
-     Ablauf, `iteration` = Durchlauf). Ein Rücksprung legt für die Positionen vom Ziel bis zur
-     springenden Stelle neue Zeilen an. Die API liefert je Position die jüngste Ausführung
-     (`steps`, `steps[current]` bleibt der aktuelle Schritt) und die älteren unter `history`.
-  2. Artefakte liegen als jüngster Stand unter `<data_dir>/runs/<id>/<name>` und je Durchlauf
-     unter `iterations/<n>/<name>`.
-  3. Bedingungen sind eine eigene kleine Sprache (Pfade, Literale, Vergleiche, `&& || !`,
-     `len`), kein Skript und keine Bibliothek wie CEL oder expr: kein Zugriff auf anderes als
-     die Artefakte, keine Schleifen, keine Funktionen außer `len`.
-  4. Schemas sind eine geprüfte Teilmenge von JSON Schema ohne `$ref`, `oneOf`, `pattern` usw.;
-     unbekannte Schlüsselwörter sind ein Fehler beim Laden statt still ignoriert.
-  5. Ungültige strukturierte Antworten gehen als Folgeanweisung an dieselbe Session zurück
-     (höchstens zwei Korrekturen), statt die Rolle neu zu starten.
-- **Konsequenzen:** `max_iterations` zählt die Durchläufe eines Schritts, nicht einer
-  bestimmten Schleife; verschachtelte Schleifen teilen sich die Zählung. Wer reguläre
-  Ausdrücke oder Referenzen in Schemas braucht, muss bis zu einer Erweiterung darauf
-  verzichten. Die Zahl der Zeilen je Run wächst mit den Durchläufen (höchstens
-  `max_iterations` × Schritte).
+## ADR-020: Triggers by polling through gh, state in SQLite, sandbox and budget as default
 
-## ADR-020: Auslöser per Polling über gh, Zustand in SQLite, Sandbox und Budget als Standard
-
-- **Kontext:** M10 soll Runs aus GitHub-Issues mit Label und nach Zeitplan starten. Der Daemon
-  lauscht nur auf `127.0.0.1` und ist von GitHub aus nicht erreichbar. Issue-Texte sind fremde
-  Eingabe.
-- **Entscheidung:**
-  1. GitHub-Issues werden über `gh issue list` im Haupt-Repo abgefragt (Standard alle 5 Minuten),
-     nicht per Webhook. Anmeldung und Repo kommen von `gh` und dem Remote, ADE speichert kein
-     Token.
-  2. Die Auslöser stehen in `.ade/project.yaml`; ihr Zustand (pausiert, letzte Abfrage bzw.
-     letzter Termin, letzter Fehler) und die ausgelösten Runs (`trigger_runs`, Schlüssel
-     Issue-Nummer bzw. Termin) in SQLite. Ein Issue startet nie zwei Runs.
-  3. Zeitpläne nutzen einen eigenen Cron-Parser (`internal/cron`, 5 Felder und Kurzformen),
-     keine Bibliothek. Nach einer Pause wird höchstens der letzte Termin nachgeholt.
-  4. Ausgelöste Runs laufen standardmäßig in der Sandbox und nur mit `budget.max_cost_usd` in der
-     Fabrik; beides lässt sich je Auslöser ausdrücklich abschalten (`sandbox: false`,
+- **Context:** M10 should start runs from GitHub issues with a label and on a schedule. The daemon
+  only listens on `127.0.0.1` and is not reachable from GitHub. Issue texts are untrusted input.
+- **Decision:**
+  1. GitHub issues are polled with `gh issue list` in the main repository (default every
+     5 minutes), not by webhook. Login and repository come from `gh` and the remote, ADE stores no
+     token.
+  2. The triggers are configured in `.ade/project.yaml`; their state (paused, last poll or last
+     date, last error) and the triggered runs (`trigger_runs`, key issue number or date) are in
+     SQLite. An issue never starts two runs.
+  3. Schedules use an own cron parser (`internal/cron`, 5 fields and short forms), no library.
+     After a pause at most the last date is caught up.
+  4. Triggered runs use the sandbox by default and only run with `budget.max_cost_usd` in the
+     factory; both can be explicitly disabled per trigger (`sandbox: false`,
      `allow_unbudgeted: true`).
-- **Konsequenzen:** Ein Run startet bis zu einem Intervall nach dem Labeln. Ohne `gh auth login`
-  steht der Fehler am Auslöser im Dashboard. `authors` prüft den Verfasser des Issues, nicht wer
-  das Label gesetzt hat (das liefert `gh issue list` nicht); in öffentlichen Repos ist `authors`
-  deshalb dringend empfohlen.
+- **Consequences:** a run starts up to one interval after labeling. Without `gh auth login` the
+  error shows at the trigger in the dashboard. `authors` checks the author of the issue, not who
+  set the label (`gh issue list` does not provide that); in public repositories `authors` is
+  therefore strongly recommended.
 
-## ADR-021: Hintergrunddienst als systemd-User-Unit mit übernommenem PATH
+## ADR-021: Background service as a systemd user unit with the PATH taken over
 
-- **Kontext:** Unter WSL mit systemd soll der Daemon ohne `ade start` laufen. User-Dienste erben
-  die Umgebung der Shell nicht; git, docker, gh, claude und codex liegen oft in `~/.local/bin`,
-  `~/.npm-global/bin` o. ä. Ein Daemon außerhalb von systemd hält den Lock des Datenverzeichnisses.
-- **Entscheidung:**
-  1. `ade install-service` schreibt `~/.config/systemd/user/ade.service` mit absolutem Binary-Pfad,
-     fester Konfiguration und dem aktuellen `PATH` (`Environment=`). Weitere Variablen, insbesondere
-     Secrets, kommen nicht in die Unit; dafür gibt es die Konfiguration.
-  2. stdout/stderr gehen per `StandardOutput=append:` ins normale Daemon-Log, damit Fehlersuche
-     und Meldungen von `ade start` gleich bleiben (systemd ≥ 240).
-  3. `Restart=on-failure`; Lingering setzt ADE nicht selbst (braucht root), es weist nur darauf hin.
-  4. Läuft schon ein Daemon außerhalb von systemd, bricht `install-service` mit PID ab, statt den
-     Dienst in eine Neustart-Schleife zu schicken.
-  5. `ade start` startet den Dienst über `systemctl --user start`, wenn die Unit für dieselbe
-     Konfiguration installiert ist (Kommentarzeile `# ade-config:` in der Unit), sonst wie bisher
-     einen eigenen Hintergrundprozess.
-- **Konsequenzen:** Nach neuem Binary-Pfad oder geändertem `PATH` muss `install-service` erneut
-  laufen (es überschreibt die Unit und startet neu). Ein SSH-Agent der Shell steht dem Dienst
-  nicht zur Verfügung; Pushes brauchen Zugangsdaten, die ohne Agent funktionieren (z. B. `gh auth
-  setup-git`).
+- **Context:** under WSL with systemd the daemon should run without `ade start`. User services do
+  not inherit the shell's environment; git, docker, gh, claude and codex are often in
+  `~/.local/bin`, `~/.npm-global/bin` or similar. A daemon outside systemd holds the lock of the
+  data directory.
+- **Decision:**
+  1. `ade install-service` writes `~/.config/systemd/user/ade.service` with an absolute binary
+     path, a fixed configuration and the current `PATH` (`Environment=`). Further variables,
+     especially secrets, do not go into the unit; the configuration is there for that.
+  2. stdout/stderr go to the normal daemon log via `StandardOutput=append:`, so troubleshooting and
+     the messages of `ade start` stay the same (systemd ≥ 240).
+  3. `Restart=on-failure`; ADE does not enable lingering itself (needs root), it only points it
+     out.
+  4. If a daemon is already running outside systemd, `install-service` aborts with the PID instead
+     of sending the service into a restart loop.
+  5. `ade start` starts the service via `systemctl --user start` if the unit is installed for the
+     same configuration (comment line `# ade-config:` in the unit), otherwise its own background
+     process as before.
+- **Consequences:** after a new binary path or a changed `PATH`, `install-service` must run again
+  (it overwrites the unit and restarts). An SSH agent of the shell is not available to the
+  service; pushes need credentials that work without an agent (e.g. `gh auth setup-git`).
 
-## ADR-022: Binary und Images im selben Release-Lauf, gleiche Version, Attestierung
+## ADR-022: Binary and images in the same release run, same version, attestation
 
-- **Kontext:** Das Binary nutzt standardmäßig `ade-agent-base:<version>`. Der Image-Workflow lief
-  nur bei Änderungen unter `images/` (der `paths`-Filter gilt auch für Tags), ein Release ohne
-  Image-Änderung hätte also ein Image-Tag referenziert, das es nicht gibt. GoReleaser schrieb die
-  Version zudem ohne `v` ins Binary, `DefaultImage` erkannte sie nicht und fiel auf `:latest` zurück.
-- **Entscheidung:**
-  1. `release.yml` ruft `images.yml` als wiederverwendbaren Workflow (`workflow_call`) parallel zu
-     GoReleaser auf. Das Release wartet nicht auf die Images; ein Fehlschlag macht den Lauf rot und
-     lässt sich einzeln wiederholen.
-  2. Image-Tag `X.Y.Z` bzw. `X.Y.Z-rc.N` ohne `v`, Binary-Version mit `v` (wie `git describe`).
-     `DefaultImage` bildet `vX.Y.Z[-alpha|beta|rc.N]` auf dieses Tag ab; alles andere (Entwicklung,
-     Snapshots) nutzt `:latest`.
-  3. Binaries: SPDX-SBOM je Archiv (syft) und Build-Provenance über `checksums.txt`. Images:
-     BuildKit-SBOM und -Provenance plus GitHub-Attestierung in der Registry. Prüfen mit
+- **Context:** by default the binary uses `ade-agent-base:<version>`. The image workflow only ran
+  on changes under `images/` (the `paths` filter also applies to tags), so a release without image
+  changes would have referenced an image tag that does not exist. In addition GoReleaser wrote the
+  version into the binary without `v`; `DefaultImage` did not recognize it and fell back to
+  `:latest`.
+- **Decision:**
+  1. `release.yml` calls `images.yml` as a reusable workflow (`workflow_call`) in parallel to
+     GoReleaser. The release does not wait for the images; a failure turns the run red and can be
+     repeated on its own.
+  2. Image tag `X.Y.Z` or `X.Y.Z-rc.N` without `v`, binary version with `v` (like
+     `git describe`). `DefaultImage` maps `vX.Y.Z[-alpha|beta|rc.N]` to this tag; everything else
+     (development, snapshots) uses `:latest`.
+  3. Binaries: SPDX SBOM per archive (syft) and build provenance over `checksums.txt`. Images:
+     BuildKit SBOM and provenance plus a GitHub attestation in the registry. Verify with
      `gh attestation verify`.
-  4. Ein Snapshot-Build mit `install.sh` gegen das lokale `dist/` läuft in PRs, die die
-     Release-Konfiguration ändern.
-- **Konsequenzen:** Ein Release kann kurz ohne zugehöriges Image veröffentlicht sein, bis der
-  Image-Job fertig ist. Signaturen mit eigenem Schlüssel (cosign) gibt es nicht; die Attestierung
-  hängt an GitHubs Sigstore-Instanz und der Identität des Workflows.
+  4. A snapshot build with `install.sh` against the local `dist/` runs in PRs that change the
+     release configuration.
+- **Consequences:** a release can be published briefly without the matching image until the image
+  job is done. There are no signatures with an own key (cosign); the attestation depends on
+  GitHub's Sigstore instance and the identity of the workflow.
 
-## ADR-023: Rootless Docker und Podman hinter derselben Docker-CLI
+## ADR-023: Rootless Docker and Podman behind the same Docker CLI
 
-- **Kontext:** Die Sandbox ruft die Docker-CLI auf (ADR-014) und startet Prozesse mit der UID des
-  Nutzers. Unter rootless Docker landet diese UID auf dem Host im subuid-Bereich: Dateien, die der
-  Agent anlegt, gehören einer fremden UID, und das nur für den Nutzer lesbare Proxy-Binary ist im
-  Container nicht ausführbar. Podman versteht fast dieselbe CLI, aber nicht jede Docker-Option.
-  Ressourcen-Grenzen verwirft Docker ohne delegierte cgroup-Controller teils nur mit Warnung (#94).
-- **Entscheidung:**
-  1. Kein eigenes Backend je Laufzeit: ADE bleibt bei der Docker-CLI-Syntax; `sandbox.docker` darf
-     auch `podman` sein. Die Laufzeit erkennt ADE aus `info --format '{{json .}}'` (Podman-JSON hat
-     `host`, rootless Docker meldet `name=rootless` in `SecurityOptions`).
-  2. UID-Abbildung je Laufzeit für Agent-, Lese- und Proxy-Container und `docker exec`: rootful
-     unverändert `--user UID:GID`; rootless Docker `--user 0:0` (root im User-Namespace = Nutzer
-     auf dem Host, ohne Capabilities); rootless Podman `--user UID:GID --userns keep-id`.
-  3. Unter rootless Docker setzt ADE `IS_SANDBOX=1`, damit Claude Code `bypassPermissions` als root
-     zulässt – der Container ist die Sandbox.
-  4. Fehlt ein cgroup-Controller (`memory`, `cpu`, `pids`), bricht `Ensure` vor dem Anlegen eines
-     Containers mit klarer Meldung ab. Grenzen stillschweigend wegzulassen wäre eine schwächere
-     Sandbox, als die Konfiguration verspricht.
-  5. Docker-spezifische Optionen nur, wo sie gelten: `enable_icc=false` für `ade-egress` nur unter
-     Docker. Netze liest ADE per `network inspect` (JSON), weil sich die `ls`-Formate unterscheiden.
-  6. Ein CI-Job führt die Sandbox-Integrationstests zusätzlich unter rootless Docker und rootless
-     Podman aus (im systemd-User-Manager des Runners, wie auf einem Desktop).
-- **Konsequenzen:** Unter Podman können sich die Proxys in `ade-egress` gegenseitig erreichen; ein
-  Agent erreicht trotzdem nur seinen eigenen Proxy, der interne Ziele ablehnt. Unter rootless
-  Docker laufen Agent-CLIs als root im Container. Bestehende Container müssen nicht neu angelegt
-  werden: `docker exec --user` folgt der erkannten Laufzeit.
+- **Context:** the sandbox calls the Docker CLI (ADR-014) and starts processes with the user's
+  UID. Under rootless Docker this UID ends up in the subuid range on the host: files the agent
+  creates belong to a foreign UID, and the proxy binary that only the user can read is not
+  executable in the container. Podman understands almost the same CLI, but not every Docker
+  option. Without delegated cgroup controllers Docker sometimes drops resource limits with only a
+  warning (#94).
+- **Decision:**
+  1. No own backend per runtime: ADE stays with the Docker CLI syntax; `sandbox.docker` may also
+     be `podman`. ADE detects the runtime from `info --format '{{json .}}'` (Podman JSON has
+     `host`, rootless Docker reports `name=rootless` in `SecurityOptions`).
+  2. UID mapping per runtime for agent, reader and proxy containers and `docker exec`: rootful
+     unchanged `--user UID:GID`; rootless Docker `--user 0:0` (root in the user namespace = the
+     user on the host, without capabilities); rootless Podman `--user UID:GID --userns keep-id`.
+  3. Under rootless Docker ADE sets `IS_SANDBOX=1`, so Claude Code allows `bypassPermissions` as
+     root – the container is the sandbox.
+  4. If a cgroup controller is missing (`memory`, `cpu`, `pids`), `Ensure` aborts with a clear
+     message before creating a container. Silently dropping limits would be a weaker sandbox than
+     the configuration promises.
+  5. Docker-specific options only where they apply: `enable_icc=false` for `ade-egress` only under
+     Docker. ADE reads networks via `network inspect` (JSON), because the `ls` formats differ.
+  6. A CI job additionally runs the sandbox integration tests under rootless Docker and rootless
+     Podman (in the runner's systemd user manager, as on a desktop).
+- **Consequences:** under Podman the proxies in `ade-egress` can reach each other; an agent still
+  only reaches its own proxy, which rejects internal targets. Under rootless Docker agent CLIs run
+  as root in the container. Existing containers do not need to be recreated: `docker exec --user`
+  follows the detected runtime.
 
-## ADR-024: Automatische Releases aus dem CHANGELOG
+## ADR-024: Automatic releases from the CHANGELOG
 
-- **Kontext:** Bisher setzte der Maintainer nach dem CHANGELOG-PR den Tag von Hand (ADR-022). Der
-  Abschnitt im CHANGELOG ist ohnehin Pflicht (Release-Notizen) und nennt Version und Datum; der
-  Tag ist ein zweiter, fehleranfälliger Schritt.
-- **Entscheidung:**
-  1. Maßgeblich ist die oberste Versionsüberschrift `## [X.Y.Z] – JJJJ-MM-TT` in `CHANGELOG.md`
-     (auch `X.Y.Z-rc.N`). `scripts/changelog-version.sh` liest sie per Regex und prüft Format,
-     Datum und dass die Version neuer ist als die darunter (SemVer, `rc` vor der Vollversion).
-  2. `auto-release.yml` läuft bei jedem Push auf `main`, der `CHANGELOG.md` ändert. Fehlt der Tag
-     `vX.Y.Z`, setzt der Workflow ihn (annotiert) auf genau diesen Commit und ruft `release.yml`
-     als wiederverwendbaren Workflow auf. Gibt es den Tag schon, passiert nichts.
-  3. Der direkte Aufruf ist nötig, weil ein mit `GITHUB_TOKEN` gepushter Tag keine Workflows
-     startet; so braucht es weder PAT noch GitHub-App. `release.yml` und `images.yml` nehmen die
-     Version deshalb aus `inputs.tag` statt aus `github.ref`.
-  4. Der Weg über einen von Hand gepushten Tag bleibt bestehen. Ein manueller Start von
-     `auto-release.yml` holt ein Release nach, wenn der Tag existiert, das Release aber fehlt.
-  5. Die CI prüft die CHANGELOG-Überschriften schon im PR.
-- **Konsequenzen:** Wer eine Versionsüberschrift nach `main` mergt, veröffentlicht. Das ist der
-  Freigabeschritt: Der CHANGELOG-PR braucht dieselbe Sorgfalt wie früher der Tag. Eine falsche
-  Überschrift lässt sich nach dem Merge nicht mehr zurücknehmen, nur durch eine neue Version
-  ersetzen. Tag-Schutzregeln im Repo müssen `github-actions[bot]` Tags erlauben.
+- **Context:** so far the maintainer set the tag by hand after the CHANGELOG PR (ADR-022). The
+  section in the CHANGELOG is required anyway (release notes) and names version and date; the tag
+  is a second, error-prone step.
+- **Decision:**
+  1. The top version heading `## [X.Y.Z] – YYYY-MM-DD` in `CHANGELOG.md` counts (also
+     `X.Y.Z-rc.N`). `scripts/changelog-version.sh` reads it with a regex and checks the format, the
+     date and that the version is newer than the one below (SemVer, `rc` before the full release).
+  2. `auto-release.yml` runs on every push to `main` that changes `CHANGELOG.md`. If the tag
+     `vX.Y.Z` is missing, the workflow sets it (annotated) on exactly this commit and calls
+     `release.yml` as a reusable workflow. If the tag already exists, nothing happens.
+  3. The direct call is necessary because a tag pushed with `GITHUB_TOKEN` starts no workflows;
+     this way neither a PAT nor a GitHub app is needed. `release.yml` and `images.yml` therefore
+     take the version from `inputs.tag` instead of `github.ref`.
+  4. The path through a manually pushed tag remains. A manual start of `auto-release.yml` catches
+     up on a release if the tag exists but the release is missing.
+  5. CI checks the CHANGELOG headings already in the PR.
+- **Consequences:** whoever merges a version heading into `main` publishes. That is the approval
+  step: the CHANGELOG PR needs the same care as the tag used to. A wrong heading cannot be taken
+  back after the merge, only replaced by a new version. Tag protection rules in the repository must
+  allow `github-actions[bot]` to create tags.
+
+## ADR-025: English as the project language
+
+- **Context:** until M11 docs, comments, messages and the UI were German. For 1.0 ADE should be
+  usable and open to contributions for an international audience (#107).
+- **Decision:** docs, code comments, error and log messages, CLI output and the dashboard are in
+  English. The changelog section is called `[Unreleased]`; `scripts/changelog-version.sh` skips
+  it. The switch happens in several PRs (docs, backend, dashboard).
+- **Consequences:** historic issues, PRs and commit messages stay German. Tests that compare
+  messages change with them. Links to doc headings changed with the translation.

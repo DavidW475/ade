@@ -1,8 +1,8 @@
 name: Images
 
-# Baut die Container-Images (images/). Bei Änderungen auf main → :latest und :sha-…; bei
-# einem Release ruft release.yml diesen Workflow immer mit inputs.tag auf (auch ohne Änderung
-# unter images/) → :X.Y.Z bzw. :X.Y.Z-rc.N passend zum Binary (sandbox.DefaultImage).
+# Builds the container images (images/). On changes on main → :latest and :sha-…; for a
+# release, release.yml always calls this workflow with inputs.tag (even without changes under
+# images/) → :X.Y.Z or :X.Y.Z-rc.N matching the binary (sandbox.DefaultImage).
 on:
   push:
     branches: [main]
@@ -12,7 +12,7 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: Release-Tag (vX.Y.Z); leer bei Änderungen auf main
+        description: Release tag (vX.Y.Z); empty for changes on main
         type: string
         default: ""
 
@@ -42,9 +42,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/davidw475/ade-agent-base
-          # Vorabversionen (v1.0.0-rc.1) bekommen nur :1.0.0-rc.1, kein :1.0.
-          # Beim Release kommt die Version aus inputs.tag, nicht aus github.ref (der Aufruf durch
-          # auto-release.yml läuft auf main); :latest gibt es dann nicht.
+          # Pre-releases (v1.0.0-rc.1) only get :1.0.0-rc.1, no :1.0.
+          # For a release the version comes from inputs.tag, not from github.ref (the call by
+          # auto-release.yml runs on main); there is no :latest then.
           tags: |
             type=raw,value=latest,enable=${{ inputs.tag == '' && github.ref == 'refs/heads/main' }}
             type=semver,pattern={{version}},value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
@@ -89,16 +89,16 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/davidw475/ade-dev
-          # Beim Release kommt die Version aus inputs.tag, nicht aus github.ref (der Aufruf durch
-          # auto-release.yml läuft auf main); :latest gibt es dann nicht.
+          # For a release the version comes from inputs.tag, not from github.ref (the call by
+          # auto-release.yml runs on main); there is no :latest then.
           tags: |
             type=raw,value=latest,enable=${{ inputs.tag == '' && github.ref == 'refs/heads/main' }}
             type=semver,pattern={{version}},value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
             type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
             type=sha
-      - name: Basis-Image wählen
+      - name: Choose base image
         id: base
-        # Beim Release das eben gebaute Basis-Image derselben Version, sonst :latest.
+        # For a release the base image of the same version just built, otherwise :latest.
         run: |
           if [ -n "$TAG" ]; then
             echo "image=ghcr.io/davidw475/ade-agent-base:${TAG#v}" >> "$GITHUB_OUTPUT"

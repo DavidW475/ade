@@ -1,4 +1,4 @@
-# Sandbox-Konfiguration für dieses Repository (siehe examples/.ade/sandbox.yaml).
+# Sandbox configuration for this repository (see examples/.ade/sandbox.yaml).
 
-# Basis-Image plus Go und golangci-lint (images/ade-dev). Lokal bauen: make image-dev
+# Base image plus Go and golangci-lint (images/ade-dev). Build locally: make image-dev
 image: ghcr.io/davidw475/ade-dev:latest

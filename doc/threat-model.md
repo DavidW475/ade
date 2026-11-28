@@ -1,177 +1,177 @@
-# Threat-Model
+# Threat model
 
-Stand: M11 (vor 1.0). Ergänzt [architecture.md § 7](architecture.md#7-sicherheit) und
-[sandbox.md](sandbox.md). Jeder Angriffsweg hat eine Gegenmaßnahme oder ein benanntes Restrisiko.
-Das Review der sicherheitskritischen Teile (Issue #95) steht in [Abschnitt 6](#6-review-m11).
+Status: M11 (before 1.0). Complements [architecture.md § 7](architecture.md#7-security) and
+[sandbox.md](sandbox.md). Every attack path has a countermeasure or a named residual risk. The
+review of the security-critical parts (issue #95) is in [section 6](#6-review-m11).
 
-## 1. Was geschützt wird
+## 1. What is protected
 
-| Wert | Wo | Warum wertvoll |
+| Asset | Where | Why valuable |
 |---|---|---|
-| **Host** | WSL-Distribution des Nutzers, Windows dahinter | Codeausführung auf dem Host = Zugriff auf alles Folgende |
-| **Code** | Haupt-Repos der Projekte, Branches, Remotes | Manipulierte Commits landen beim Merge oder Push im echten Projekt |
-| **Zugangsdaten** | API-Keys (`providers.*.api_key`), `gh`-Login, SSH-Keys, Git-Credentials, Abo-Logins der Agent-CLIs | Missbrauch, Kosten, Zugriff auf weitere Repos und CI-Secrets |
-| **Daemon-Zugang** | `daemon.secret`, Browser-Session (`ade_session`), IDE-Sessions (`ade_ide`), Proxy-Token, Hook-Token | Wer den Daemon steuert, startet Agenten und mergt |
-| **Daten des Daemons** | `ade.db` (Aufgaben, Ausgaben, Egress-Log), Logs, Artefakte | Enthalten Repo-Inhalte und Prompts |
-| **Budget** | Kosten der Anbieter-APIs | Endlosschleifen oder Missbrauch verursachen echte Kosten |
+| **Host** | The user's WSL distribution, Windows behind it | Code execution on the host = access to everything below |
+| **Code** | Main repositories of the projects, branches, remotes | Manipulated commits end up in the real project on merge or push |
+| **Credentials** | API keys (`providers.*.api_key`), `gh` login, SSH keys, Git credentials, subscription logins of the agent CLIs | Abuse, costs, access to further repositories and CI secrets |
+| **Daemon access** | `daemon.secret`, browser session (`ade_session`), IDE sessions (`ade_ide`), proxy token, hook token | Whoever controls the daemon starts agents and merges |
+| **Daemon data** | `ade.db` (tasks, outputs, egress log), logs, artifacts | Contain repository contents and prompts |
+| **Budget** | Costs of the provider APIs | Endless loops or abuse cause real costs |
 
-## 2. Angreifer
+## 2. Attackers
 
-| Angreifer | Fähigkeit | Annahme |
+| Attacker | Capability | Assumption |
 |---|---|---|
-| **A1 – Bösartiges Repo oder Issue** | Kontrolliert Dateien im Repo, Issue-Texte, Abhängigkeiten, die das Setup lädt | Kann den Agenten über Prompt-Injection steuern |
-| **A2 – Prompt-injizierter oder fehlerhafter Agent** | Führt beliebigen Code dort aus, wo der Agent läuft: in der Sandbox (Container) oder, ohne Sandbox, auf dem Host | Ziel: aus der Sandbox ausbrechen, Secrets holen, Daten herausschleusen, Code ins Haupt-Repo schmuggeln |
-| **A3 – Fremde Webseite im Browser** | JavaScript im Windows-Browser des Nutzers, kann `localhost` ansprechen, DNS-Rebinding | Kennt kein Secret und kein Cookie |
-| **A4 – Anderer lokaler Benutzer** | Eigenes Konto in derselben WSL-Distribution, erreicht `127.0.0.1` | Kein root, nicht in der `docker`-Gruppe |
-| **A5 – Netzwerk außerhalb des Rechners** | Erreicht Ports des Rechners im LAN | – |
+| **A1 – Malicious repository or issue** | Controls files in the repository, issue texts, dependencies the setup downloads | Can steer the agent through prompt injection |
+| **A2 – Prompt-injected or faulty agent** | Runs arbitrary code where the agent runs: in the sandbox (container) or, without a sandbox, on the host | Goal: escape the sandbox, get secrets, exfiltrate data, smuggle code into the main repository |
+| **A3 – Foreign website in the browser** | JavaScript in the user's Windows browser, can address `localhost`, DNS rebinding | Knows no secret and no cookie |
+| **A4 – Other local user** | Own account in the same WSL distribution, reaches `127.0.0.1` | No root, not in the `docker` group |
+| **A5 – Network outside the machine** | Reaches ports of the machine in the LAN | – |
 
-**Nicht im Modell:** root auf dem Host oder Mitglieder der `docker`-Gruppe (rootful Docker ist
-root-gleich), ein kompromittierter Windows-Host, kompromittierte Anbieter-APIs, GitHub oder
-Image-Registries, Angriffe auf den Kernel oder die Container-Laufzeit selbst (Zero-Days).
+**Not in the model:** root on the host or members of the `docker` group (rootful Docker is
+equivalent to root), a compromised Windows host, compromised provider APIs, GitHub or image
+registries, attacks on the kernel or the container runtime itself (zero-days).
 
-## 3. Vertrauensgrenzen
+## 3. Trust boundaries
 
 ```
- Windows-Browser ──(1)── Daemon 127.0.0.1:7000 ──(4)── Haupt-Repo, gh, Secrets
+ Windows browser ──(1)── daemon 127.0.0.1:7000 ──(4)── main repo, gh, secrets
    │                        │      │
-   │ ws-<id>.localhost      │(2)   │(3) Docker-CLI
-   └──── Gateway ───────────┘      ▼
-                         ┌─ Agent-Container ──(5)── Proxy-Container ──(6)── Internet
-                         │   /workspace (bind)        Allowlist, Secret-Injection
-                         └─ Lese-Container (read-only)
+   │ ws-<id>.localhost      │(2)   │(3) Docker CLI
+   └──── gateway ───────────┘      ▼
+                         ┌─ agent container ──(5)── proxy container ──(6)── internet
+                         │   /workspace (bind)        allowlist, secret injection
+                         └─ reader container (read-only)
 ```
 
-1. **Browser → Daemon:** Host-/Origin-Prüfung, Session-Cookie, Tickets.
-2. **IDE-Subdomain → Gateway:** eigene Session je Workspace; der Inhalt der IDE gilt als nicht
-   vertrauenswürdig (er stammt aus dem Workspace).
-3. **Daemon → Container:** Der Daemon steuert, der Container liefert nur Daten (Events, Dateien,
-   git-Ausgaben). Was aus dem Workspace kommt, ist Eingabe von A2.
-4. **Workspace → Haupt-Repo:** Nur der Daemon überträgt, und nur auf Aktion des Nutzers oder eines
-   Fabrik-Schritts (Fetch nach `ade/<id>`, Merge, Push; ADR-005, ADR-013).
-5. **Agent → Proxy:** einziges Tor nach außen; Steuer-API nur mit Token.
-6. **Proxy → Internet:** Allowlist, keine internen Ziele.
+1. **Browser → daemon:** host/origin check, session cookie, tickets.
+2. **IDE subdomain → gateway:** own session per workspace; the IDE's content is considered
+   untrusted (it comes from the workspace).
+3. **Daemon → container:** the daemon controls, the container only delivers data (events, files,
+   git output). Whatever comes from the workspace is input from A2.
+4. **Workspace → main repository:** only the daemon transfers, and only on an action of the user
+   or a factory step (fetch to `ade/<id>`, merge, push; ADR-005, ADR-013).
+5. **Agent → proxy:** the only gate to the outside; control API only with a token.
+6. **Proxy → internet:** allowlist, no internal targets.
 
-## 4. Angriffswege
+## 4. Attack paths
 
 ### 4.1 Browser (A3)
 
-| Angriff | Gegenmaßnahme | Restrisiko |
+| Attack | Countermeasure | Residual risk |
 |---|---|---|
-| CSRF auf die API | `Sec-Fetch-Site: cross-site` und fremder `Origin` werden bei allen nicht sicheren Methoden und WebSocket-Upgrades abgelehnt; Cookie `SameSite=Strict`; GET-Routen ändern nichts | – |
-| DNS-Rebinding (fremde Domain → 127.0.0.1) | `Host` muss `localhost`, `127.0.0.1`, `::1` oder `*.localhost` mit dem Daemon-Port sein | – |
-| Cross-Site-WebSocket-Hijacking (`/ws/…`) | Origin-Prüfung auch bei GET mit `Upgrade: websocket` | – |
-| Lesen von API-Antworten | Kein CORS; `no-store` auf `/api/` und `/ws/` | – |
-| Clickjacking, XSS im Dashboard | `X-Frame-Options: DENY`, CSP `default-src 'self'` ohne `unsafe-eval`/Inline-Skripte, `nosniff`; React escapt Ausgaben, Diffs laufen durch Monaco | `style-src 'unsafe-inline'` (für Monaco) |
-| Offener Redirect nach der Anmeldung | `next` nur als lokaler Pfad (`safeNext`) | – |
-| Ticket aus Verlauf oder Referrer | Einmalig, 2 min gültig, Redirect entfernt es aus der Adresszeile, `Referrer-Policy: no-referrer` | – |
-| Login-CSRF | Tickets gibt es nur mit dem Daemon-Secret | – |
+| CSRF on the API | `Sec-Fetch-Site: cross-site` and a foreign `Origin` are rejected for all unsafe methods and WebSocket upgrades; cookie `SameSite=Strict`; GET routes change nothing | – |
+| DNS rebinding (foreign domain → 127.0.0.1) | `Host` must be `localhost`, `127.0.0.1`, `::1` or `*.localhost` with the daemon port | – |
+| Cross-site WebSocket hijacking (`/ws/…`) | Origin check also for GET with `Upgrade: websocket` | – |
+| Reading API responses | No CORS; `no-store` on `/api/` and `/ws/` | – |
+| Clickjacking, XSS in the dashboard | `X-Frame-Options: DENY`, CSP `default-src 'self'` without `unsafe-eval`/inline scripts, `nosniff`; React escapes output, diffs go through Monaco | `style-src 'unsafe-inline'` (for Monaco) |
+| Open redirect after login | `next` only as a local path (`safeNext`) | – |
+| Ticket from history or referrer | One-time, valid for 2 min, the redirect removes it from the address bar, `Referrer-Policy: no-referrer` | – |
+| Login CSRF | Tickets are only issued with the daemon secret | – |
 
-### 4.2 IDE und Gateway (A2 über die IDE, A3)
+### 4.2 IDE and gateway (A2 via the IDE, A3)
 
-| Angriff | Gegenmaßnahme | Restrisiko |
+| Attack | Countermeasure | Residual risk |
 |---|---|---|
-| IDE-Inhalt (Erweiterungen, Webviews, Server im Container) ruft die Dashboard-API auf | Eigene Origin `ws-<id>.localhost`; Dashboard-Cookie ist host-only für `localhost` und wird nicht mitgeschickt; Origin-Prüfung lehnt Subdomains für das Dashboard ab | – |
-| Eine IDE greift auf eine andere zu | Cookie `ade_ide` host-only je Subdomain und an genau einen Workspace gebunden; Origin muss die eigene Subdomain sein | – |
-| Connection-Token der IDE stehlen | Das Gateway setzt den Token selbst ein und entfernt `vscode-tkn` und `ade_ide` aus der Anfrage; der Browser sieht ihn nie | Code im Container kann den Token lesen (er gehört dort ohnehin dem Agenten) |
-| Cookie-Tossing (`Set-Cookie; Domain=localhost` aus der IDE) | Browser lehnen `Domain=localhost` als Public Suffix ab; ein untergeschobenes Cookie wäre nur eine ungültige Session | Abmeldung (Denial of Service) |
-| IDE-Session überlebt Abmeldung | IDE-Sessions hängen an der Dashboard-Session und enden mit ihr | – |
+| IDE content (extensions, webviews, servers in the container) calls the dashboard API | Own origin `ws-<id>.localhost`; the dashboard cookie is host-only for `localhost` and is not sent; the origin check rejects subdomains for the dashboard | – |
+| One IDE accesses another | Cookie `ade_ide` host-only per subdomain and bound to exactly one workspace; the origin must be the own subdomain | – |
+| Stealing the IDE's connection token | The gateway inserts the token itself and removes `vscode-tkn` and `ade_ide` from the request; the browser never sees it | Code in the container can read the token (it belongs to the agent there anyway) |
+| Cookie tossing (`Set-Cookie; Domain=localhost` from the IDE) | Browsers reject `Domain=localhost` as a public suffix; a planted cookie would only be an invalid session | Logout (denial of service) |
+| IDE session survives logout | IDE sessions depend on the dashboard session and end with it | – |
 
-### 4.3 Sandbox: Ausbruch und Host-Zugriff (A2)
+### 4.3 Sandbox: escape and host access (A2)
 
-| Angriff | Gegenmaßnahme | Restrisiko |
+| Attack | Countermeasure | Residual risk |
 |---|---|---|
-| Rechte im Container ausweiten | `--cap-drop ALL`, `no-new-privileges`, kein privilegierter Modus, kein Docker-Socket, Non-Root (rootful/Podman) bzw. root ohne Capabilities im User-Namespace (rootless Docker, ADR-023) | Kernel- oder Laufzeit-Lücken |
-| Host-Dateien lesen oder schreiben | Nur der Workspace ist gemountet (`/workspace`), das Haupt-Repo nie; `checkMountPath` lehnt ungeeignete Pfade ab | – |
-| Ressourcen erschöpfen (Fork-Bombe, Speicher) | `--memory`, `--cpus`, `--pids-limit` (Standard 4g/2/512; ohne delegierte cgroup-Controller startet die Sandbox nicht) | Plattenplatz im Workspace ist unbegrenzt |
-| git-Konfiguration des Workspaces (`core.fsmonitor`, Filter, Hooks) führt Code beim Daemon aus | git-Befehle in Sandbox-Workspaces laufen im Container (`git.Worktree` mit Runner, #41); immer `core.hooksPath=/dev/null`, `core.fsmonitor=false` | – |
-| Fetch aus dem Workspace ins Haupt-Repo | Läuft auf dem Host, startet `upload-pack` im Workspace; git beachtet `uploadpack.packObjectsHook` nur aus geschützter Konfiguration, nicht aus der des Repos; `--no-recurse-submodules`, `--no-tags` | Mit `objects/info/alternates` oder `.git`-Datei kann der Agent Objekte anderer Repos auf dem Host in `ade/<id>` holen; sie erscheinen im Diff vor dem Merge |
-| Symlinks im Workspace zeigen auf Host-Dateien | Diff und Dateiansicht lesen über git (Symlink = Linkziel als Text) | – |
-| Lese-Rollen schreiben doch | Lese-Container mountet den Workspace `readonly` | – |
-| Dateien mit fremdem Eigentümer im Workspace | UID-Abbildung je Laufzeit (ADR-023), getestet unter allen drei Laufzeiten | – |
-| Proxy-Binary manipulieren | Nur lesend gemountet, Proxy-Container `--read-only`, gehört nicht zum Workspace | – |
+| Escalating privileges in the container | `--cap-drop ALL`, `no-new-privileges`, no privileged mode, no Docker socket, non-root (rootful/Podman) or root without capabilities in the user namespace (rootless Docker, ADR-023) | Kernel or runtime vulnerabilities |
+| Reading or writing host files | Only the workspace is mounted (`/workspace`), never the main repository; `checkMountPath` rejects unsuitable paths | – |
+| Exhausting resources (fork bomb, memory) | `--memory`, `--cpus`, `--pids-limit` (default 4g/2/512; without delegated cgroup controllers the sandbox does not start) | Disk space in the workspace is unlimited |
+| The workspace's git configuration (`core.fsmonitor`, filters, hooks) runs code in the daemon | git commands in sandbox workspaces run in the container (`git.Worktree` with runner, #41); always `core.hooksPath=/dev/null`, `core.fsmonitor=false` | – |
+| Fetch from the workspace into the main repository | Runs on the host, starts `upload-pack` in the workspace; git only honors `uploadpack.packObjectsHook` from protected configuration, not from the repository's; `--no-recurse-submodules`, `--no-tags` | With `objects/info/alternates` or a `.git` file the agent can pull objects of other repositories on the host into `ade/<id>`; they show up in the diff before the merge |
+| Symlinks in the workspace point to host files | Diff and file view read through git (symlink = link target as text) | – |
+| Read-only roles write after all | The reader container mounts the workspace `readonly` | – |
+| Files with a foreign owner in the workspace | UID mapping per runtime (ADR-023), tested under all three runtimes | – |
+| Manipulating the proxy binary | Mounted read-only, proxy container `--read-only`, not part of the workspace | – |
 
-### 4.4 Netzwerk und Secrets (A2)
+### 4.4 Network and secrets (A2)
 
-| Angriff | Gegenmaßnahme | Restrisiko |
+| Attack | Countermeasure | Residual risk |
 |---|---|---|
-| Direkter Internetzugang | Agent hängt nur im internen Netz (`--internal`), kein DNS (`--dns` auf eine Sackgasse); einziger Weg ist der Proxy | – |
-| Interne Ziele (Host, andere Container, LAN, Cloud-Metadaten) über den Proxy | Sperrliste aller privaten, Loopback-, Link-Local-, Multicast- und Tunnel-Netze (IPv4, IPv6, IPv4-mapped, IPv4-kompatibel, 6to4, Teredo, NAT64); geprüft wird die tatsächlich verbundene IP im `Control` des Dialers, also nach der Namensauflösung (DNS-Rebinding) | Öffentliche IPs des Hosts selbst (selten unter WSL) |
-| Exfiltration über erlaubte Hosts | Allowlist so eng wie möglich; Egress-Log mit Bytes je Ziel im Dashboard; `on_blocked: ask` | Daten können über jedes erlaubte Ziel abfließen (z. B. ein Gist über `api.github.com`); ohne TLS-Interception sieht der Proxy nur Host und Port |
-| API-Keys auslesen | Keys liegen nur im Proxy; der Agent schickt einen Platzhalter an `/p/<anbieter>/`, der Proxy ersetzt `Authorization`/`X-Api-Key` und schickt den Key nur an den festen Upstream des Anbieters; Klartext-HTTP und CONNECT bekommen nie einen Key | Der Agent kann den Key über den Proxy *benutzen* (begrenzt durch Budgets) |
-| Steuer-API des Proxys (Policy, Secrets, Antworten auf Fragen) | Bearer-Token (konstanter Vergleich), nur der Daemon kennt ihn; ohne Token gesperrt; Port nur auf `127.0.0.1` veröffentlicht | – |
-| Proxys anderer Workspaces | Docker: `enable_icc=false` im Egress-Netz; Agenten erreichen nur ihr eigenes internes Netz | Podman: Proxys erreichen sich gegenseitig (Steuer-API trotzdem per Token geschützt, doc/sandbox.md § 6) |
-| Freigaben fälschen (Hook, Egress-Fragen) | Hook-Token je Session; Antworten nur über die authentifizierte Daemon-API | Viele Fragen nerven (Denial of Service) |
-| Abo-Logins der CLIs | Ohne Sandbox liegen sie auf dem Host; in der Sandbox nur, was ausdrücklich hineingereicht wird (#51) | – |
+| Direct internet access | The agent is only attached to the internal network (`--internal`), no DNS (`--dns` to a dead end); the only way is the proxy | – |
+| Internal targets (host, other containers, LAN, cloud metadata) through the proxy | Block list of all private, loopback, link-local, multicast and tunnel networks (IPv4, IPv6, IPv4-mapped, IPv4-compatible, 6to4, Teredo, NAT64); the IP actually connected to is checked in the dialer's `Control`, i.e. after name resolution (DNS rebinding) | Public IPs of the host itself (rare under WSL) |
+| Exfiltration through allowed hosts | Allowlist as narrow as possible; egress log with bytes per target in the dashboard; `on_blocked: ask` | Data can flow out through any allowed target (e.g. a gist via `api.github.com`); without TLS interception the proxy only sees host and port |
+| Reading API keys | Keys only live in the proxy; the agent sends a placeholder to `/p/<provider>/`, the proxy replaces `Authorization`/`X-Api-Key` and only sends the key to the provider's fixed upstream; plain HTTP and CONNECT never get a key | The agent can *use* the key through the proxy (limited by budgets) |
+| The proxy's control API (policy, secrets, answers to questions) | Bearer token (constant-time comparison), only the daemon knows it; locked without a token; port only published on `127.0.0.1` | – |
+| Proxies of other workspaces | Docker: `enable_icc=false` in the egress network; agents only reach their own internal network | Podman: proxies reach each other (the control API is still protected by its token, doc/sandbox.md § 6) |
+| Forging approvals (hook, egress questions) | Hook token per session; answers only through the authenticated daemon API | Many questions are annoying (denial of service) |
+| Subscription logins of the CLIs | Without a sandbox they are on the host; in the sandbox only what is explicitly passed in (#51) | – |
 
-### 4.5 Code ins Projekt schmuggeln (A1, A2)
+### 4.5 Smuggling code into the project (A1, A2)
 
-| Angriff | Gegenmaßnahme | Restrisiko |
+| Attack | Countermeasure | Residual risk |
 |---|---|---|
-| Manipulation des Haupt-Repos (Hooks, Branches, Konfiguration) | Workspace ist ein eigener Clone ohne Remote zum Haupt-Repo (ADR-005); nur der Daemon überträgt | – |
-| Schadcode im Ergebnis | Merge und PR nur nach Review im Dashboard (Diff zur Basis); Fabriken mit `gate: human` vor `pull_request` | Ein Review übersieht etwas |
-| `.ade/*.yaml` im Ergebnis weitet Sandbox, Freigaben oder Fabriken aus | Konfiguration wird aus dem Haupt-Repo gelesen, nie aus dem Workspace; wirkt erst nach dem Merge | Unaufmerksames Review von `.ade/` |
-| Workflows im PR-Branch (`.github/workflows/`) laufen mit den Secrets des Repos | PRs entstehen über einen Push in dasselbe Repo; `pull_request` braucht ein Gate davor, nach dem keine schreibende Rolle mehr läuft (#103). Ohne Gate (`unattended: true`) wartet der Run auf eine Freigabe, sobald der Diff `.github/workflows/`, `.github/actions/` oder `.ade/` ändert; Gate und Review heben diese Pfade hervor | Unbeaufsichtigte Runs pushen andere Änderungen ungeprüft, etwa Build-Skripte, die ein bestehender Workflow aufruft |
-| Prompt-Injection über Issue-Texte (Auslöser) | Nur Issues mit Label (setzen nur Nutzer mit Triage-Recht); Run in der Sandbox; Gate vor dem PR | Der Issue-Text selbst stammt von beliebigen Nutzern |
-| Bösartige Projektkonfiguration (`setup`, Fabriken) | Ein Projekt zu registrieren heißt, seiner `.ade/`-Konfiguration zu vertrauen; ohne Sandbox laufen Setup und Agent auf dem Host | Ohne Sandbox ist A2 = Codeausführung auf dem Host (bewusste Wahl, Hinweis im Dashboard) |
-| Checkout-Filter beim Merge | Merge im Haupt-Repo nutzt die Filter aus der Konfiguration des *Nutzers* (z. B. LFS); `.gitattributes` aus dem Ergebnis kann nur diese auswählen | – |
+| Manipulating the main repository (hooks, branches, configuration) | The workspace is a separate clone without a remote to the main repository (ADR-005); only the daemon transfers | – |
+| Malicious code in the result | Merge and PR only after review in the dashboard (diff against the base); factories with `gate: human` before `pull_request` | A review overlooks something |
+| `.ade/*.yaml` in the result widens sandbox, approvals or factories | The configuration is read from the main repository, never from the workspace; it only applies after the merge | Inattentive review of `.ade/` |
+| Workflows in the PR branch (`.github/workflows/`) run with the repository's secrets | PRs are created by a push into the same repository; `pull_request` needs a gate before it, after which no writing role runs (#103). Without a gate (`unattended: true`) the run waits for an approval as soon as the diff changes `.github/workflows/`, `.github/actions/` or `.ade/`; gate and review highlight these paths | Unattended runs push other changes unreviewed, such as build scripts that an existing workflow calls |
+| Prompt injection through issue texts (triggers) | Only issues with a label (only users with triage permission set them); run in the sandbox; gate before the PR | The issue text itself comes from arbitrary users |
+| Malicious project configuration (`setup`, factories) | Registering a project means trusting its `.ade/` configuration; without a sandbox, setup and agent run on the host | Without a sandbox A2 = code execution on the host (a deliberate choice, notice in the dashboard) |
+| Checkout filters during the merge | The merge in the main repository uses the filters from the *user's* configuration (e.g. LFS); `.gitattributes` from the result can only select among them | – |
 
-### 4.6 Lokaler Zugriff (A4, A5)
+### 4.6 Local access (A4, A5)
 
-| Angriff | Gegenmaßnahme | Restrisiko |
+| Attack | Countermeasure | Residual risk |
 |---|---|---|
-| Daemon aus dem LAN erreichen | Lauscht nur auf `127.0.0.1`; veröffentlichte Container-Ports nur auf `127.0.0.1` | WSL-Spiegelmodus (`networkingMode=mirrored`) ändert daran nichts, solange auf 127.0.0.1 gebunden wird |
-| Daemon-Secret, Datenbank, Logs lesen | Datenverzeichnis `0700` (wird beim Start erzwungen), `daemon.secret`, Datenbank (inkl. `-wal`/`-shm`), Logs, Tokens `0600`; Workspaces-Verzeichnis `0700` | – |
-| API ohne Secret ansprechen | Jede Route außer `/api/health` braucht Session oder Secret; Hook nur mit Hook-Token | – |
-| Session-Cookie über einen anderen Port abgreifen | Cookies gelten in Browsern für alle Ports eines Hosts; `HttpOnly` | Ein lokaler Dienst unter `localhost:<anderer Port>`, den der Nutzer im Browser öffnet, bekommt `ade_session` mitgeschickt. Wer solche Dienste betreibt, hat meist ohnehin Zugriff auf das Konto |
-| IDE- und Steuer-Ports auf 127.0.0.1 | Connection-Token (IDE) bzw. Bearer-Token (Proxy) | – |
+| Reaching the daemon from the LAN | Listens only on `127.0.0.1`; published container ports only on `127.0.0.1` | WSL mirrored mode (`networkingMode=mirrored`) does not change this as long as it binds to 127.0.0.1 |
+| Reading the daemon secret, database, logs | Data directory `0700` (enforced at start), `daemon.secret`, database (incl. `-wal`/`-shm`), logs, tokens `0600`; workspaces directory `0700` | – |
+| Calling the API without the secret | Every route except `/api/health` needs a session or the secret; the hook only with the hook token | – |
+| Grabbing the session cookie through another port | In browsers cookies apply to all ports of a host; `HttpOnly` | A local service at `localhost:<other port>` that the user opens in the browser receives `ade_session`. Whoever runs such services usually has access to the account anyway |
+| IDE and control ports on 127.0.0.1 | Connection token (IDE) or bearer token (proxy) | – |
 
-### 4.7 Lieferkette
+### 4.7 Supply chain
 
-| Angriff | Gegenmaßnahme | Restrisiko |
+| Attack | Countermeasure | Residual risk |
 |---|---|---|
-| Manipuliertes openvscode-server | Download mit fester SHA-256-Prüfsumme | – |
-| Manipuliertes Release oder Image | Prüfsummen, SBOM und Build-Provenance (Attestierung) für Binary und Images (#97); `install.sh` prüft die Prüfsumme | Prüfung der Attestierung bleibt dem Nutzer überlassen (`gh attestation verify`) |
-| Bekannte Lücken in Abhängigkeiten und Go | Toolchain in `go.mod` festgelegt (`toolchain`); `govulncheck` und `npm audit` bei jedem PR und wöchentlich; wenige Abhängigkeiten, kein cgo | Bis zum nächsten Release bleiben veröffentlichte Binaries verwundbar |
+| Manipulated openvscode-server | Download with a fixed SHA-256 checksum | – |
+| Manipulated release or image | Checksums, SBOM and build provenance (attestation) for binary and images (#97); `install.sh` verifies the checksum | Verifying the attestation is up to the user (`gh attestation verify`) |
+| Known vulnerabilities in dependencies and Go | Toolchain pinned in `go.mod` (`toolchain`); `govulncheck` and `npm audit` on every PR and weekly; few dependencies, no cgo | Published binaries stay vulnerable until the next release |
 
-## 5. Restrisiken im Überblick
+## 5. Residual risks at a glance
 
-1. **Ohne Sandbox** hat der Agent die Rechte des Nutzers. Die Sandbox ist die eigentliche Grenze.
-2. **Exfiltration über erlaubte Ziele** ist ohne TLS-Interception nicht zu verhindern (Backlog).
-3. **Menschliches Review** ist die letzte Linie gegen Schadcode im Ergebnis, auch in `.ade/` und
+1. **Without a sandbox** the agent has the user's permissions. The sandbox is the actual boundary.
+2. **Exfiltration through allowed targets** cannot be prevented without TLS interception (backlog).
+3. **Human review** is the last line against malicious code in the result, also in `.ade/` and
    `.github/workflows/`.
-4. **Kernel- und Laufzeit-Lücken** liegen außerhalb dessen, was ADE leisten kann; rootless Docker
-   oder Podman verkleinern den Schaden (ADR-023).
-5. **Cookies sind nicht an Ports gebunden.** Lokale Webdienste anderer Herkunft sehen das
-   Session-Cookie.
-6. **Podman** isoliert die Proxy-Container untereinander nicht.
+4. **Kernel and runtime vulnerabilities** are beyond what ADE can do; rootless Docker or Podman
+   reduce the damage (ADR-023).
+5. **Cookies are not bound to ports.** Local web services of another origin see the session
+   cookie.
+6. **Podman** does not isolate the proxy containers from each other.
 
 ## 6. Review M11
 
-Geprüft im Rahmen von #95. Befunde sind behoben (mit Test) oder als Issue angelegt.
+Checked as part of #95. Findings are fixed (with a test) or filed as an issue.
 
-**Gateway und Auth** (`internal/api`, `internal/gateway`)
-- [x] Host-Prüfung vor allen Routen, Origin-Prüfung für nicht sichere Methoden und WebSocket-Upgrades
-- [x] Alle Routen außer `/api/health` mit `requireAuth`/`requireSecret`; Hook mit eigenem Token
-- [x] Cookies `HttpOnly`, `SameSite=Strict` (Dashboard) bzw. `Lax` (IDE, Cross-Site-Navigation), host-only, Pfad `/`
-- [x] Tickets einmalig, 2 min, 256 Bit; IDE-Tickets an Workspace und Dashboard-Session gebunden
-- [x] Connection-Token der IDE nur im Gateway; Secrets konstant verglichen
-- [x] `ReadHeaderTimeout` gegen hängende Verbindungen
+**Gateway and auth** (`internal/api`, `internal/gateway`)
+- [x] Host check before all routes, origin check for unsafe methods and WebSocket upgrades
+- [x] All routes except `/api/health` with `requireAuth`/`requireSecret`; hook with its own token
+- [x] Cookies `HttpOnly`, `SameSite=Strict` (dashboard) or `Lax` (IDE, cross-site navigation), host-only, path `/`
+- [x] Tickets one-time, 2 min, 256 bits; IDE tickets bound to workspace and dashboard session
+- [x] The IDE's connection token only in the gateway; secrets compared in constant time
+- [x] `ReadHeaderTimeout` against hanging connections
 
 **Proxy** (`internal/proxy`)
-- [x] Sperrliste inkl. IPv6, IPv4-mapped, 6to4, Teredo, NAT64; Prüfung im `Control` des Dialers
-- [x] **Behoben:** IPv4-kompatible Adressen (`::/96`, z. B. `::127.0.0.1`) und Site-Local (`fec0::/10`) fehlten
-- [x] CONNECT-Ziele gegen Allowlist und Sperrliste; Secret-Injection nur an den festen Upstream, eingehende Zugangs-Header werden ersetzt
-- [x] Steuer-API nur mit Token, Port nur auf 127.0.0.1
+- [x] Block list incl. IPv6, IPv4-mapped, 6to4, Teredo, NAT64; check in the dialer's `Control`
+- [x] **Fixed:** IPv4-compatible addresses (`::/96`, e.g. `::127.0.0.1`) and site-local (`fec0::/10`) were missing
+- [x] CONNECT targets checked against allowlist and block list; secret injection only to the fixed upstream, incoming credential headers are replaced
+- [x] Control API only with a token, port only on 127.0.0.1
 
-**Container-Härtung** (`internal/sandbox`)
-- [x] Mounts: nur Workspace (Agent), Workspace read-only (Lese-Container), Binary read-only (Proxy)
-- [x] `cap-drop ALL`, `no-new-privileges`, `--init`, Limits, kein Docker-Socket, Proxy `--read-only`
-- [x] **Behoben:** `ade.db` (mit `-wal`/`-shm`) entstand mit den Rechten der umask (meist `0644`), jetzt `0600`; ein schon vorhandenes, für andere lesbares Datenverzeichnis wird beim Start auf `0700` gesetzt
+**Container hardening** (`internal/sandbox`)
+- [x] Mounts: only the workspace (agent), workspace read-only (reader container), binary read-only (proxy)
+- [x] `cap-drop ALL`, `no-new-privileges`, `--init`, limits, no Docker socket, proxy `--read-only`
+- [x] **Fixed:** `ade.db` (with `-wal`/`-shm`) was created with the umask's permissions (usually `0644`), now `0600`; an existing data directory readable by others is set to `0700` at start
 
-**Abhängigkeiten**
-- [x] **Behoben:** `monaco-editor` 0.57 brachte DOMPurify ≤ 3.4.16 mit (5 Advisories, niedrig); jetzt 0.58
-- [x] **Behoben:** CI und Release bauten mit Go 1.26.0 (`go-version-file` ohne `toolchain`), die Standardbibliothek hatte 34 erreichbare Lücken (u. a. `crypto/x509`, `net/http`); jetzt `toolchain go1.26.11` in `go.mod`
-- [x] `govulncheck` und `npm audit` als Workflow `audit.yml` bei PRs, auf `main` und wöchentlich
+**Dependencies**
+- [x] **Fixed:** `monaco-editor` 0.57 brought DOMPurify ≤ 3.4.16 (5 advisories, low); now 0.58
+- [x] **Fixed:** CI and release built with Go 1.26.0 (`go-version-file` without `toolchain`), the standard library had 34 reachable vulnerabilities (among others `crypto/x509`, `net/http`); now `toolchain go1.26.11` in `go.mod`
+- [x] `govulncheck` and `npm audit` as workflow `audit.yml` on PRs, on `main` and weekly
 
-**Als Issue angelegt**
-- [x] **Behoben (#103):** Fabrik ohne Gate vor `pull_request` pushte ungeprüften Agent-Code (inkl. Workflows)
+**Filed as an issue**
+- [x] **Fixed (#103):** a factory without a gate before `pull_request` pushed unreviewed agent code (incl. workflows)
