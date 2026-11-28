@@ -1,6 +1,6 @@
-// Package agent verwaltet den Lebenszyklus von Agent-Sessions: Prozess im Workspace starten
-// (mit PTY oder Pipes), Ausgabe über Adapter in Events übersetzen, Events speichern und live
-// verteilen, Folgeanweisungen, Stoppen und Fortsetzen nach einem Daemon-Neustart.
+// Package agent manages the life cycle of agent sessions: start the process in the workspace
+// (with PTY or pipes), translate the output into events through adapters, store and
+// distribute events live, follow-up instructions, stopping and resuming after a daemon restart.
 package agent
 
 import (
@@ -23,60 +23,60 @@ import (
 	"github.com/DavidW475/ade/internal/workspace"
 )
 
-// DefaultStopTimeout ist die Zeit zwischen SIGTERM und SIGKILL beim Stoppen.
+// DefaultStopTimeout is the time between SIGTERM and SIGKILL when stopping.
 const DefaultStopTimeout = 5 * time.Second
 
-// ResumePrompt ist die Anweisung, wenn eine Session ohne eigenen Text fortgesetzt wird.
-const ResumePrompt = "Mach dort weiter, wo du aufgehört hast."
+// ResumePrompt is the instruction when a session is resumed without its own text.
+const ResumePrompt = "Continue where you left off."
 
-// Options konfiguriert den Manager.
+// Options configures the manager.
 type Options struct {
 	Store      *store.Store
 	Projects   *project.Service
 	Workspaces *workspace.Manager
 	Adapters   *adapter.Registry
-	// DataDir nimmt die Terminal-Logs auf (<DataDir>/sessions/<id>.log).
+	// DataDir takes the terminal logs (<DataDir>/sessions/<id>.log).
 	DataDir string
 	Logger  *slog.Logger
-	// DefaultAdapter gilt, wenn weder die Anfrage noch project.yaml einen nennen.
+	// DefaultAdapter applies if neither the request nor project.yaml names one.
 	DefaultAdapter string
-	// AdapterEnv liefert zusätzliche Umgebungsvariablen für einen Adapter ohne Sandbox
-	// (z. B. API-Keys).
+	// AdapterEnv returns additional environment variables for an adapter without a sandbox
+	// (e.g. API keys).
 	AdapterEnv func(adapter string) []string
-	// SandboxEnv liefert sie für einen Adapter in der Sandbox: nie echte Keys, sondern
-	// Basis-URLs auf den Egress-Proxy, der die Keys einfügt (doc/sandbox.md#4-secrets).
+	// SandboxEnv returns them for an adapter in the sandbox: never real keys, but base URLs
+	// to the egress proxy that inserts the keys (doc/sandbox.md#4-secrets).
 	SandboxEnv func(adapter string) []string
-	// Hooks liefert den Freigabe-Hook für Adapter mit Capabilities.Approvals (optional).
+	// Hooks returns the approval hook for adapters with Capabilities.Approvals (optional).
 	Hooks Hooks
-	// Access liefert den Zugang eines Adapters zu seinem Anbieter (Basis-URL, falls die CLI
-	// sie als Argument braucht) und ob der Egress-Proxy die Nutzung misst (optional).
+	// Access returns an adapter's access to its provider (base URL, if the CLI needs it as an
+	// argument) and whether the egress proxy measures the usage (optional).
 	Access func(adapter string, sandbox bool) (access *adapter.ProviderAccess, metered bool)
-	// Catalog löst Modell-Aliase auf und berechnet Kosten (nil: keine Aliase, nur
-	// eingebaute Preise).
+	// Catalog resolves model aliases and computes costs (nil: no aliases, built-in prices
+	// only).
 	Catalog *provider.Catalog
-	// Budgets fragt nach Freigabe, wenn ein Budget überschritten ist (nil: Session bleibt
-	// pausiert, bis sie jemand fortsetzt).
+	// Budgets asks for an approval when a budget is exceeded (nil: the session stays paused
+	// until somebody resumes it).
 	Budgets Budgets
-	// FlushInterval und StopTimeout überschreiben die Standardwerte (Tests).
+	// FlushInterval and StopTimeout override the defaults (tests).
 	FlushInterval time.Duration
 	StopTimeout   time.Duration
 }
 
-// Hooks stellt den Freigabe-Hook einer Session bereit (doc/architecture.md#43-freigaben).
+// Hooks provides a session's approval hook (doc/architecture.md#43-approvals).
 type Hooks interface {
-	// Prepare liefert Hook und zusätzliche Umgebung für eine Session (nil: kein Hook).
+	// Prepare returns hook and additional environment for a session (nil: no hook).
 	Prepare(sessionID string, sandbox bool) (*adapter.Hook, []string)
-	// Release gibt die Zugänge einer beendeten Session frei.
+	// Release releases the credentials of an ended session.
 	Release(sessionID string)
 }
 
-// Budgets legt Budget-Freigaben an (doc/factory.md#3-ausführung).
+// Budgets creates budget approvals (doc/factory.md#3-execution).
 type Budgets interface {
-	// RequestBudget legt die Freigabe a an; decided läuft nach der Entscheidung.
+	// RequestBudget creates the approval a; decided runs after the decision.
 	RequestBudget(ctx context.Context, a *store.Approval, decided func(*store.Approval)) error
 }
 
-// Manager startet und überwacht Agent-Sessions.
+// Manager starts and supervises agent sessions.
 type Manager struct {
 	opts Options
 	log  *slog.Logger
@@ -86,14 +86,14 @@ type Manager struct {
 	wg     sync.WaitGroup
 
 	mu       sync.Mutex
-	runs     map[string]*run // Sessions mit (wartendem oder laufendem) Prozess
+	runs     map[string]*run // sessions with a (waiting or running) process
 	hubs     map[string]*hub
 	closing  bool
 	listener func(sessionID, status string)
 }
 
-// SetStatusListener setzt eine Funktion, die nach jedem Statuswechsel einer Session läuft
-// (z. B. der Fabrik-Runner). Sie läuft in einer eigenen Goroutine und darf blockieren.
+// SetStatusListener sets a function that runs after every status change of a session (e.g.
+// the factory runner). It runs in its own goroutine and may block.
 func (m *Manager) SetStatusListener(fn func(sessionID, status string)) {
 	m.mu.Lock()
 	m.listener = fn
@@ -109,7 +109,7 @@ func (m *Manager) notify(id, status string) {
 	}
 }
 
-// NewManager erzeugt einen Manager.
+// NewManager creates a manager.
 func NewManager(opts Options) *Manager {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
@@ -133,68 +133,68 @@ func NewManager(opts Options) *Manager {
 	}
 }
 
-// Adapters liefert die Registry.
+// Adapters returns the registry.
 func (m *Manager) Adapters() *adapter.Registry { return m.opts.Adapters }
 
-// Catalog liefert Modell-Aliase und Preise.
+// Catalog returns model aliases and prices.
 func (m *Manager) Catalog() *provider.Catalog { return m.opts.Catalog }
 
-// StartRequest ist der Body von POST /api/agents.
+// StartRequest is the body of POST /api/agents.
 type StartRequest struct {
 	ProjectID string `json:"project_id"`
-	// WorkspaceID ist optional; ohne sie legt ADE einen neuen Workspace an.
+	// WorkspaceID is optional; without it ADE creates a new workspace.
 	WorkspaceID string `json:"workspace_id,omitempty"`
-	// Adapter ist optional (Standard: project.yaml, dann globale Konfiguration).
+	// Adapter is optional (default: project.yaml, then the global configuration).
 	Adapter string `json:"adapter,omitempty"`
 	Task    string `json:"task,omitempty"`
-	// Command ist der Befehl für Terminal-Adapter (Standard: Login-Shell).
+	// Command is the command for terminal adapters (default: login shell).
 	Command        []string `json:"command,omitempty"`
 	Model          string   `json:"model,omitempty"`
 	PermissionMode string   `json:"permission_mode,omitempty"`
-	// Sandbox gilt für einen neuen Workspace (nil: defaults.sandbox). Bei einem bestehenden
-	// Workspace muss sie, falls gesetzt, zu ihm passen.
+	// Sandbox applies to a new workspace (nil: defaults.sandbox). For an existing workspace
+	// it must match it, if set.
 	Sandbox *bool `json:"sandbox,omitempty"`
-	// BudgetUSD ist das Budget der Session (nil: budget.session_usd aus project.yaml, 0: keins).
+	// BudgetUSD is the session's budget (nil: budget.session_usd from project.yaml, 0: none).
 	BudgetUSD *float64 `json:"budget_usd,omitempty"`
 }
 
-// Start legt eine Session an und startet den Prozess im Hintergrund, sobald das Setup des
-// Workspaces fertig ist.
+// Start creates a session and starts the process in the background as soon as the
+// workspace's setup is done.
 func (m *Manager) Start(ctx context.Context, req StartRequest) (*store.Session, error) {
 	return m.start(ctx, req, startExtra{})
 }
 
-// RoleStart sind die Startoptionen einer Rolle einer Fabrik (StartRole).
+// RoleStart are the start options of a factory role (StartRole).
 type RoleStart struct {
-	// Role ist der Name der Rolle (erscheint an der Session).
+	// Role is the name of the role (shown on the session).
 	Role string
-	// Prompt ist die vollständige Anweisung (Rollen-Prompt, Aufgabe, Artefakte).
+	// Prompt is the complete instruction (role prompt, task, artifacts).
 	Prompt string
-	// ReadOnly: Die Rolle darf den Workspace nicht ändern. In der Sandbox läuft sie im
-	// Lese-Container (/workspace nur lesend), sonst in einem Schnappschuss des Workspaces.
+	// ReadOnly: the role must not change the workspace. In the sandbox it runs in the reader
+	// container (/workspace read-only), otherwise in a snapshot of the workspace.
 	ReadOnly bool
 }
 
-// StartRole startet eine Session für eine Rolle einer Fabrik im bestehenden Workspace
+// StartRole starts a session for a factory role in the existing workspace
 // req.WorkspaceID.
 func (m *Manager) StartRole(ctx context.Context, req StartRequest, rs RoleStart) (*store.Session, error) {
 	if req.WorkspaceID == "" {
-		return nil, apperr.Invalid("workspace_id fehlt")
+		return nil, apperr.Invalid("workspace_id missing")
 	}
 	if len(rs.Prompt) > maxRolePrompt {
-		return nil, apperr.Invalid("Anweisung der Rolle %s ist zu lang (höchstens %d KiB)", rs.Role, maxRolePrompt>>10)
+		return nil, apperr.Invalid("instruction of role %s is too long (at most %d KiB)", rs.Role, maxRolePrompt>>10)
 	}
 	return m.start(ctx, req, startExtra(rs))
 }
 
-// maxRolePrompt begrenzt die Anweisung einer Rolle (Prompt, Aufgabe und Artefakte).
+// maxRolePrompt limits a role's instruction (prompt, task and artifacts).
 const maxRolePrompt = 512 << 10
 
-// startExtra sind interne Startoptionen (z. B. für Feedback-Sessions und Rollen).
+// startExtra are internal start options (e.g. for feedback sessions and roles).
 type startExtra struct {
 	Role string
-	// Prompt ersetzt die Aufgabe als Anweisung an den Agenten; Task bleibt die Kurzfassung
-	// für Liste und Verlauf.
+	// Prompt replaces the task as the instruction to the agent; Task stays the short version
+	// for list and history.
 	Prompt   string
 	ReadOnly bool
 }
@@ -218,18 +218,18 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 	}
 	caps := a.Capabilities()
 	if !caps.Terminal && req.Task == "" {
-		return nil, apperr.Invalid("Aufgabe fehlt")
+		return nil, apperr.Invalid("task missing")
 	}
 	if len(req.Command) > 0 && !caps.Terminal {
-		return nil, apperr.Invalid("ein Befehl ist nur beim pty-Adapter möglich")
+		return nil, apperr.Invalid("a command is only possible with the pty adapter")
 	}
 	for _, c := range req.Command {
 		if strings.ContainsRune(c, 0) {
-			return nil, apperr.Invalid("ungültiges Zeichen im Befehl")
+			return nil, apperr.Invalid("invalid character in the command")
 		}
 	}
 	if len(req.Task) > 100<<10 {
-		return nil, apperr.Invalid("Aufgabe ist zu lang (höchstens 100 KiB)")
+		return nil, apperr.Invalid("task is too long (at most 100 KiB)")
 	}
 	modelID, err := m.resolveModel(name, req.Model)
 	if err != nil {
@@ -238,7 +238,7 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 	budget := p.Config.SessionBudget()
 	if req.BudgetUSD != nil {
 		if b := *req.BudgetUSD; b < 0 || b > project.MaxBudgetUSD || b != b {
-			return nil, apperr.Invalid("budget_usd: zwischen 0 und %.0f", project.MaxBudgetUSD)
+			return nil, apperr.Invalid("budget_usd: between 0 and %.0f", project.MaxBudgetUSD)
 		}
 		budget = *req.BudgetUSD
 	}
@@ -249,13 +249,13 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 	if ws != nil {
 		if req.Sandbox != nil && *req.Sandbox != ws.Sandbox {
 			if ws.Sandbox {
-				return nil, apperr.Invalid("Workspace %s läuft in der Sandbox – für einen Agenten ohne Sandbox einen neuen Workspace anlegen", ws.ID)
+				return nil, apperr.Invalid("workspace %s runs in the sandbox – create a new workspace for an agent without a sandbox", ws.ID)
 			}
-			return nil, apperr.Invalid("Workspace %s läuft ohne Sandbox – für die Sandbox einen neuen Workspace anlegen", ws.ID)
+			return nil, apperr.Invalid("workspace %s runs without a sandbox – create a new workspace for the sandbox", ws.ID)
 		}
 		sandboxed = ws.Sandbox
 	}
-	// Vorab prüfen, ob sich der Aufruf bauen lässt (z. B. CLI installiert, Optionen gültig).
+	// Check up front whether the call can be built (e.g. CLI installed, options valid).
 	if _, err := a.Command(adapter.Spec{Workdir: "/", Task: req.Task, Command: req.Command, Model: modelID, PermissionMode: req.PermissionMode, Sandbox: sandboxed, ReadOnly: extra.ReadOnly}); err != nil {
 		return nil, apperr.Invalid("%v", err)
 	}
@@ -269,7 +269,7 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 	}
 	if !caps.Terminal {
 		if other := m.activeAgentIn(ws.ID, extra.ReadOnly); other != "" {
-			return nil, apperr.Conflict("im Workspace %s läuft bereits der Agent %s – erst stoppen oder einen neuen Workspace verwenden", ws.ID, other)
+			return nil, apperr.Conflict("agent %s is already running in workspace %s – stop it first or use a new workspace", other, ws.ID)
 		}
 	}
 
@@ -292,7 +292,7 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 	if err := m.opts.Store.CreateSession(ctx, sess); err != nil {
 		return nil, err
 	}
-	m.emit(sess.ID, adapter.TypeStatus, adapter.Status{Status: store.SessionStarting, Reason: "Session angelegt"})
+	m.emit(sess.ID, adapter.TypeStatus, adapter.Status{Status: store.SessionStarting, Reason: "session created"})
 	if req.Task != "" {
 		m.emit(sess.ID, adapter.TypeMessage, adapter.Message{Role: "user", Text: req.Task})
 	}
@@ -301,17 +301,17 @@ func (m *Manager) start(ctx context.Context, req StartRequest, extra startExtra)
 		prompt = extra.Prompt
 	}
 	spec := adapter.Spec{SessionID: sess.ID, Workdir: ws.Path, Task: prompt, Command: req.Command, Model: modelID, PermissionMode: req.PermissionMode, Sandbox: ws.Sandbox, ReadOnly: sess.ReadOnly}
-	// Stand beim Anlegen zurückgeben: Der Prozess kann den Status sofort ändern.
+	// Return the state at creation: the process can change the status right away.
 	created := *sess
 	if err := m.launch(sess, a, ws, spec); err != nil {
 		return nil, err
 	}
-	m.log.Info("Session gestartet", "id", sess.ID, "workspace", ws.ID, "adapter", name)
+	m.log.Info("session started", "id", sess.ID, "workspace", ws.ID, "adapter", name)
 	return &created, nil
 }
 
-// resolveModel löst einen Modell-Alias für den Adapter name auf. Namen, die kein Alias sind,
-// gehen unverändert an die CLI.
+// resolveModel resolves a model alias for the adapter name. Names that are not an alias go
+// to the CLI unchanged.
 func (m *Manager) resolveModel(name, model string) (string, error) {
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -322,7 +322,7 @@ func (m *Manager) resolveModel(name, model string) (string, error) {
 		return model, nil
 	}
 	if want := provider.ForAdapter(name); want != "" && prov != want {
-		return "", apperr.Invalid("Modell %s gehört zu %s, der Adapter %s spricht %s", model, prov, name, want)
+		return "", apperr.Invalid("model %s belongs to %s, the adapter %s talks to %s", model, prov, name, want)
 	}
 	return id, nil
 }
@@ -335,16 +335,16 @@ func (m *Manager) resolveWorkspace(ctx context.Context, projectID, workspaceID s
 			return nil, nil, err
 		}
 		if projectID != "" && projectID != w.ProjectID {
-			return nil, nil, apperr.Invalid("Workspace %s gehört nicht zu Projekt %s", workspaceID, projectID)
+			return nil, nil, apperr.Invalid("workspace %s does not belong to project %s", workspaceID, projectID)
 		}
 		switch w.Status {
 		case store.WorkspaceCreating, store.WorkspaceError:
-			return nil, nil, apperr.Conflict("Workspace %s ist nicht bereit (Status %s)", w.ID, w.Status)
+			return nil, nil, apperr.Conflict("workspace %s is not ready (status %s)", w.ID, w.Status)
 		}
 		ws, projectID = w, w.ProjectID
 	}
 	if projectID == "" {
-		return nil, nil, apperr.Invalid("project_id oder workspace_id fehlt")
+		return nil, nil, apperr.Invalid("project_id or workspace_id missing")
 	}
 	p, err := m.opts.Projects.Get(ctx, projectID)
 	if err != nil {
@@ -353,10 +353,10 @@ func (m *Manager) resolveWorkspace(ctx context.Context, projectID, workspaceID s
 	return ws, p, nil
 }
 
-// activeAgentIn liefert die ID einer laufenden Nicht-Terminal-Session im Workspace, die einem
-// neuen Agenten im Weg ist. Lese-Rollen arbeiten in einem eigenen Container bzw. Schnappschuss:
-// Sie dürfen neben jedem Agenten laufen und stehen keinem im Weg (parallele Schritte einer
-// Fabrik). Zwei Agenten mit Schreibzugriff im selben Workspace gibt es nicht.
+// activeAgentIn returns the ID of a running non-terminal session in the workspace that is in
+// the way of a new agent. Read-only roles work in their own container or snapshot: they may
+// run next to any agent and are in nobody's way (parallel steps of a factory). There are
+// never two agents with write access in the same workspace.
 func (m *Manager) activeAgentIn(workspaceID string, readOnly bool) string {
 	if readOnly {
 		return ""
@@ -371,7 +371,7 @@ func (m *Manager) activeAgentIn(workspaceID string, readOnly bool) string {
 	return ""
 }
 
-// Get liefert eine Session.
+// Get returns a session.
 func (m *Manager) Get(ctx context.Context, id string) (*View, error) {
 	s, err := m.opts.Store.GetSession(ctx, id)
 	if err != nil {
@@ -380,7 +380,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*View, error) {
 	return m.view(s), nil
 }
 
-// List liefert Sessions.
+// List returns sessions.
 func (m *Manager) List(ctx context.Context, f store.SessionFilter) ([]*View, error) {
 	ss, err := m.opts.Store.ListSessions(ctx, f)
 	if err != nil {
@@ -393,13 +393,13 @@ func (m *Manager) List(ctx context.Context, f store.SessionFilter) ([]*View, err
 	return out, nil
 }
 
-// View ist eine Session mit dem, was die UI zusätzlich braucht.
+// View is a session with what the UI needs in addition.
 type View struct {
 	*store.Session
 	Capabilities adapter.Capabilities `json:"capabilities"`
-	// Live: Zur Session gehört gerade ein Prozess dieses Daemons.
+	// Live: a process of this daemon currently belongs to the session.
 	Live bool `json:"live"`
-	// Resumable: Die Session lässt sich mit einer Anweisung fortsetzen.
+	// Resumable: the session can be resumed with an instruction.
 	Resumable bool `json:"resumable"`
 }
 
@@ -415,8 +415,8 @@ func (m *Manager) view(s *store.Session) *View {
 	return v
 }
 
-// Input schickt eine Folgeanweisung an eine laufende Session oder setzt eine beendete
-// Session fort, wenn der Adapter das kann.
+// Input sends a follow-up instruction to a running session or resumes an ended session if
+// the adapter can do that.
 func (m *Manager) Input(ctx context.Context, id, text string) (*View, error) {
 	text = strings.TrimSpace(text)
 	sess, err := m.opts.Store.GetSession(ctx, id)
@@ -434,13 +434,13 @@ func (m *Manager) Input(ctx context.Context, id, text string) (*View, error) {
 	m.mu.Unlock()
 	if r != nil {
 		if !caps.Input {
-			return nil, apperr.Invalid("Adapter %s nimmt keine Folgeanweisungen an", sess.Adapter)
+			return nil, apperr.Invalid("adapter %s does not accept follow-up instructions", sess.Adapter)
 		}
 		if text == "" {
-			return nil, apperr.Invalid("leere Anweisung")
+			return nil, apperr.Invalid("empty instruction")
 		}
-		// Status und Nachricht vor dem Senden: Ein schneller Agent kann seine Runde sonst
-		// beenden (idle), bevor „running“ gesetzt ist, und bliebe dann scheinbar beschäftigt.
+		// Status and message before sending: otherwise a fast agent can finish its turn (idle)
+		// before “running” is set, and would then seem busy.
 		r.mu.Lock()
 		prev := r.status
 		r.mu.Unlock()
@@ -454,17 +454,17 @@ func (m *Manager) Input(ctx context.Context, id, text string) (*View, error) {
 	}
 
 	if !caps.Resume || sess.ResumeID == "" {
-		return nil, apperr.Conflict("Session %s läuft nicht und lässt sich nicht fortsetzen", id)
+		return nil, apperr.Conflict("session %s is not running and cannot be resumed", id)
 	}
 	if store.SessionActive(sess.Status) {
-		return nil, apperr.Conflict("Session %s hat den Status %s, aber keinen Prozess", id, sess.Status)
+		return nil, apperr.Conflict("session %s has status %s but no process", id, sess.Status)
 	}
 	ws, err := m.opts.Workspaces.Get(ctx, sess.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
 	if other := m.activeAgentIn(ws.ID, sess.ReadOnly); other != "" && !caps.Terminal {
-		return nil, apperr.Conflict("im Workspace %s läuft bereits der Agent %s", ws.ID, other)
+		return nil, apperr.Conflict("agent %s is already running in workspace %s", other, ws.ID)
 	}
 	if text == "" {
 		text = ResumePrompt
@@ -474,7 +474,7 @@ func (m *Manager) Input(ctx context.Context, id, text string) (*View, error) {
 	}); err != nil {
 		return nil, err
 	}
-	m.emit(id, adapter.TypeStatus, adapter.Status{Status: store.SessionStarting, Reason: "wird fortgesetzt"})
+	m.emit(id, adapter.TypeStatus, adapter.Status{Status: store.SessionStarting, Reason: "resuming"})
 	m.emit(id, adapter.TypeMessage, adapter.Message{Role: "user", Text: text})
 	model := sess.Model
 	if sess.ModelID != "" {
@@ -484,11 +484,11 @@ func (m *Manager) Input(ctx context.Context, id, text string) (*View, error) {
 	if err := m.launch(sess, a, ws, spec); err != nil {
 		return nil, err
 	}
-	m.log.Info("Session fortgesetzt", "id", id, "resume_id", sess.ResumeID)
+	m.log.Info("session resumed", "id", id, "resume_id", sess.ResumeID)
 	return m.Get(ctx, id)
 }
 
-// Stop beendet den Prozess einer Session und wartet kurz auf sein Ende.
+// Stop ends a session's process and briefly waits for it to end.
 func (m *Manager) Stop(ctx context.Context, id string) (*View, error) {
 	sess, err := m.opts.Store.GetSession(ctx, id)
 	if err != nil {
@@ -499,7 +499,7 @@ func (m *Manager) Stop(ctx context.Context, id string) (*View, error) {
 	m.mu.Unlock()
 	if r == nil {
 		if store.SessionActive(sess.Status) {
-			// Kein Prozess, aber aktiver Status (sollte nicht vorkommen): Status bereinigen.
+			// No process but an active status (should not happen): clean up the status.
 			m.finish(id, store.SessionStopped, "", nil)
 		}
 		return m.Get(ctx, id)
@@ -513,8 +513,8 @@ func (m *Manager) Stop(ctx context.Context, id string) (*View, error) {
 	return m.Get(ctx, id)
 }
 
-// BeforeWorkspaceDelete stoppt alle Sessions eines Workspaces und löscht ihre Terminal-Logs.
-// Die Datensätze entfernt die Datenbank zusammen mit dem Workspace.
+// BeforeWorkspaceDelete stops all sessions of a workspace and deletes their terminal logs.
+// The database removes the records together with the workspace.
 func (m *Manager) BeforeWorkspaceDelete(ctx context.Context, workspaceID string) error {
 	m.mu.Lock()
 	var runs []*run
@@ -548,9 +548,9 @@ func (m *Manager) BeforeWorkspaceDelete(ctx context.Context, workspaceID string)
 	return nil
 }
 
-// Dismiss beendet den Prozess einer Session mit dem Status „fertig“ (z. B. einen wartenden
-// Agenten, dessen Runde der Fabrik-Runner übernommen hat) und wartet auf sein Ende samt
-// Sicherung des Workspaces. Ohne Prozess passiert nichts.
+// Dismiss ends a session's process with the status “done” (e.g. a waiting agent whose turn
+// the factory runner has taken over) and waits for it to end including the workspace backup.
+// Without a process nothing happens.
 func (m *Manager) Dismiss(ctx context.Context, id string) error {
 	m.mu.Lock()
 	r := m.runs[id]
@@ -567,7 +567,7 @@ func (m *Manager) Dismiss(ctx context.Context, id string) error {
 	}
 }
 
-// LastMessage liefert die letzte Antwort des Agenten einer Session (leer: keine).
+// LastMessage returns the agent's last answer of a session (empty: none).
 func (m *Manager) LastMessage(ctx context.Context, id string) (string, error) {
 	m.flushHub(id)
 	evs, err := m.opts.Store.LastEvents(ctx, id, adapter.TypeMessage, 200)
@@ -583,8 +583,8 @@ func (m *Manager) LastMessage(ctx context.Context, id string) (string, error) {
 	return "", nil
 }
 
-// Recover räumt nach einem Neustart oder Absturz des Daemons auf: Verwaiste Prozesse
-// früherer Sessions werden beendet, aktive Sessions als unterbrochen markiert.
+// Recover cleans up after a restart or crash of the daemon: orphaned processes of earlier
+// sessions are ended, active sessions marked as interrupted.
 func (m *Manager) Recover(ctx context.Context) error {
 	ss, err := m.opts.Store.ListSessions(ctx, store.SessionFilter{Active: true, Limit: 100000})
 	if err != nil {
@@ -595,19 +595,19 @@ func (m *Manager) Recover(ctx context.Context) error {
 		ids[s.ID] = true
 	}
 	if killed := killOrphans(ids); len(killed) > 0 {
-		m.log.Warn("verwaiste Agent-Prozesse beendet", "anzahl", len(killed))
+		m.log.Warn("orphaned agent processes ended", "count", len(killed))
 	}
 	for _, s := range ss {
 		if err := m.opts.Store.UpdateSession(ctx, s.ID, store.SessionUpdate{
-			Status: store.Ptr(store.SessionInterrupted), Error: store.Ptr("durch Neustart des Daemons unterbrochen"),
+			Status: store.Ptr(store.SessionInterrupted), Error: store.Ptr("interrupted by a daemon restart"),
 			PID: store.Ptr(0), Ended: true,
 		}); err != nil {
 			return err
 		}
-		m.emit(s.ID, adapter.TypeStatus, adapter.Status{Status: store.SessionInterrupted, Reason: "Daemon wurde neu gestartet"})
+		m.emit(s.ID, adapter.TypeStatus, adapter.Status{Status: store.SessionInterrupted, Reason: "daemon was restarted"})
 	}
 	if len(ss) > 0 {
-		m.log.Warn("unterbrochene Sessions markiert", "anzahl", len(ss))
+		m.log.Warn("interrupted sessions marked", "count", len(ss))
 	}
 	for _, s := range ss {
 		m.releaseHub(s.ID)
@@ -615,7 +615,7 @@ func (m *Manager) Recover(ctx context.Context) error {
 	return nil
 }
 
-// Close beendet alle Prozesse (Status „unterbrochen“, fortsetzbar) und schreibt alle Events.
+// Close ends all processes (status “interrupted”, resumable) and writes all events.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	m.closing = true
@@ -632,8 +632,8 @@ func (m *Manager) Close() {
 	m.flushAll()
 }
 
-// Subscribe abonniert die Events einer Session. Der Aufrufer liest zuerst die Historie bis
-// zur gelieferten seq aus der Datenbank (Events) und danach den Kanal.
+// Subscribe subscribes to the events of a session. The caller first reads the history up to
+// the returned seq from the database (Events) and then the channel.
 func (m *Manager) Subscribe(ctx context.Context, id string) (*Subscription, int64, error) {
 	if _, err := m.opts.Store.GetSession(ctx, id); err != nil {
 		return nil, 0, err
@@ -647,7 +647,7 @@ func (m *Manager) Subscribe(ctx context.Context, id string) (*Subscription, int6
 	return sub, seq, nil
 }
 
-// Events liefert gespeicherte Events mit seq in (since, until]; until <= 0 heißt ohne Grenze.
+// Events returns stored events with seq in (since, until]; until <= 0 means no limit.
 func (m *Manager) Events(ctx context.Context, id string, since, until int64, limit int) ([]store.Event, error) {
 	m.flushHub(id)
 	evs, err := m.opts.Store.ListEvents(ctx, id, since, limit)
@@ -662,7 +662,7 @@ func (m *Manager) Events(ctx context.Context, id string, since, until int64, lim
 	return evs, nil
 }
 
-// emit erzeugt ein Event; Fehler beim Serialisieren werden geloggt.
+// emit creates an event; serialization errors are logged.
 func (m *Manager) emit(id, typ string, payload any) {
 	var data []byte
 	switch p := payload.(type) {
@@ -673,14 +673,14 @@ func (m *Manager) emit(id, typ string, payload any) {
 	default:
 		b, err := json.Marshal(payload)
 		if err != nil {
-			m.log.Error("Event serialisieren", "session", id, "typ", typ, "err", err)
+			m.log.Error("serialize event", "session", id, "type", typ, "err", err)
 			return
 		}
 		data = b
 	}
 	h, err := m.hub(id)
 	if err != nil {
-		m.log.Error("Event-Hub", "session", id, "err", err)
+		m.log.Error("event hub", "session", id, "err", err)
 		return
 	}
 	h.publish(typ, data)
@@ -694,17 +694,17 @@ func (m *Manager) hub(id string) (*hub, error) {
 	}
 	seq, err := m.opts.Store.MaxEventSeq(context.Background(), id)
 	if err != nil {
-		return nil, fmt.Errorf("Events lesen: %w", err)
+		return nil, fmt.Errorf("read events: %w", err)
 	}
 	h := newHub(m.opts.Store, id, seq, m.opts.FlushInterval, func(err error) {
-		m.log.Error("Events speichern", "session", id, "err", err)
+		m.log.Error("store events", "session", id, "err", err)
 	})
 	m.hubs[id] = h
 	return h, nil
 }
 
-// releaseHub entfernt den hub einer Session ohne Prozess und Abonnenten. Ausstehende Events
-// werden vorher geschrieben, damit ein neuer hub mit der richtigen seq beginnt.
+// releaseHub removes the hub of a session without a process and subscribers. Pending events
+// are written first, so a new hub starts with the right seq.
 func (m *Manager) releaseHub(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -739,11 +739,11 @@ func (m *Manager) flushAll() {
 	}
 }
 
-// finish setzt den Endstatus einer Session und meldet ihn als Event.
+// finish sets a session's final status and reports it as an event.
 func (m *Manager) finish(id, status, errMsg string, exit *int) {
 	u := store.SessionUpdate{Status: &status, Error: &errMsg, ExitCode: exit, PID: store.Ptr(0), Ended: true}
 	if err := m.opts.Store.UpdateSession(context.Background(), id, u); err != nil && !errors.Is(err, apperr.ErrNotFound) {
-		m.log.Error("Session-Status speichern", "session", id, "err", err)
+		m.log.Error("store session status", "session", id, "err", err)
 	}
 	m.emit(id, adapter.TypeStatus, adapter.Status{Status: status, Reason: errMsg, ExitCode: exit})
 	m.notify(id, status)
@@ -753,45 +753,45 @@ func (m *Manager) terminalLog(id string) string {
 	return filepath.Join(m.opts.DataDir, "sessions", id+".log")
 }
 
-// TerminalLog liefert die letzte Terminal-Ausgabe einer Session ohne laufenden Prozess.
+// TerminalLog returns the last terminal output of a session without a running process.
 func (m *Manager) TerminalLog(id string) []byte {
 	return readTail(m.terminalLog(id), TerminalReplay)
 }
 
-// Terminal ist die Verbindung eines Clients zum PTY einer Session.
+// Terminal is a client's connection to a session's PTY.
 type Terminal struct {
-	// Replay ist die bisherige Ausgabe (höchstens TerminalReplay Bytes).
+	// Replay is the output so far (at most TerminalReplay bytes).
 	Replay []byte
-	// Output liefert weitere Ausgabe; er wird geschlossen, wenn der Prozess endet oder der
-	// Client zu langsam ist. Ohne laufenden Prozess ist er sofort geschlossen.
+	// Output returns further output; it is closed when the process ends or the client is too
+	// slow. Without a running process it is closed right away.
 	Output <-chan []byte
-	// Live meldet, ob ein Prozess läuft (nur dann wirken Write und Resize).
+	// Live reports whether a process is running (only then Write and Resize take effect).
 	Live bool
 
 	r      *run
 	client *termClient
 }
 
-// Write schickt Eingaben an das Terminal.
+// Write sends input to the terminal.
 func (t *Terminal) Write(p []byte) error {
 	if t.r == nil {
-		return errors.New("Terminal ist beendet")
+		return errors.New("terminal has ended")
 	}
 	return t.r.write(p)
 }
 
-// Resize ändert die Terminalgröße.
+// Resize changes the terminal size.
 func (t *Terminal) Resize(cols, rows uint16) error {
 	if t.r == nil {
-		return errors.New("Terminal ist beendet")
+		return errors.New("terminal has ended")
 	}
 	if cols == 0 || rows == 0 || cols > 1000 || rows > 1000 {
-		return errors.New("ungültige Terminalgröße")
+		return errors.New("invalid terminal size")
 	}
 	return t.r.resize(cols, rows)
 }
 
-// Ended meldet, ob der Prozess beendet ist (nach geschlossenem Output: Ende statt Überlast).
+// Ended reports whether the process has ended (after a closed Output: end instead of overload).
 func (t *Terminal) Ended() bool {
 	if t.r == nil {
 		return true
@@ -801,14 +801,14 @@ func (t *Terminal) Ended() bool {
 	return t.r.term.closed
 }
 
-// Close trennt den Client.
+// Close disconnects the client.
 func (t *Terminal) Close() {
 	if t.r != nil && t.client != nil {
 		t.r.term.detach(t.client)
 	}
 }
 
-// AttachTerminal verbindet einen Client mit dem Terminal einer Session.
+// AttachTerminal connects a client to a session's terminal.
 func (m *Manager) AttachTerminal(ctx context.Context, id string) (*Terminal, error) {
 	sess, err := m.opts.Store.GetSession(ctx, id)
 	if err != nil {
@@ -816,7 +816,7 @@ func (m *Manager) AttachTerminal(ctx context.Context, id string) (*Terminal, err
 	}
 	a, err := m.opts.Adapters.Get(sess.Adapter)
 	if err != nil || !a.Capabilities().Terminal {
-		return nil, apperr.Invalid("Session %s hat kein Terminal (Adapter %s)", id, sess.Adapter)
+		return nil, apperr.Invalid("session %s has no terminal (adapter %s)", id, sess.Adapter)
 	}
 	m.mu.Lock()
 	r := m.runs[id]

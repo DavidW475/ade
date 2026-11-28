@@ -12,14 +12,14 @@ import (
 	"github.com/DavidW475/ade/internal/workspace"
 )
 
-// Grenzen für den Feedback-Prompt.
+// Limits for the feedback prompt.
 const (
 	MaxFeedback      = 50 << 10
 	maxFeedbackPatch = 48 << 10
 )
 
-// collect sichert den Stand eines Workspaces nach einer Agent-Runde: WIP-Commit und Fetch
-// ins Haupt-Repo (architecture.md 4.2). Fehler werden nur geloggt.
+// collect saves a workspace's state after an agent turn: WIP commit and fetch into the main
+// repository (architecture.md 4.2). Errors are only logged.
 func (m *Manager) collect(workspaceID, sessionID string) {
 	if m.opts.Workspaces == nil {
 		return
@@ -28,15 +28,15 @@ func (m *Manager) collect(workspaceID, sessionID string) {
 	defer cancel()
 	if _, err := m.opts.Workspaces.Collect(ctx, workspaceID, sessionID); err != nil {
 		if errors.Is(err, apperr.ErrNotFound) || errors.Is(err, apperr.ErrConflict) {
-			m.log.Debug("Workspace nicht übernommen", "workspace", workspaceID, "session", sessionID, "err", err)
+			m.log.Debug("workspace not collected", "workspace", workspaceID, "session", sessionID, "err", err)
 			return
 		}
-		m.log.Warn("WIP-Commit/Übernahme fehlgeschlagen", "workspace", workspaceID, "session", sessionID, "err", err)
+		m.log.Warn("WIP commit/collect failed", "workspace", workspaceID, "session", sessionID, "err", err)
 	}
 }
 
-// WorkspaceBusy liefert einen Konflikt, solange im Workspace ein Agent arbeitet (wartende
-// Agenten und Terminals zählen nicht).
+// WorkspaceBusy returns a conflict as long as an agent is working in the workspace (waiting
+// agents and terminals do not count).
 func (m *Manager) WorkspaceBusy(_ context.Context, workspaceID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -48,31 +48,31 @@ func (m *Manager) WorkspaceBusy(_ context.Context, workspaceID string) error {
 		status := r.status
 		r.mu.Unlock()
 		if status != store.SessionIdle {
-			return apperr.Conflict("im Workspace arbeitet noch der Agent %s – warten, bis er fertig ist, oder ihn stoppen", id)
+			return apperr.Conflict("agent %s is still working in the workspace – wait until it is done, or stop it", id)
 		}
 	}
 	return nil
 }
 
-// FeedbackRequest ist der Body von POST /api/workspaces/{id}/feedback.
+// FeedbackRequest is the body of POST /api/workspaces/{id}/feedback.
 type FeedbackRequest struct {
 	Comment string `json:"comment"`
-	// Adapter, Model und PermissionMode überschreiben die Werte der letzten Session.
+	// Adapter, Model and PermissionMode override the values of the last session.
 	Adapter        string `json:"adapter,omitempty"`
 	Model          string `json:"model,omitempty"`
 	PermissionMode string `json:"permission_mode,omitempty"`
 }
 
-// Feedback startet im selben Workspace eine neue Session, die den Kommentar des Nutzers
-// und den aktuellen Diff als Anweisung bekommt. Ein wartender Agent im Workspace wird
-// vorher beendet. Am Ende der Session entsteht ein weiterer Commit im selben Branch.
+// Feedback starts a new session in the same workspace that gets the user's comment and the
+// current diff as its instruction. A waiting agent in the workspace is ended first. At the
+// end of the session another commit is created on the same branch.
 func (m *Manager) Feedback(ctx context.Context, workspaceID string, req FeedbackRequest) (*store.Session, error) {
 	comment := strings.TrimSpace(req.Comment)
 	if comment == "" {
-		return nil, apperr.Invalid("Feedback fehlt")
+		return nil, apperr.Invalid("feedback missing")
 	}
 	if len(comment) > MaxFeedback {
-		return nil, apperr.Invalid("Feedback ist zu lang (höchstens 50 KiB)")
+		return nil, apperr.Invalid("feedback is too long (at most 50 KiB)")
 	}
 	ws, err := m.opts.Workspaces.Get(ctx, workspaceID)
 	if err != nil {
@@ -86,7 +86,7 @@ func (m *Manager) Feedback(ctx context.Context, workspaceID string, req Feedback
 		return nil, err
 	}
 
-	// Einstellungen der letzten Agent-Session übernehmen.
+	// Take over the settings of the last agent session.
 	start := StartRequest{WorkspaceID: workspaceID, Task: comment, Adapter: req.Adapter, Model: req.Model, PermissionMode: req.PermissionMode}
 	ss, err := m.opts.Store.ListSessions(ctx, store.SessionFilter{WorkspaceID: workspaceID, Limit: 100})
 	if err != nil {
@@ -111,7 +111,7 @@ func (m *Manager) Feedback(ctx context.Context, workspaceID string, req Feedback
 		break
 	}
 	if a, err := m.opts.Adapters.Get(start.Adapter); err == nil && a.Capabilities().Terminal {
-		return nil, apperr.Invalid("Feedback geht nur an Agenten, nicht an ein Terminal")
+		return nil, apperr.Invalid("feedback only goes to agents, not to a terminal")
 	}
 
 	if err := m.stopIdleAgents(ctx, workspaceID); err != nil {
@@ -121,11 +121,11 @@ func (m *Manager) Feedback(ctx context.Context, workspaceID string, req Feedback
 	if err != nil {
 		return nil, err
 	}
-	m.log.Info("Feedback-Session gestartet", "id", sess.ID, "workspace", workspaceID)
+	m.log.Info("feedback session started", "id", sess.ID, "workspace", workspaceID)
 	return sess, nil
 }
 
-// stopIdleAgents beendet wartende Agenten im Workspace (Status „fertig“).
+// stopIdleAgents ends waiting agents in the workspace (status “done”).
 func (m *Manager) stopIdleAgents(ctx context.Context, workspaceID string) error {
 	m.mu.Lock()
 	var runs []*run
@@ -148,20 +148,20 @@ func (m *Manager) stopIdleAgents(ctx context.Context, workspaceID string) error 
 	return nil
 }
 
-// FeedbackPrompt baut die Anweisung für eine Feedback-Session.
+// FeedbackPrompt builds the instruction for a feedback session.
 func FeedbackPrompt(comment, base string, d *git.Diff) string {
 	var b strings.Builder
-	b.WriteString("Der Nutzer hat deine bisherigen Änderungen in diesem Repository geprüft und bittet um Anpassungen.\n\n")
+	b.WriteString("The user has reviewed your changes in this repository so far and asks for adjustments.\n\n")
 	b.WriteString("## Feedback\n\n")
 	b.WriteString(comment)
 	b.WriteString("\n\n")
 	if d == nil || len(d.Files) == 0 {
-		fmt.Fprintf(&b, "Gegenüber %s gibt es bisher keine Änderungen.\n\n", base)
+		fmt.Fprintf(&b, "There are no changes compared to %s so far.\n\n", base)
 	} else {
-		fmt.Fprintf(&b, "## Aktueller Stand gegenüber %s\n\n%d Datei(en), +%d −%d:\n", base, len(d.Files), d.Additions, d.Deletions)
+		fmt.Fprintf(&b, "## Current state compared to %s\n\n%d file(s), +%d −%d:\n", base, len(d.Files), d.Additions, d.Deletions)
 		for i, f := range d.Files {
 			if i == 200 {
-				fmt.Fprintf(&b, "- … und %d weitere\n", len(d.Files)-200)
+				fmt.Fprintf(&b, "- … and %d more\n", len(d.Files)-200)
 				break
 			}
 			fmt.Fprintf(&b, "- %s (%s)\n", f.Path, f.Status)
@@ -181,10 +181,10 @@ func FeedbackPrompt(comment, base string, d *git.Diff) string {
 		}
 		b.WriteString("```\n\n")
 		if omitted > 0 {
-			fmt.Fprintf(&b, "(%d Datei(en) ohne Patch, weil der Diff zu groß ist – bei Bedarf mit `git diff %s` ansehen.)\n\n", omitted, shortRev(d.Base))
+			fmt.Fprintf(&b, "(%d file(s) without a patch because the diff is too large – look at them with `git diff %s` if needed.)\n\n", omitted, shortRev(d.Base))
 		}
 	}
-	b.WriteString("Setze das Feedback um. Arbeite im aktuellen Branch weiter; committen und pushen musst du nicht.\n")
+	b.WriteString("Implement the feedback. Keep working on the current branch; you do not need to commit or push.\n")
 	return b.String()
 }
 

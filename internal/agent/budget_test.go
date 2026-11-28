@@ -18,7 +18,7 @@ import (
 	"github.com/DavidW475/ade/internal/workspace"
 )
 
-// fakeBudgets merkt sich Budget-Freigaben; Tests entscheiden sie von Hand.
+// fakeBudgets remembers budget approvals; tests decide them by hand.
 type fakeBudgets struct {
 	mu      sync.Mutex
 	reqs    []*store.Approval
@@ -60,7 +60,7 @@ func TestEstimatedCostIsStoredAsUsage(t *testing.T) {
 	s := e.start(StartRequest{Task: "x"})
 	e.waitStatus(s.ID, store.SessionIdle)
 	got, _ := e.st.GetSession(e.ctx, s.ID)
-	// gpt-5: 1,25 $ je Million Eingabe + 10 $ je Million Ausgabe → 1,25 + 1,00
+	// gpt-5: $1.25 per million input + $10 per million output → 1.25 + 1.00
 	if !near(got.CostUSD, 2.25) || got.InputTokens != 1_000_000 || got.OutputTokens != 100_000 || got.Unpriced {
 		t.Fatalf("Session = cost %v, tokens %d/%d, unpriced %v", got.CostUSD, got.InputTokens, got.OutputTokens, got.Unpriced)
 	}
@@ -89,33 +89,33 @@ func TestSessionBudgetPausesAndApprovalResumes(t *testing.T) {
 		t.Fatalf("budget_usd = %v", s.BudgetUSD)
 	}
 	e.waitStatus(s.ID, store.SessionPaused)
-	waitFor(t, "Budget-Freigabe", func() bool { return b.count() == 1 })
+	waitFor(t, "budget approval", func() bool { return b.count() == 1 })
 	a := b.reqs[0]
 	var d BudgetDetail
 	_ = json.Unmarshal(a.Detail, &d)
 	if a.Kind != store.ApprovalBudget || a.SessionID != s.ID || d.Scope != BudgetSession || !near(d.SpentUSD, 1.5) || d.StepUSD != 1 {
-		t.Fatalf("Freigabe = %+v, %+v", a, d)
+		t.Fatalf("approval = %+v, %+v", a, d)
 	}
 	got, _ := e.st.GetSession(e.ctx, s.ID)
 	if got.Error == "" {
-		t.Errorf("Grund fehlt: %+v", got)
+		t.Errorf("reason missing: %+v", got)
 	}
 
-	// Von Hand fortsetzen, ohne Freigabe: pausiert sofort wieder, ohne Prozess.
+	// Resume by hand without an approval: pauses again right away, without a process.
 	specs := len(e.fake.Specs())
 	if _, err := e.m.Input(e.ctx, s.ID, ""); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "zweite Freigabe", func() bool { return b.count() == 2 })
+	waitFor(t, "second approval", func() bool { return b.count() == 2 })
 	e.waitStatus(s.ID, store.SessionPaused)
 	if len(e.fake.Specs()) != specs {
-		t.Errorf("Prozess trotz überschrittenem Budget gestartet")
+		t.Errorf("process started despite the exceeded budget")
 	}
 
-	// Abgebrochene Freigabe ändert nichts, Erlauben erhöht das Budget und setzt fort.
+	// A canceled approval changes nothing, allowing raises the budget and resumes.
 	b.decide(0, store.ApprovalCanceled)
 	if e.status(s.ID) != store.SessionPaused {
-		t.Fatalf("Status nach Abbruch = %s", e.status(s.ID))
+		t.Fatalf("status after cancel = %s", e.status(s.ID))
 	}
 	b.decide(1, store.ApprovalApproved)
 	waitFor(t, "Fortsetzen", func() bool { return len(e.fake.Specs()) > specs })
@@ -124,10 +124,10 @@ func TestSessionBudgetPausesAndApprovalResumes(t *testing.T) {
 	}
 	got, _ = e.st.GetSession(e.ctx, s.ID)
 	if !near(got.BudgetUSD, 2.5) {
-		t.Errorf("budget_usd nach Freigabe = %v", got.BudgetUSD)
+		t.Errorf("budget_usd after approval = %v", got.BudgetUSD)
 	}
-	// Der neue Lauf kostet wieder 1,5 $ → 3,0 ≥ 2,5: wieder pausiert, Ablehnen beendet.
-	waitFor(t, "dritte Freigabe", func() bool { return b.count() == 3 })
+	// The new run costs $1.5 again → 3.0 ≥ 2.5: paused again, denying ends it.
+	waitFor(t, "third approval", func() bool { return b.count() == 3 })
 	e.waitStatus(s.ID, store.SessionPaused)
 	b.decide(2, store.ApprovalDenied)
 	e.waitStatus(s.ID, store.SessionStopped)
@@ -141,7 +141,7 @@ func TestMonthlyBudgetBlocksStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Alte Nutzung im Vormonat zählt nicht, die aus diesem Monat schon.
+	// Old usage in the previous month does not count, the one from this month does.
 	for _, u := range []store.Usage{
 		{TS: store.MonthStart(time.Now()).Add(-time.Hour), CostUSD: 50},
 		{CostUSD: 2.5},
@@ -153,13 +153,13 @@ func TestMonthlyBudgetBlocksStart(t *testing.T) {
 	}
 	s := e.start(StartRequest{WorkspaceID: ws.ID, Task: "x"})
 	e.waitStatus(s.ID, store.SessionPaused)
-	waitFor(t, "Freigabe", func() bool { return b.count() == 1 })
+	waitFor(t, "approval", func() bool { return b.count() == 1 })
 	var d BudgetDetail
 	_ = json.Unmarshal(b.reqs[0].Detail, &d)
 	if d.Scope != BudgetMonthly || !near(d.SpentUSD, 2.5) || d.LimitUSD != 2 || d.StepUSD != 1 {
 		t.Fatalf("Detail = %+v", d)
 	}
-	if n := len(e.fake.Specs()); n != 1 { // nur die Vorabprüfung in Start
+	if n := len(e.fake.Specs()); n != 1 { // only the pre-check in Start
 		t.Errorf("Command-Aufrufe = %d", n)
 	}
 	b.decide(0, store.ApprovalApproved)
@@ -174,21 +174,21 @@ func TestProxyUsageCountsForMeteredSession(t *testing.T) {
 	e.m.opts.Access = func(string, bool) (*adapter.ProviderAccess, bool) { return nil, true }
 	e.fake.Argv = []string{"sh", "-c", `read x; read y; echo '` + costLine(adapter.Cost{TurnUSD: 9, InputTokens: 1}) + `'; echo '{"type":"turn_done"}'; exec cat`}
 	s := e.start(StartRequest{Task: "x", BudgetUSD: new(float64)})
-	waitFor(t, "läuft", func() bool { v, _ := e.m.Get(e.ctx, s.ID); return v.Live && e.status(s.ID) == store.SessionRunning })
+	waitFor(t, "running", func() bool { v, _ := e.m.Get(e.ctx, s.ID); return v.Live && e.status(s.ID) == store.SessionRunning })
 
 	e.m.RecordProxyUsage(e.ctx, s.WorkspaceID, []ProxyUsage{{Provider: "anthropic", Model: "claude-sonnet-4-5", Tokens: provider.Usage{Input: 1_000_000}}})
 	got, _ := e.st.GetSession(e.ctx, s.ID)
 	if !got.Metered || !near(got.CostUSD, 3) || got.InputTokens != 1_000_000 {
 		t.Fatalf("Session = metered %v cost %v tokens %d", got.Metered, got.CostUSD, got.InputTokens)
 	}
-	// Die Meldung der CLI (9 $) zählt nicht; das cost-Event zeigt die Summe des Proxys.
+	// The CLI's report ($9) does not count; the cost event shows the proxy's sum.
 	if _, err := e.m.Input(e.ctx, s.ID, "los"); err != nil {
 		t.Fatal(err)
 	}
 	e.waitStatus(s.ID, store.SessionIdle)
 	got, _ = e.st.GetSession(e.ctx, s.ID)
 	if !near(got.CostUSD, 3) {
-		t.Fatalf("cost_usd = %v (CLI-Meldung doppelt gezählt?)", got.CostUSD)
+		t.Fatalf("cost_usd = %v (CLI report counted twice?)", got.CostUSD)
 	}
 	var c adapter.Cost
 	var usage int
@@ -204,15 +204,15 @@ func TestProxyUsageCountsForMeteredSession(t *testing.T) {
 		t.Errorf("cost-Event = %+v, usage-Events %d", c, usage)
 	}
 
-	// Ohne Messung (CLI meldet selbst) bekommt die Session nichts vom Proxy.
+	// Without measurement (the CLI reports itself) the session gets nothing from the proxy.
 	e2 := setup(t, "")
 	s2 := e2.start(StartRequest{Task: "x"})
-	waitFor(t, "läuft", func() bool { v, _ := e2.m.Get(e2.ctx, s2.ID); return v.Live })
+	waitFor(t, "running", func() bool { v, _ := e2.m.Get(e2.ctx, s2.ID); return v.Live })
 	e2.m.RecordProxyUsage(e2.ctx, s2.WorkspaceID, []ProxyUsage{{Provider: "anthropic", Model: "claude-sonnet-4-5", Tokens: provider.Usage{Input: 1_000_000}}})
 	got, _ = e2.st.GetSession(e2.ctx, s2.ID)
 	tot, _ := e2.st.UsageTotal(e2.ctx, store.UsageFilter{WorkspaceID: s2.WorkspaceID})
 	if got.CostUSD != 0 || !near(tot.CostUSD, 3) {
-		t.Errorf("nicht gemessen: Session %v, Workspace %v", got.CostUSD, tot.CostUSD)
+		t.Errorf("not measured: session %v, workspace %v", got.CostUSD, tot.CostUSD)
 	}
 }
 
@@ -233,21 +233,21 @@ func TestModelAlias(t *testing.T) {
 	if spec := e.fake.Specs()[1]; spec.Model != "claude-opus-5-5" {
 		t.Errorf("Spec.Model = %q", spec.Model)
 	}
-	// Unbekannte Namen gehen unverändert an die CLI.
+	// Unknown names go to the CLI unchanged.
 	s = e.start(StartRequest{Task: "x", Model: "sonnet-direkt"})
 	if s.Model != "sonnet-direkt" || s.ModelID != "" {
-		t.Errorf("ohne Alias: %+v", s)
+		t.Errorf("without alias: %+v", s)
 	}
-	// Anbieter passt nicht zum Adapter.
+	// The provider does not match the adapter.
 	_, err := e.m.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Adapter: "codex", Task: "x", Model: "opus"})
 	if !errors.Is(err, apperr.ErrInvalid) {
-		t.Errorf("codex mit opus: %v", err)
+		t.Errorf("codex with opus: %v", err)
 	}
 	if _, err := e.m.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Adapter: "codex", Task: "x", Model: "gpt"}); err != nil {
-		t.Errorf("codex mit gpt: %v", err)
+		t.Errorf("codex with gpt: %v", err)
 	}
 	bad := -1.0
 	if _, err := e.m.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Task: "x", BudgetUSD: &bad}); !errors.Is(err, apperr.ErrInvalid) {
-		t.Errorf("negatives Budget: %v", err)
+		t.Errorf("negative budget: %v", err)
 	}
 }
