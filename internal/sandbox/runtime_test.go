@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// Gekürzte Ausgaben von „info --format '{{json .}}'“.
+// Shortened outputs of “info --format '{{json .}}'”.
 const (
 	infoDocker         = `{"ServerVersion":"29.0.1","SecurityOptions":["name=seccomp,profile=builtin","name=cgroupns"],"MemoryLimit":true,"CpuCfsQuota":true,"PidsLimit":true}`
 	infoDockerRootless = `{"ServerVersion":"29.0.1","SecurityOptions":["name=seccomp,profile=builtin","name=rootless","name=cgroupns"],"MemoryLimit":true,"CpuCfsQuota":false,"PidsLimit":true}`
@@ -31,14 +31,14 @@ func TestParseInfo(t *testing.T) {
 	} {
 		got, err := ParseInfo([]byte(tc.in))
 		if err != nil || got != tc.want {
-			t.Errorf("%s: %+v, %v; erwartet %+v", tc.name, got, err, tc.want)
+			t.Errorf("%s: %+v, %v; want %+v", tc.name, got, err, tc.want)
 		}
 	}
 	if _, err := ParseInfo([]byte(infoDockerDown)); err == nil || !strings.Contains(err.Error(), "Cannot connect") {
-		t.Errorf("Docker nicht erreichbar: %v", err)
+		t.Errorf("Docker not reachable: %v", err)
 	}
-	if _, err := ParseInfo([]byte("kein json")); err == nil {
-		t.Error("ungültige Ausgabe ohne Fehler")
+	if _, err := ParseInfo([]byte("no json")); err == nil {
+		t.Error("invalid output without an error")
 	}
 }
 
@@ -46,7 +46,7 @@ func managerFor(rt Runtime) *Manager {
 	return New(Options{DataDir: "/data", UID: 1234, GID: 5678, ProxyBinary: "/data/sandbox/ade", Runtime: &rt})
 }
 
-// #94: Dateien, die der Agent anlegt, gehören auf dem Host dem Nutzer.
+// #94: files the agent creates belong to the user on the host.
 func TestUserMappingPerRuntime(t *testing.T) {
 	spec := Spec{Workspace: "abc", Path: "/ws/abc", Config: *withDefaults(&Config{})}
 	for _, tc := range []struct {
@@ -54,9 +54,9 @@ func TestUserMappingPerRuntime(t *testing.T) {
 		want, deny []string
 	}{
 		{RuntimeDocker, []string{"--user 1234:5678"}, []string{"--userns", "IS_SANDBOX"}},
-		// root im Container = Nutzer auf dem Host.
+		// root in the container = the user on the host.
 		{RuntimeDockerRootless, []string{"--user 0:0", "--env IS_SANDBOX=1"}, []string{"--userns", "1234"}},
-		// keep-id: gleiche UID im Container und auf dem Host.
+		// keep-id: same UID in the container and on the host.
 		{RuntimePodman, []string{"--user 1234:5678 --userns keep-id"}, []string{"IS_SANDBOX"}},
 		{RuntimePodmanRootful, []string{"--user 1234:5678"}, []string{"--userns"}},
 	} {
@@ -68,7 +68,7 @@ func TestUserMappingPerRuntime(t *testing.T) {
 					continue
 				}
 				if !strings.Contains(joined, w) {
-					t.Errorf("%s/%s: %q fehlt in %s", tc.kind, name, w, joined)
+					t.Errorf("%s/%s: %q missing in %s", tc.kind, name, w, joined)
 				}
 			}
 			for _, d := range tc.deny {
@@ -102,13 +102,13 @@ func TestCheckResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := managerFor(Runtime{Kind: RuntimeDockerRootless, Memory: true, PIDs: true}).checkResources()
-	if err == nil || !strings.Contains(err.Error(), "Docker (rootless)") || !strings.Contains(err.Error(), "cgroup-Controller cpu") {
-		t.Fatalf("fehlendes cpu: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "Docker (rootless)") || !strings.Contains(err.Error(), "cgroup controller cpu") {
+		t.Fatalf("missing cpu: %v", err)
 	}
 }
 
-// Die Laufzeit wird beim Ensure erkannt; fehlen Controller, scheitert der Start mit klarer
-// Meldung, bevor ein Container angelegt wird.
+// The runtime is detected during Ensure; if controllers are missing, the start fails with a
+// clear message before a container is created.
 func TestEnsureFailsEarlyWithoutControllers(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "docker")
@@ -134,6 +134,6 @@ esac
 	}
 	calls, _ := os.ReadFile(log) //nolint:gosec // Testdatei
 	if strings.Contains(string(calls), "create") {
-		t.Errorf("Container trotz fehlender Controller angelegt:\n%s", calls)
+		t.Errorf("container created despite missing controllers:\n%s", calls)
 	}
 }

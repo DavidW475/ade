@@ -13,22 +13,22 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// ConfigFile ist der Pfad der Sandbox-Konfiguration relativ zum Projekt-Repo.
+// ConfigFile is the path of the sandbox configuration relative to the project repository.
 const ConfigFile = ".ade/sandbox.yaml"
 
-// Voreinstellungen für die Ressourcen eines Containers.
+// Defaults for a container's resources.
 const (
 	DefaultMemory = "4g"
 	DefaultCPUs   = 2.0
 	DefaultPIDs   = 512
 )
 
-// ImageRepo ist das Basis-Image aus images/agent-base.
+// ImageRepo is the base image from images/agent-base.
 const ImageRepo = "ghcr.io/davidw475/ade-agent-base"
 
-// DefaultImage liefert das Basis-Image passend zur ADE-Version: Releases (v1.2.3) und
-// Vorabversionen (v1.2.3-rc.1) nutzen das gleich versionierte Image ohne "v", das der
-// Image-Workflow beim Tag baut; Entwicklungsstände und Snapshots :latest.
+// DefaultImage returns the base image matching the ADE version: releases (v1.2.3) and
+// pre-releases (v1.2.3-rc.1) use the image of the same version without "v" that the image
+// workflow builds for the tag; development builds and snapshots :latest.
 func DefaultImage(version string) string {
 	if m := releaseRE.FindStringSubmatch(version); m != nil {
 		return ImageRepo + ":" + m[1]
@@ -38,32 +38,32 @@ func DefaultImage(version string) string {
 
 var releaseRE = regexp.MustCompile(`^v(\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?)$`)
 
-// Resources begrenzt einen Container.
+// Resources limits a container.
 type Resources struct {
-	// Memory im Format von docker --memory (z. B. 4g, 512m).
+	// Memory in the format of docker --memory (e.g. 4g, 512m).
 	Memory string  `yaml:"memory" json:"memory"`
 	CPUs   float64 `yaml:"cpus" json:"cpus"`
 	PIDs   int     `yaml:"pids" json:"pids"`
 }
 
-// Config ist der Inhalt von .ade/sandbox.yaml. Alle Felder sind optional.
+// Config is the contents of .ade/sandbox.yaml. All fields are optional.
 type Config struct {
-	// Image überschreibt das Standard-Image (z. B. ein vom Basis-Image abgeleitetes).
+	// Image overrides the default image (e.g. one derived from the base image).
 	Image     string    `yaml:"image" json:"image,omitempty"`
 	Resources Resources `yaml:"resources" json:"resources"`
-	// Egress sind die Netzwerk-Regeln (nil in der Datei: Voreinstellung, siehe DefaultPresets).
+	// Egress are the network rules (nil in the file: defaults, see DefaultPresets).
 	Egress *Egress `yaml:"egress" json:"egress"`
 }
 
-// ConfigError ist eine ungültige sandbox.yaml.
+// ConfigError is an invalid sandbox.yaml.
 type ConfigError struct{ Msg string }
 
 func (e *ConfigError) Error() string { return ConfigFile + ": " + e.Msg }
 
-// LoadConfig liest .ade/sandbox.yaml aus repo; fehlt die Datei, gelten die Voreinstellungen.
-// Ungültige Dateien liefern die Voreinstellungen und einen *ConfigError.
+// LoadConfig reads .ade/sandbox.yaml from repo; if the file is missing, the defaults apply.
+// Invalid files return the defaults and a *ConfigError.
 func LoadConfig(repo string) (*Config, error) {
-	data, err := os.ReadFile(filepath.Join(repo, ConfigFile)) //nolint:gosec // G304: Pfad im registrierten Repo
+	data, err := os.ReadFile(filepath.Join(repo, ConfigFile)) //nolint:gosec // G304: path in the registered repository
 	if errors.Is(err, os.ErrNotExist) {
 		return withDefaults(&Config{}), nil
 	}
@@ -73,7 +73,7 @@ func LoadConfig(repo string) (*Config, error) {
 	return ParseConfig(data)
 }
 
-// ParseConfig prüft und liest den Inhalt einer sandbox.yaml.
+// ParseConfig checks and reads the contents of a sandbox.yaml.
 func ParseConfig(data []byte) (*Config, error) {
 	var cfg Config
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -118,16 +118,16 @@ func (c *Config) validate() string {
 	}
 	c.Image = strings.TrimSpace(c.Image)
 	if c.Image != "" && (len(c.Image) > 255 || !imageRE.MatchString(c.Image)) {
-		return fmt.Sprintf("image: %q ist kein gültiger Image-Name", c.Image)
+		return fmt.Sprintf("image: %q is not a valid image name", c.Image)
 	}
 	if m := c.Resources.Memory; m != "" && !memoryRE.MatchString(m) {
-		return fmt.Sprintf("resources.memory: %q ist ungültig (z. B. 4g oder 512m)", m)
+		return fmt.Sprintf("resources.memory: %q is invalid (e.g. 4g or 512m)", m)
 	}
 	if v := c.Resources.CPUs; v < 0 || v > 256 {
-		return fmt.Sprintf("resources.cpus: %v ist ungültig (0 < cpus ≤ 256)", v)
+		return fmt.Sprintf("resources.cpus: %v is invalid (0 < cpus ≤ 256)", v)
 	}
 	if v := c.Resources.PIDs; v < 0 || (v > 0 && v < 32) || v > 1<<20 {
-		return fmt.Sprintf("resources.pids: %d ist ungültig (mindestens 32)", v)
+		return fmt.Sprintf("resources.pids: %d is invalid (at least 32)", v)
 	}
 	return ""
 }

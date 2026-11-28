@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Ein Container verschwindet zwischen „docker container ls“ und „inspect“ (#66).
+// A container disappears between “docker container ls” and “inspect” (#66).
 func TestListSkipsVanishedContainers(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "docker")
