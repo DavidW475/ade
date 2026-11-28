@@ -15,12 +15,12 @@ import (
 	"testing"
 )
 
-// fakeRelease legt ein Release-Verzeichnis mit Archiv und checksums.txt an.
+// fakeRelease creates a release directory with archive and checksums.txt.
 func fakeRelease(t *testing.T, badSum bool) string {
 	t.Helper()
 	for _, tool := range []string{"sh", "curl", "tar", "sha256sum"} {
 		if _, err := exec.LookPath(tool); err != nil {
-			t.Skipf("%s fehlt", tool)
+			t.Skipf("%s is missing", tool)
 		}
 	}
 	arch := runtime.GOARCH
@@ -81,8 +81,8 @@ func TestInstallScript(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if !strings.Contains(out, "ade v9.9.9 (fake)") || !strings.Contains(out, "nicht im PATH") {
-		t.Errorf("Ausgabe:\n%s", out)
+	if !strings.Contains(out, "ade v9.9.9 (fake)") || !strings.Contains(out, "is not in the PATH") {
+		t.Errorf("output:\n%s", out)
 	}
 	fi, err := os.Stat(filepath.Join(target, "ade"))
 	if err != nil || fi.Mode().Perm() != 0o755 {
@@ -91,9 +91,9 @@ func TestInstallScript(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(target, "LICENSE")); err == nil {
 		t.Error("LICENSE mitinstalliert")
 	}
-	// Ein zweiter Lauf ersetzt das Binary.
+	// A second run replaces the binary.
 	if out, err := runInstall(t, release, target); err != nil {
-		t.Fatalf("zweiter Lauf: %v\n%s", err, out)
+		t.Fatalf("second run: %v\n%s", err, out)
 	}
 }
 
@@ -101,18 +101,18 @@ func TestInstallScriptBadChecksum(t *testing.T) {
 	release := fakeRelease(t, true)
 	target := filepath.Join(t.TempDir(), "bin")
 	out, err := runInstall(t, release, target)
-	if err == nil || !strings.Contains(out, "Prüfsumme stimmt nicht") {
+	if err == nil || !strings.Contains(out, "checksum does not match") {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	if _, err := os.Stat(filepath.Join(target, "ade")); err == nil {
-		t.Error("Binary trotz falscher Prüfsumme installiert")
+		t.Error("binary installed despite a wrong checksum")
 	}
 }
 
 func TestInstallScriptUnknownOption(t *testing.T) {
 	release := fakeRelease(t, false)
-	out, err := runInstall(t, release, t.TempDir(), "--quatsch")
-	if err == nil || !strings.Contains(out, "unbekannte Option") {
+	out, err := runInstall(t, release, t.TempDir(), "--nonsense")
+	if err == nil || !strings.Contains(out, "unknown option") {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 }

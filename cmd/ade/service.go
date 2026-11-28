@@ -15,21 +15,21 @@ import (
 	"github.com/DavidW475/ade/internal/service"
 )
 
-const installServiceUsage = `Verwendung:
-  ade install-service [--dry-run] [--config <pfad>]
+const installServiceUsage = `Usage:
+  ade install-service [--dry-run] [--config <path>]
 
-Richtet den Daemon als systemd-User-Dienst ein (~/.config/systemd/user/ade.service) und
-startet ihn. Unter WSL muss systemd aktiv sein (systemd=true in /etc/wsl.conf). Der Dienst
-übernimmt den aktuellen PATH; nach einem neuen Binary oder geändertem PATH erneut ausführen.
+Sets up the daemon as a systemd user service (~/.config/systemd/user/ade.service) and starts
+it. Under WSL systemd must be active (systemd=true in /etc/wsl.conf). The service takes over
+the current PATH; run it again after a new binary or a changed PATH.
 `
 
-const uninstallServiceUsage = `Verwendung:
-  ade uninstall-service [--config <pfad>]
+const uninstallServiceUsage = `Usage:
+  ade uninstall-service [--config <path>]
 
-Stoppt den systemd-User-Dienst und entfernt die Unit.
+Stops the systemd user service and removes the unit.
 `
 
-// newServiceManager ist austauschbar für Tests.
+// newServiceManager is replaceable for tests.
 var newServiceManager = func(cfg *config.Config, cfgPath string) (*service.Manager, error) {
 	return service.New(cfgPath, cfg.LogPath())
 }
@@ -38,7 +38,7 @@ func cmdInstallService(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("install-service", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { _, _ = fmt.Fprint(stderr, installServiceUsage) }
-	dry := fs.Bool("dry-run", false, "Unit nur ausgeben, nichts ändern")
+	dry := fs.Bool("dry-run", false, "only print the unit, change nothing")
 	cfg, cfgPath, err := loadConfig(fs, args)
 	if err != nil {
 		return err
@@ -57,20 +57,20 @@ func cmdInstallService(args []string, stdout, stderr io.Writer) error {
 	if err := m.Available(ctx); err != nil {
 		return err
 	}
-	// Ein Daemon außerhalb von systemd hält den Lock; der Dienst würde nur neu starten und scheitern.
+	// A daemon outside systemd holds the lock; the service would only restart and fail.
 	c := daemon.NewClient(cfg)
 	if _, err := c.Health(ctx); err == nil && !m.Active(ctx) {
 		pid := daemon.RunningPID(cfg)
-		hint := "zuerst beenden"
+		hint := "stop it first"
 		if pid > 0 {
-			hint = fmt.Sprintf("zuerst beenden (kill %d)", pid)
+			hint = fmt.Sprintf("stop it first (kill %d)", pid)
 		}
-		return fmt.Errorf("ein ADE-Daemon läuft bereits außerhalb von systemd auf %s; %s", cfg.Listen, hint)
+		return fmt.Errorf("an ADE daemon is already running outside systemd on %s; %s", cfg.Listen, hint)
 	} else if err != nil && !errors.Is(err, daemon.ErrNotRunning) {
 		return err
 	}
 
-	// Ohne Datenverzeichnis kann systemd das Log (StandardOutput=append:) nicht öffnen.
+	// Without the data directory systemd cannot open the log (StandardOutput=append:).
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return err
 	}
@@ -79,13 +79,13 @@ func cmdInstallService(args []string, stdout, stderr io.Writer) error {
 	}
 	h, err := c.WaitHealthy(ctx)
 	if err != nil {
-		return fmt.Errorf("Dienst installiert, aber der Daemon antwortet nicht (Log: %s, `systemctl --user status ade`): %w", cfg.LogPath(), err)
+		return fmt.Errorf("service installed, but the daemon does not answer (log: %s, `systemctl --user status ade`): %w", cfg.LogPath(), err)
 	}
-	_, _ = fmt.Fprintf(stdout, "Dienst %s installiert und gestartet (%s).\n", service.Name, h.Version)
+	_, _ = fmt.Fprintf(stdout, "service %s installed and started (%s).\n", service.Name, h.Version)
 	_, _ = fmt.Fprintf(stdout, "  Unit: %s\n  Log:  %s\n", m.UnitPath(), cfg.LogPath())
 	if on, ok := service.Linger(ctx); ok && !on {
-		_, _ = fmt.Fprintln(stdout, "Hinweis: Der Dienst startet mit deiner ersten Anmeldung (WSL-Shell). Damit er auch ohne")
-		_, _ = fmt.Fprintln(stdout, "offene Sitzung läuft: sudo loginctl enable-linger \"$USER\"")
+		_, _ = fmt.Fprintln(stdout, "Note: the service starts with your first login (WSL shell). To keep it running without an")
+		_, _ = fmt.Fprintln(stdout, "open session: sudo loginctl enable-linger \"$USER\"")
 	}
 	return nil
 }
@@ -107,12 +107,12 @@ func cmdUninstallService(args []string, stdout, stderr io.Writer) error {
 	if err := m.Uninstall(ctx); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(stdout, "Dienst %s gestoppt und entfernt.\n", service.Name)
+	_, _ = fmt.Fprintf(stdout, "service %s stopped and removed.\n", service.Name)
 	return nil
 }
 
-// ensureRunning startet den Daemon über systemd, wenn die Unit für diese Konfiguration
-// installiert ist, sonst selbst im Hintergrund.
+// ensureRunning starts the daemon through systemd if the unit is installed for this
+// configuration, otherwise itself in the background.
 func ensureRunning(ctx context.Context, cfg *config.Config, cfgPath string) (h *api.HealthResponse, how string, err error) {
 	c := daemon.NewClient(cfg)
 	if h, err := c.Health(ctx); err == nil {
@@ -121,7 +121,7 @@ func ensureRunning(ctx context.Context, cfg *config.Config, cfgPath string) (h *
 		return nil, "", err
 	}
 	if m, err := newServiceManager(cfg, cfgPath); err == nil && m.InstalledConfig() == cfgPath {
-		if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil { //nolint:gosec // G703: Datenverzeichnis aus der eigenen Konfiguration
+		if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil { //nolint:gosec // G703: data directory from the own configuration
 			return nil, "", err
 		}
 		if err := m.Start(ctx); err != nil {
@@ -129,7 +129,7 @@ func ensureRunning(ctx context.Context, cfg *config.Config, cfgPath string) (h *
 		}
 		h, err := c.WaitHealthy(ctx)
 		if err != nil {
-			return nil, "", fmt.Errorf("Dienst gestartet, aber der Daemon antwortet nicht (Log: %s, `systemctl --user status ade`): %w", cfg.LogPath(), err)
+			return nil, "", fmt.Errorf("service started, but the daemon does not answer (log: %s, `systemctl --user status ade`): %w", cfg.LogPath(), err)
 		}
 		return h, "systemd", nil
 	}

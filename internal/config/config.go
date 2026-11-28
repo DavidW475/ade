@@ -182,7 +182,7 @@ func Load(path string) (*Config, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(cfg); err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("Konfiguration %s: %w", path, err)
+		return nil, fmt.Errorf("configuration %s: %w", path, err)
 	}
 	if cfg.Providers == nil {
 		cfg.Providers = map[string]Provider{}
@@ -199,7 +199,7 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	if err := cfg.validate(); err != nil {
-		return nil, fmt.Errorf("Konfiguration %s: %w", path, err)
+		return nil, fmt.Errorf("configuration %s: %w", path, err)
 	}
 	return cfg, nil
 }

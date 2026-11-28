@@ -14,23 +14,23 @@ import (
 	"github.com/DavidW475/ade/internal/proxy"
 )
 
-const proxyUsage = `Verwendung:
+const proxyUsage = `Usage:
   ade proxy [--listen :8080] [--control :8081] [--ide :3000 --ide-target agent:3000]
 
-Egress-Proxy der Sandbox. Läuft im Proxy-Container eines Workspaces und wird vom Daemon
-gestartet und gesteuert (doc/sandbox.md); von Hand nur zum Testen. Das Token der Steuer-API
-kommt aus der Umgebungsvariable ` + proxy.EnvToken + `.
+Egress proxy of the sandbox. It runs in a workspace's proxy container and is started and
+controlled by the daemon (doc/sandbox.md); by hand only for testing. The control API's token
+comes from the environment variable ` + proxy.EnvToken + `.
 `
 
 func cmdProxy(args []string, stderr io.Writer) error {
 	fs := flag.NewFlagSet("proxy", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { _, _ = fmt.Fprint(stderr, proxyUsage) }
-	listen := fs.String("listen", ":"+strconv.Itoa(proxy.Port), "Adresse für den Agenten")
-	control := fs.String("control", ":"+strconv.Itoa(proxy.ControlPort), "Adresse der Steuer-API")
-	ide := fs.String("ide", "", "Adresse der IDE-Weiterleitung (leer: keine)")
-	ideTarget := fs.String("ide-target", "", "Ziel der IDE-Weiterleitung, z. B. agent:3000")
-	debug := fs.Bool("debug", false, "ausführliches Logging")
+	listen := fs.String("listen", ":"+strconv.Itoa(proxy.Port), "address for the agent")
+	control := fs.String("control", ":"+strconv.Itoa(proxy.ControlPort), "address of the control API")
+	ide := fs.String("ide", "", "address of the IDE forwarding (empty: none)")
+	ideTarget := fs.String("ide-target", "", "target of the IDE forwarding, e.g. agent:3000")
+	debug := fs.Bool("debug", false, "verbose logging")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -44,7 +44,7 @@ func cmdProxy(args []string, stderr io.Writer) error {
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
 	token := os.Getenv(proxy.EnvToken)
 	if token == "" {
-		return fmt.Errorf("%s ist nicht gesetzt", proxy.EnvToken)
+		return fmt.Errorf("%s is not set", proxy.EnvToken)
 	}
 	_ = os.Unsetenv(proxy.EnvToken)
 
