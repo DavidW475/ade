@@ -34,7 +34,7 @@ export function App() {
           <Link to="/runs">Runs</Link>
           {auth.data && (
             <Link to="/approvals" className="navitem">
-              Freigaben <ApprovalsNavBadge />
+              Approvals <ApprovalsNavBadge />
             </Link>
           )}
         </nav>
