@@ -184,7 +184,7 @@ function ToolItem({ call, result, ts }: { call: ToolCallPayload; result?: ToolRe
                 Result{result.truncated ? " (truncated)" : ""}
                 {result.is_error ? " – error" : ""}
               </div>
-              <pre className="tl-output">{result.output || "(leer)"}</pre>
+              <pre className="tl-output">{result.output || "(empty)"}</pre>
             </>
           )}
         </div>

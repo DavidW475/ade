@@ -1,5 +1,5 @@
-// Review und Übernahme (M4): Diff-Ansicht mit Monaco und die Aktionen Mergen, PR erstellen,
-// Feedback geben und Verwerfen.
+// Review and delivery (M4): diff view with Monaco and the actions merge, create PR, give
+// feedback and discard.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
@@ -11,16 +11,16 @@ import { FileStatusBadge, LineStats, Modal, Notice } from "./ui";
 
 const DiffEditor = lazy(() => import("./DiffEditor"));
 
-// --- Sensible Pfade ----------------------------------------------------------------------
+// --- Sensitive paths ----------------------------------------------------------------------
 
-/** Warnung, wenn Workflows, Actions oder .ade/ geändert wurden. */
+/** Warning when workflows, actions or .ade/ were changed. */
 export function SensitiveNotice({ paths }: { paths: string[] }) {
   if (!paths.length) return null;
   return (
-    <Notice tone="warn" title="Achtung: Änderungen an CI oder ADE-Konfiguration">
+    <Notice tone="warn" title="Caution: changes to CI or ADE configuration">
       <p>
-        Workflows und Actions laufen nach dem Push mit den Secrets des Repos, <code>.ade/</code> steuert Setup, Sandbox und Freigaben. Diese
-        Dateien genau prüfen:
+        Workflows and actions run with the repository's secrets after the push, <code>.ade/</code> controls setup, sandbox and approvals. Review
+        these files carefully:
       </p>
       <ul className="sensitivelist">
         {paths.map((p) => (
@@ -33,7 +33,7 @@ export function SensitiveNotice({ paths }: { paths: string[] }) {
   );
 }
 
-// --- Aktionen ----------------------------------------------------------------------------
+// --- Actions ----------------------------------------------------------------------------
 
 type Action = "merge" | "pr" | "feedback" | "discard";
 
@@ -61,21 +61,21 @@ export function ReviewPanel({
         <div className="reviewstate">
           {w.head_commit ? (
             <span>
-              <span className="mono">{w.branch}</span> im Projekt-Repo @ <span className="mono">{shortCommit(w.head_commit)}</span>
+              <span className="mono">{w.branch}</span> in the project repository @ <span className="mono">{shortCommit(w.head_commit)}</span>
               {w.collected_at && <span className="muted"> · {formatTime(w.collected_at)}</span>}
             </span>
           ) : (
-            <span className="muted">Noch nicht ins Projekt-Repo übernommen – passiert automatisch, wenn ein Agent fertig ist.</span>
+            <span className="muted">Not taken into the project repository yet – this happens automatically when an agent is done.</span>
           )}
           {w.merge_commit && (
             <span>
-              ✓ Gemergt in <span className="mono">{w.base_branch}</span> @ <span className="mono">{shortCommit(w.merge_commit)}</span>
+              ✓ Merged into <span className="mono">{w.base_branch}</span> @ <span className="mono">{shortCommit(w.merge_commit)}</span>
               {w.merged_at && <span className="muted"> · {formatTime(w.merged_at)}</span>}
             </span>
           )}
           {w.pr_url && (
             <span>
-              Pull Request:{" "}
+              Pull request:{" "}
               <a href={w.pr_url} target="_blank" rel="noreferrer">
                 {w.pr_url.replace(/^https?:\/\/(www\.)?github\.com\//, "")}
               </a>
@@ -84,22 +84,22 @@ export function ReviewPanel({
         </div>
         <div className="actions">
           <button type="button" className="primary" disabled={!ready || !!busy || !hasChanges} onClick={() => setOpen("merge")}>
-            Mergen in {w.base_branch}
+            Merge into {w.base_branch}
           </button>
           <button type="button" disabled={!ready || !!busy || !hasChanges} onClick={() => setOpen("pr")}>
-            {w.pr_url ? "PR aktualisieren" : "PR erstellen"}
+            {w.pr_url ? "Update PR" : "Create PR"}
           </button>
           <button type="button" disabled={!ready || !!busy} onClick={() => setOpen("feedback")}>
-            Feedback geben
+            Give feedback
           </button>
           <button type="button" className="danger" onClick={() => setOpen("discard")}>
-            Verwerfen
+            Discard
           </button>
         </div>
       </div>
       {busy && (
         <p className="hint">
-          Der Agent arbeitet noch – Mergen, PR und Feedback sind möglich, sobald er fertig ist oder gestoppt wurde.
+          The agent is still working – merge, PR and feedback are possible as soon as it is done or was stopped.
         </p>
       )}
 
@@ -152,29 +152,29 @@ function MergeDialog({
   const conflicts = mergeConflicts(merge.error);
 
   return (
-    <Modal title={`In ${w.base_branch} mergen`} onClose={onClose}>
+    <Modal title={`Merge into ${w.base_branch}`} onClose={onClose}>
       <p>
-        ADE legt im Projekt <strong>{projectName}</strong>
+        In the project <strong>{projectName}</strong>
         {repoPath && (
           <>
             {" "}
             (<code>{repoPath}</code>)
           </>
         )}{" "}
-        einen Merge-Commit von <code>{w.branch}</code> in <code>{w.base_branch}</code> an. Offene Änderungen im Workspace
-        werden vorher committet.
+        ADE creates a merge commit of <code>{w.branch}</code> into <code>{w.base_branch}</code>. Open changes in the workspace
+        are committed first.
       </p>
       <p className="muted">
-        Ist <code>{w.base_branch}</code> dort ausgecheckt, läuft <code>git merge</code> im Arbeitsbaum. Bei Konflikten
-        ändert sich nichts.
+        If <code>{w.base_branch}</code> is checked out there, <code>git merge</code> runs in the working tree. With conflicts
+        nothing changes.
       </p>
       <label className="check">
-        <input type="checkbox" checked={discard} onChange={(e) => setDiscard(e.target.checked)} /> Workspace danach
-        verwerfen
+        <input type="checkbox" checked={discard} onChange={(e) => setDiscard(e.target.checked)} /> Discard the workspace
+        afterwards
       </label>
       {merge.isError &&
         (conflicts.length ? (
-          <Notice tone="warn" title="Konflikte – nichts wurde verändert">
+          <Notice tone="warn" title="Conflicts – nothing was changed">
             <ul className="conflicts">
               {conflicts.map((c) => (
                 <li key={c} className="mono">
@@ -182,17 +182,17 @@ function MergeDialog({
                 </li>
               ))}
             </ul>
-            <p>Per „Feedback geben“ den Agenten bitten, die Änderungen auf den aktuellen Stand anzupassen.</p>
+            <p>Use “Give feedback” to ask the agent to adapt the changes to the current state.</p>
           </Notice>
         ) : (
           <Notice tone="bad">{errorMessage(merge.error)}</Notice>
         ))}
       <div className="actions">
         <button type="button" onClick={onClose}>
-          Abbrechen
+          Cancel
         </button>
         <button type="button" className="primary" disabled={merge.isPending} onClick={() => merge.mutate()}>
-          {merge.isPending ? "Merge läuft …" : "Mergen"}
+          {merge.isPending ? "Merging …" : "Merge"}
         </button>
       </div>
     </Modal>
@@ -217,50 +217,50 @@ function PRDialog({ workspace: w, onClose }: { workspace: Workspace; onClose: ()
   const d = draft.data;
 
   return (
-    <Modal title={existing ? "Pull Request aktualisieren" : "Pull Request erstellen"} onClose={onClose}>
+    <Modal title={existing ? "Update pull request" : "Create pull request"} onClose={onClose}>
       {draft.isPending ? (
-        <p className="muted">Lade Entwurf …</p>
+        <p className="muted">Loading draft …</p>
       ) : draft.isError ? (
         <Notice tone="bad">{errorMessage(draft.error)}</Notice>
       ) : !d?.remote_url ? (
-        <Notice tone="warn" title="Kein Remote">
-          Das Projekt-Repo hat kein Remote <code>{d?.remote ?? "origin"}</code>. Für Pull Requests ein GitHub-Remote
-          einrichten (<code>git remote add origin …</code>).
+        <Notice tone="warn" title="No remote">
+          The project repository has no remote <code>{d?.remote ?? "origin"}</code>. For pull requests, set up a GitHub remote
+          (<code>git remote add origin …</code>).
         </Notice>
       ) : (
         <>
           <p>
-            Der Daemon pusht <code>{w.branch}</code> vom Host nach <code>{d.remote}</code> (<code>{d.remote_url}</code>)
+            The daemon pushes <code>{w.branch}</code> from the host to <code>{d.remote}</code> (<code>{d.remote_url}</code>)
             {existing ? (
               <>
                 {" "}
-                und aktualisiert damit{" "}
+                and thereby updates{" "}
                 <a href={existing} target="_blank" rel="noreferrer">
-                  den bestehenden PR
+                  the existing PR
                 </a>
                 .
               </>
             ) : (
               <>
                 {" "}
-                und erstellt mit <code>gh pr create</code> einen PR gegen <code>{d.base}</code>.
+                and creates a PR against <code>{d.base}</code> with <code>gh pr create</code>.
               </>
             )}{" "}
-            Der Agent selbst hat keine Push-Rechte.
+            The agent itself has no push rights.
           </p>
           {!existing && (
             <form className="startform" onSubmit={(e) => e.preventDefault()}>
               <div className="field wide">
-                <label htmlFor="pr-title">Titel</label>
+                <label htmlFor="pr-title">Title</label>
                 <input id="pr-title" value={title ?? d.title} maxLength={256} onChange={(e) => setTitle(e.target.value)} />
               </div>
               <div className="field wide">
-                <label htmlFor="pr-body">Beschreibung</label>
+                <label htmlFor="pr-body">Description</label>
                 <textarea id="pr-body" rows={12} value={body ?? d.body} onChange={(e) => setBody(e.target.value)} />
               </div>
               <label className="check wide">
-                <input type="checkbox" checked={isDraft} onChange={(e) => setIsDraft(e.target.checked)} /> Als Entwurf
-                (Draft) erstellen
+                <input type="checkbox" checked={isDraft} onChange={(e) => setIsDraft(e.target.checked)} /> Create as
+                draft
               </label>
             </form>
           )}
@@ -269,7 +269,7 @@ function PRDialog({ workspace: w, onClose }: { workspace: Workspace; onClose: ()
       {create.isError && <Notice tone="bad">{errorMessage(create.error)}</Notice>}
       <div className="actions">
         <button type="button" onClick={onClose}>
-          Abbrechen
+          Cancel
         </button>
         <button
           type="button"
@@ -277,7 +277,7 @@ function PRDialog({ workspace: w, onClose }: { workspace: Workspace; onClose: ()
           disabled={create.isPending || !d?.remote_url || (!existing && !(title ?? d.title).trim())}
           onClick={() => create.mutate()}
         >
-          {create.isPending ? "Push läuft …" : existing ? "Pushen" : "Pushen und PR erstellen"}
+          {create.isPending ? "Pushing …" : existing ? "Push" : "Push and create PR"}
         </button>
       </div>
     </Modal>
@@ -296,11 +296,11 @@ function FeedbackDialog({ workspace: w, onClose }: { workspace: Workspace; onClo
     },
   });
   return (
-    <Modal title="Feedback geben" onClose={onClose}>
+    <Modal title="Give feedback" onClose={onClose}>
       <p>
-        Eine neue Agent-Session im selben Workspace bekommt deinen Kommentar und den aktuellen Diff. Ihr Ergebnis landet als
-        weiterer Commit in <code>{w.branch}</code>
-        {w.pr_url ? "; mit „PR aktualisieren“ geht es danach in den Pull Request" : ""}.
+        A new agent session in the same workspace gets your comment and the current diff. Its result ends up as
+        another commit in <code>{w.branch}</code>
+        {w.pr_url ? "; with “Update PR” it then goes into the pull request" : ""}.
       </p>
       <form
         onSubmit={(e) => {
@@ -312,7 +312,7 @@ function FeedbackDialog({ workspace: w, onClose }: { workspace: Workspace; onClo
           rows={8}
           value={comment}
           autoFocus
-          placeholder="Was soll der Agent ändern?"
+          placeholder="What should the agent change?"
           onChange={(e) => setComment(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && comment.trim()) send.mutate();
@@ -321,10 +321,10 @@ function FeedbackDialog({ workspace: w, onClose }: { workspace: Workspace; onClo
         {send.isError && <Notice tone="bad">{errorMessage(send.error)}</Notice>}
         <div className="actions">
           <button type="button" onClick={onClose}>
-            Abbrechen
+            Cancel
           </button>
           <button type="submit" className="primary" disabled={send.isPending || !comment.trim()}>
-            {send.isPending ? "Startet …" : "Agent starten"}
+            {send.isPending ? "Starting …" : "Start agent"}
           </button>
         </div>
       </form>
@@ -348,42 +348,42 @@ function DiscardDialog({
   });
   const live = sessions?.some((s) => s.live);
   return (
-    <Modal title="Workspace verwerfen" onClose={onClose}>
-      <p>Entfernt rückstandsfrei:</p>
+    <Modal title="Discard workspace" onClose={onClose}>
+      <p>Removes without leftovers:</p>
       <ul>
         <li>
-          das Arbeitsverzeichnis <code>{w.path}</code> mit allen nicht gemergten Änderungen,
+          the working directory <code>{w.path}</code> with all unmerged changes,
         </li>
         <li>
-          den Branch <code>{w.branch}</code> im Projekt-Repo,
+          the branch <code>{w.branch}</code> in the project repository,
         </li>
-        <li>Agent-Sessions, Verläufe, Terminal-Logs und IDE-Daten.</li>
+        <li>agent sessions, histories, terminal logs and IDE data.</li>
       </ul>
-      {live && <Notice tone="warn">Laufende Agenten, Terminals und die IDE werden dabei gestoppt.</Notice>}
+      {live && <Notice tone="warn">Running agents, terminals and the IDE are stopped in the process.</Notice>}
       {w.pr_url && (
         <p className="muted">
-          Der gepushte Branch und der{" "}
+          The pushed branch and the{" "}
           <a href={w.pr_url} target="_blank" rel="noreferrer">
-            Pull Request
+            pull request
           </a>{" "}
-          bleiben auf GitHub.
+          stay on GitHub.
         </p>
       )}
-      {w.merge_commit && <p className="muted">Der Merge in {w.base_branch} bleibt erhalten.</p>}
+      {w.merge_commit && <p className="muted">The merge into {w.base_branch} stays.</p>}
       {del.isError && <Notice tone="bad">{errorMessage(del.error)}</Notice>}
       <div className="actions">
         <button type="button" onClick={onClose}>
-          Abbrechen
+          Cancel
         </button>
         <button type="button" className="danger" disabled={del.isPending} onClick={() => del.mutate()}>
-          {del.isPending ? "Wird verworfen …" : "Endgültig verwerfen"}
+          {del.isPending ? "Discarding …" : "Discard for good"}
         </button>
       </div>
     </Modal>
   );
 }
 
-// --- Diff-Ansicht -------------------------------------------------------------------------
+// --- Diff view --------------------------------------------------------------------------
 
 const layoutKey = "ade.diff.sideBySide";
 
@@ -408,7 +408,7 @@ export function DiffView({ workspaceId, diff }: { workspaceId: string; diff: Dif
     try {
       localStorage.setItem(layoutKey, String(v));
     } catch {
-      // Ohne Speicher gilt die Wahl nur für diese Seite.
+      // Without storage the choice only applies to this page.
     }
   };
 
@@ -418,10 +418,10 @@ export function DiffView({ workspaceId, diff }: { workspaceId: string; diff: Dif
         {files.length > 12 && (
           <input
             className="difffilter"
-            placeholder="Dateien filtern …"
+            placeholder="Filter files …"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            aria-label="Dateien filtern"
+            aria-label="Filter files"
           />
         )}
         <ul>
@@ -431,12 +431,12 @@ export function DiffView({ workspaceId, diff }: { workspaceId: string; diff: Dif
                 type="button"
                 className={[f.path === current?.path && "active", (isSensitive(f.path) || (f.old_path && isSensitive(f.old_path))) && "sensitive"].filter(Boolean).join(" ") || undefined}
                 onClick={() => setSelected(f.path)}
-                title={(f.old_path ? `${f.old_path} → ${f.path}` : f.path) + (isSensitive(f.path) || (f.old_path && isSensitive(f.old_path)) ? " – sensibler Pfad (CI/ADE)" : "")}
+                title={(f.old_path ? `${f.old_path} → ${f.path}` : f.path) + (isSensitive(f.path) || (f.old_path && isSensitive(f.old_path)) ? " – sensitive path (CI/ADE)" : "")}
               >
                 <FileStatusBadge status={f.status} />
                 <span className="mono path">{basename(f.path)}</span>
                 <span className="dir mono">{dirname(f.path)}</span>
-                {f.binary ? <span className="muted">binär</span> : <LineStats additions={f.additions} deletions={f.deletions} />}
+                {f.binary ? <span className="muted">binary</span> : <LineStats additions={f.additions} deletions={f.deletions} />}
               </button>
             </li>
           ))}
@@ -455,9 +455,9 @@ export function DiffView({ workspaceId, diff }: { workspaceId: string; diff: Dif
                   current.path
                 )}
               </span>
-              <div className="segmented" role="group" aria-label="Darstellung">
+              <div className="segmented" role="group" aria-label="Layout">
                 <button type="button" className={sideBySide ? "active" : undefined} onClick={() => setLayout(true)}>
-                  Nebeneinander
+                  Side by side
                 </button>
                 <button type="button" className={!sideBySide ? "active" : undefined} onClick={() => setLayout(false)}>
                   Inline
@@ -483,28 +483,28 @@ function FilePane({
   head: string;
   sideBySide: boolean;
 }) {
-  // Inhalte erst bei Auswahl laden; Zeilenzahlen im Schlüssel laden geänderte Dateien neu.
+  // Load contents only when selected; line counts in the key reload changed files.
   const contents = useQuery({
     queryKey: ["file", workspaceId, file.path, file.old_path, head, file.additions, file.deletions],
     queryFn: () => api.file(workspaceId, file.path, file.old_path),
     staleTime: 10_000,
   });
-  if (file.binary) return <p className="muted pad diffnote">Binärdatei – kein Text-Diff.</p>;
-  if (contents.isPending) return <p className="muted pad diffnote">Lade Datei …</p>;
+  if (file.binary) return <p className="muted pad diffnote">Binary file – no text diff.</p>;
+  if (contents.isPending) return <p className="muted pad diffnote">Loading file …</p>;
   if (contents.isError) return <Notice tone="bad">{errorMessage(contents.error)}</Notice>;
   const { original, modified } = contents.data;
   const problem = sideProblem(original) ?? sideProblem(modified);
   if (problem) return <p className="muted pad diffnote">{problem}</p>;
   return (
-    <Suspense fallback={<p className="muted pad diffnote">Lade Editor …</p>}>
+    <Suspense fallback={<p className="muted pad diffnote">Loading editor …</p>}>
       <DiffEditor path={file.path} original={original.text ?? ""} modified={modified.text ?? ""} sideBySide={sideBySide} />
     </Suspense>
   );
 }
 
 function sideProblem(s: FileSide): string | undefined {
-  if (s.too_large) return "Datei zu groß für den Diff-Editor (über 4 MiB).";
-  if (s.binary) return "Binärdatei – kein Text-Diff.";
+  if (s.too_large) return "File too large for the diff editor (over 4 MiB).";
+  if (s.binary) return "Binary file – no text diff.";
   return undefined;
 }
 

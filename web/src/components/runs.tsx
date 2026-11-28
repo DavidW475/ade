@@ -11,12 +11,12 @@ import { Badge, Notice } from "./ui";
 type Tone = "ok" | "warn" | "bad" | "busy" | "neutral";
 
 const runLabels: Record<RunStatus, [string, Tone]> = {
-  running: ["läuft", "busy"],
-  waiting: ["wartet auf Freigabe", "warn"],
-  paused: ["pausiert (Budget)", "warn"],
-  done: ["fertig", "ok"],
-  failed: ["fehlgeschlagen", "bad"],
-  canceled: ["abgebrochen", "neutral"],
+  running: ["running", "busy"],
+  waiting: ["waiting for approval", "warn"],
+  paused: ["paused (budget)", "warn"],
+  done: ["done", "ok"],
+  failed: ["failed", "bad"],
+  canceled: ["canceled", "neutral"],
 };
 
 export function RunStatusBadge({ status }: { status: RunStatus }) {
@@ -25,14 +25,14 @@ export function RunStatusBadge({ status }: { status: RunStatus }) {
 }
 
 const stepLabels: Record<StepStatus, [string, Tone]> = {
-  pending: ["offen", "neutral"],
-  running: ["läuft", "busy"],
-  waiting: ["wartet", "warn"],
-  done: ["erledigt", "ok"],
-  failed: ["fehlgeschlagen", "bad"],
-  canceled: ["abgebrochen", "neutral"],
-  skipped: ["übersprungen", "neutral"],
-  looped: ["zurückgesprungen", "warn"],
+  pending: ["pending", "neutral"],
+  running: ["running", "busy"],
+  waiting: ["waiting", "warn"],
+  done: ["done", "ok"],
+  failed: ["failed", "bad"],
+  canceled: ["canceled", "neutral"],
+  skipped: ["skipped", "neutral"],
+  looped: ["jumped back", "warn"],
 };
 
 export function StepStatusBadge({ status }: { status: StepStatus }) {
@@ -41,19 +41,19 @@ export function StepStatusBadge({ status }: { status: StepStatus }) {
 }
 
 function stepKindLabel(st: Pick<RunStep, "kind" | "role" | "read_only">): string {
-  if (st.kind === "gate") return "Freigabe";
-  if (st.kind === "action") return "Pull Request";
-  if (st.kind === "decision") return "Entscheidung";
-  return `${st.role ?? "Rolle"}${st.read_only ? " · lesend" : ""}`;
+  if (st.kind === "gate") return "approval";
+  if (st.kind === "action") return "pull request";
+  if (st.kind === "decision") return "decision";
+  return `${st.role ?? "role"}${st.read_only ? " · read-only" : ""}`;
 }
 
-/** Aktueller Schritt eines laufenden Runs, kurz. */
+/** Current step of a running run, short. */
 function currentStep(r: Run): string {
   const st = r.steps[r.current];
   return st ? `${st.name} (${stepKindLabel(st)})` : "";
 }
 
-/** Positionen des Ablaufs in Einheiten: ein Schritt oder eine parallele Gruppe. */
+/** Positions of the flow in units: one step or a parallel group. */
 function units(steps: RunStep[]): RunStep[][] {
   const out: RunStep[][] = [];
   for (const st of steps) {
@@ -68,29 +68,29 @@ function kindIcon(st: RunStep): string {
   return st.kind === "gate" ? "◆" : st.kind === "action" ? "⇪" : st.kind === "decision" ? "↺" : st.read_only ? "◎" : "●";
 }
 
-/** Bedingung und Rücksprung eines Schritts, kurz (für Pipeline und Startdialog). */
+/** Condition and jump back of a step, short (for pipeline and start dialog). */
 export function PlanNote({ step, plan }: { step: Pick<RunStep, "kind">; plan?: StepPlan }) {
   if (!plan) return null;
   return (
     <>
       {plan.when && step.kind !== "decision" && (
-        <span className="pcond" title="Bedingung: sonst übersprungen">
-          wenn <code>{plan.when}</code>
+        <span className="pcond" title="Condition: otherwise skipped">
+          if <code>{plan.when}</code>
         </span>
       )}
       {plan.goto && step.kind === "decision" && (
-        <span className="pcond loop" title={`höchstens ${plan.max_iterations ?? "?"} Durchläufe`}>
-          ↺ zurück zu <strong>{plan.goto}</strong>
+        <span className="pcond loop" title={`at most ${plan.max_iterations ?? "?"} passes`}>
+          ↺ back to <strong>{plan.goto}</strong>
           {plan.when && (
             <>
-              , wenn <code>{plan.when}</code>
+              , if <code>{plan.when}</code>
             </>
           )}
         </span>
       )}
       {plan.goto && step.kind === "gate" && (
-        <span className="pcond loop" title={`höchstens ${plan.max_iterations ?? "?"} Durchläufe`}>
-          Ablehnen ↺ zurück zu <strong>{plan.goto}</strong>
+        <span className="pcond loop" title={`at most ${plan.max_iterations ?? "?"} passes`}>
+          Deny ↺ back to <strong>{plan.goto}</strong>
         </span>
       )}
     </>
@@ -110,7 +110,7 @@ function PipelineStep({ run, st, selected, onSelect }: { run: Run; st: RunStep; 
         <span className="pname">
           {st.name}
           {st.iteration > 1 && (
-            <span className="piter" title={`Durchlauf ${st.iteration}`}>
+            <span className="piter" title={`pass ${st.iteration}`}>
               {" "}
               ×{st.iteration}
             </span>
@@ -124,10 +124,10 @@ function PipelineStep({ run, st, selected, onSelect }: { run: Run; st: RunStep; 
   );
 }
 
-/** Pipeline-Ansicht: Schritte in Reihenfolge, parallele Gruppen nebeneinander, Bedingungen und Rücksprünge. */
+/** Pipeline view: steps in order, parallel groups side by side, conditions and jumps back. */
 export function Pipeline({ run, selected, onSelect }: { run: Run; selected?: number; onSelect?: (i: number) => void }) {
   return (
-    <ol className="pipeline" aria-label="Schritte">
+    <ol className="pipeline" aria-label="Steps">
       {units(run.steps).map((u) => {
         const [first] = u;
         if (!first) return null;
@@ -136,7 +136,7 @@ export function Pipeline({ run, selected, onSelect }: { run: Run; selected?: num
             <PipelineStep run={run} st={first} selected={selected} onSelect={onSelect} />
           </li>
         ) : (
-          <li key={first.index} className="punit pgroup" aria-label="parallele Gruppe">
+          <li key={first.index} className="punit pgroup" aria-label="parallel group">
             <span className="pgrouplabel">parallel</span>
             <div className="pgroupmembers">
               {u.map((st) => (
@@ -150,7 +150,7 @@ export function Pipeline({ run, selected, onSelect }: { run: Run; selected?: num
   );
 }
 
-/** Auslöser eines Runs: Name und Verweis (Issue-Link oder Termin). */
+/** Trigger of a run: name and reference (issue link or date). */
 export function RunTrigger({ run }: { run: Pick<Run, "trigger" | "trigger_ref" | "closes"> }) {
   if (!run.trigger) return null;
   const ref = run.trigger_ref ?? "";
@@ -178,12 +178,12 @@ export function RunTable({ runs, showProject = false }: { runs: Run[]; showProje
         <thead>
           <tr>
             <th>Run</th>
-            <th>Fabrik</th>
+            <th>Factory</th>
             <th>Status</th>
-            <th>Schritt</th>
-            {showProject && <th>Projekt</th>}
-            <th>Kosten</th>
-            <th>Gestartet</th>
+            <th>Step</th>
+            {showProject && <th>Project</th>}
+            <th>Costs</th>
+            <th>Started</th>
           </tr>
         </thead>
         <tbody>
@@ -238,7 +238,7 @@ export function StartRunForm({ projectId, onCancel }: { projectId: string; onCan
   const usable = (factories.data ?? []).filter((f) => !f.error);
   const broken = (factories.data ?? []).filter((f) => f.error);
   const chosen = usable.find((f) => f.name === name) ?? usable.find((f) => f.name === "feature") ?? usable[0];
-  // Weitere Eingaben der Fabrik neben task (z. B. branch bei review-only).
+  // Further inputs of the factory besides task (e.g. branch for review-only).
   const extra = Object.entries(chosen?.inputs ?? {})
     .filter(([k]) => k !== "task")
     .sort(([a], [b]) => a.localeCompare(b));
@@ -267,12 +267,12 @@ export function StartRunForm({ projectId, onCancel }: { projectId: string; onCan
   return (
     <form className="panel startform" onSubmit={submit}>
       <div className="field">
-        <label htmlFor="sr-factory">Fabrik</label>
+        <label htmlFor="sr-factory">Factory</label>
         <select id="sr-factory" value={chosen?.name ?? ""} onChange={(e) => setName(e.target.value)}>
           {usable.map((f) => (
             <option key={f.name} value={f.name}>
               {f.name}
-              {f.source === "builtin" ? " (Vorlage)" : ""}
+              {f.source === "builtin" ? " (template)" : ""}
             </option>
           ))}
         </select>
@@ -281,22 +281,22 @@ export function StartRunForm({ projectId, onCancel }: { projectId: string; onCan
         {chosen?.description && <p className="hint">{chosen.description}</p>}
         {chosen?.steps && (
           <p className="hint">
-            {chosen.steps.map((s) => (s.kind === "gate" ? `◆ ${s.name}` : s.kind === "action" ? "⇪ PR" : s.kind === "decision" ? `↺ ${s.name}` : `${s.role}${s.read_only ? " (lesend)" : ""}`)).join(" → ")}
+            {chosen.steps.map((s) => (s.kind === "gate" ? `◆ ${s.name}` : s.kind === "action" ? "⇪ PR" : s.kind === "decision" ? `↺ ${s.name}` : `${s.role}${s.read_only ? " (read-only)" : ""}`)).join(" → ")}
           </p>
         )}
         {broken.map((f) => (
-          <Notice key={f.name} tone="warn" title={`Fabrik ${f.name} ist ungültig`}>
+          <Notice key={f.name} tone="warn" title={`Factory ${f.name} is invalid`}>
             <code>{f.error}</code>
           </Notice>
         ))}
       </div>
       <div className="field wide">
-        <label htmlFor="sr-task">Aufgabe</label>
+        <label htmlFor="sr-task">Task</label>
         <textarea
           id="sr-task"
           rows={5}
           required
-          placeholder="Was soll die Fabrik bauen?"
+          placeholder="What should the factory build?"
           value={task}
           onChange={(e) => setTask(e.target.value)}
           onKeyDown={(e) => {
@@ -308,14 +308,14 @@ export function StartRunForm({ projectId, onCancel }: { projectId: string; onCan
         <div className="field wide" key={`${chosen?.name}-${k}`}>
           <label htmlFor={`sr-in-${k}`}>
             {k}
-            {def.type === "branch" ? " (Branch)" : ""}
+            {def.type === "branch" ? " (branch)" : ""}
             {def.required ? "" : " – optional"}
           </label>
           <input
             id={`sr-in-${k}`}
             className={def.type === "branch" ? "mono" : undefined}
             required={def.required}
-            placeholder={def.description ?? (def.type === "branch" ? "Standard: Basis-Branch des Projekts" : "")}
+            placeholder={def.description ?? (def.type === "branch" ? "default: base branch of the project" : "")}
             value={inputs[k] ?? ""}
             onChange={(e) => setInputs({ ...inputs, [k]: e.target.value })}
           />
@@ -324,9 +324,9 @@ export function StartRunForm({ projectId, onCancel }: { projectId: string; onCan
       <div className="field wide">
         <SandboxToggle id="sr-sandbox" checked={sandbox} onChange={setSandbox} info={sandboxInfo.data} />
         <p className="hint">
-          Alle Rollen arbeiten im selben neuen Workspace (nacheinander oder, bei parallelen Schritten, gleichzeitig). Lese-Rollen (Planer, Reviewer) sehen ihn nur lesend: in der Sandbox
-          in einem eigenen Container mit nur lesend gemountetem <code>/workspace</code>, ohne Sandbox in einer Kopie, deren Änderungen
-          verworfen werden.
+          All roles work in the same new workspace (one after another or, for parallel steps, at the same time). Read-only roles (planner, reviewer) only see it read-only: in the sandbox
+          in their own container with <code>/workspace</code> mounted read-only, without a sandbox in a copy whose changes
+          are discarded.
         </p>
       </div>
       {factories.isError && (
@@ -342,11 +342,11 @@ export function StartRunForm({ projectId, onCancel }: { projectId: string; onCan
       <div className="actions wide">
         {onCancel && (
           <button type="button" onClick={onCancel}>
-            Abbrechen
+            Cancel
           </button>
         )}
         <button type="submit" className="primary" disabled={!chosen || !task.trim() || missing || start.isPending}>
-          {start.isPending ? "Starte …" : "Run starten"}
+          {start.isPending ? "Starting …" : "Start run"}
         </button>
       </div>
     </form>
@@ -358,7 +358,7 @@ export function StartRun({ projectId, disabled }: { projectId: string; disabled?
   if (!open)
     return (
       <button type="button" className="primary" disabled={disabled} onClick={() => setOpen(true)}>
-        Run starten
+        Start run
       </button>
     );
   return (
@@ -368,7 +368,7 @@ export function StartRun({ projectId, disabled }: { projectId: string; disabled?
   );
 }
 
-/** Formatiert JSON eingerückt; null, wenn der Text kein JSON ist. */
+/** Formats JSON indented; null if the text is not JSON. */
 function prettyJSON(text: string): string | null {
   const t = text.trim();
   if (!t.startsWith("{") && !t.startsWith("[")) return null;
@@ -379,16 +379,16 @@ function prettyJSON(text: string): string | null {
   }
 }
 
-/** Inhalt eines Artefakts als Text (Markdown wird nicht gerendert: Inhalt stammt vom Agenten); JSON eingerückt. */
+/** Content of an artifact as text (Markdown is not rendered: the content comes from the agent); JSON indented. */
 export function ArtifactView({ runId, name, iteration }: { runId: string; name: string; iteration?: number }) {
   const q = useQuery({ queryKey: ["artifact", runId, name, iteration ?? 0], queryFn: () => api.artifact(runId, name, iteration) });
-  if (q.isPending) return <p className="muted">Lade {name} …</p>;
+  if (q.isPending) return <p className="muted">Loading {name} …</p>;
   if (q.isError) return <Notice tone="bad">{errorMessage(q.error)}</Notice>;
   const json = prettyJSON(q.data);
   if (json === null && name.endsWith(".json")) {
     return (
       <>
-        <Notice tone="warn">Kein gültiges JSON – roh angezeigt.</Notice>
+        <Notice tone="warn">Not valid JSON – shown raw.</Notice>
         <pre className="artifact">{q.data}</pre>
       </>
     );
@@ -396,17 +396,17 @@ export function ArtifactView({ runId, name, iteration }: { runId: string; name: 
   return <pre className={`artifact ${json !== null ? "json" : ""}`}>{json ?? q.data}</pre>;
 }
 
-/** Artefakt mit Auswahl des Durchlaufs (jüngster Stand vorausgewählt). */
+/** Artifact with a choice of the pass (latest version preselected). */
 export function ArtifactVersions({ runId, artifact }: { runId: string; artifact: Run["artifacts"][number] }) {
   const its = artifact.iterations ?? [];
   const [it, setIt] = useState<number | undefined>(undefined);
   return (
     <>
       {its.length > 1 && (
-        <div className="itertabs" role="group" aria-label="Durchlauf">
+        <div className="itertabs" role="group" aria-label="Pass">
           {its.map((n) => (
             <button key={n} type="button" className={(it ?? its[its.length - 1]) === n ? "active" : ""} onClick={() => setIt(n)}>
-              Durchlauf {n}
+              Pass {n}
             </button>
           ))}
         </div>

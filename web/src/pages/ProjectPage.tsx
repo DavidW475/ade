@@ -104,7 +104,7 @@ export function ProjectPage() {
         <div className="empty">
           <p>No runs yet.</p>
           <p className="muted">
-            A run runs several role agents one after another – the factory <code>feature</code> ships with ADE, own ones live in{" "}
+            A run executes several role agents one after another – the factory <code>feature</code> ships with ADE, own ones live in{" "}
             <code>.ade/factories/</code>.
           </p>
         </div>
