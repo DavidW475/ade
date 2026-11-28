@@ -137,7 +137,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			continue
 		}
 		if err := s.apply(ctx, m); err != nil {
-			return fmt.Errorf("Migration %s: %w", m.name, err)
+			return fmt.Errorf("migration %s: %w", m.name, err)
 		}
 	}
 	return nil

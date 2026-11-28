@@ -43,7 +43,7 @@ func (f inputFlags) String() string { return "" }
 func (f inputFlags) Set(v string) error {
 	k, val, ok := strings.Cut(v, "=")
 	if !ok || k == "" {
-		return errors.New("Format NAME=WERT")
+		return errors.New("format NAME=VALUE")
 	}
 	f[k] = val
 	return nil
@@ -169,7 +169,7 @@ func waitRun(c *daemon.Client, id string, stdout io.Writer) error {
 			}
 			return nil
 		case store.RunFailed, store.RunCanceled:
-			return fmt.Errorf("Run %s: %s", v.Status, v.Error)
+			return fmt.Errorf("run %s: %s", v.Status, v.Error)
 		}
 		time.Sleep(2 * time.Second)
 	}

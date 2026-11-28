@@ -227,7 +227,7 @@ func TestGitHubIssues(t *testing.T) {
 	if _, err := e.svc.SetPaused(e.ctx, e.p.ID, "features", true); err != nil {
 		t.Fatal(err)
 	}
-	e.gh.issues(t, issueJSON(11, "Neu", "alice"))
+	e.gh.issues(t, issueJSON(11, "New", "alice"))
 	e.now = e.now.Add(time.Hour)
 	e.svc.Check(e.ctx)
 	if len(e.runs.reqs) != 2 {
@@ -245,7 +245,7 @@ func TestGitHubIssuesErrors(t *testing.T) {
 	e.svc.Check(e.ctx)
 	st, _ := e.st.GetTriggerState(e.ctx, e.p.ID, "features")
 	if !strings.Contains(st.LastError, "issue #1: factory feature has no budget") {
-		t.Fatalf("Fehler %q", st.LastError)
+		t.Fatalf("error %q", st.LastError)
 	}
 	// A failed start is retried next time.
 	e.runs.err = nil
@@ -261,7 +261,7 @@ func TestGitHubIssuesErrors(t *testing.T) {
 	e.svc.Check(e.ctx)
 	st, _ = e.st.GetTriggerState(e.ctx, e.p.ID, "features")
 	if !strings.Contains(st.LastError, "not readable") {
-		t.Fatalf("Fehler %q", st.LastError)
+		t.Fatalf("error %q", st.LastError)
 	}
 }
 

@@ -75,7 +75,7 @@ func (s *Store) CreateWorkspace(ctx context.Context, w *Workspace) error {
 		return apperr.NotFound("project %s not found", w.ProjectID)
 	}
 	if err != nil {
-		return fmt.Errorf("Workspace speichern: %w", err)
+		return fmt.Errorf("store workspace: %w", err)
 	}
 	got, err := s.GetWorkspace(ctx, w.ID)
 	if err != nil {

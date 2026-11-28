@@ -106,7 +106,7 @@ func TestPreToolUseLocal(t *testing.T) {
 	}()
 	p := f.pending(t)
 	if p.Kind != store.ApprovalTool || p.SessionID != "sl" || p.Title != "Bash: make test" || p.Sandbox {
-		t.Fatalf("Freigabe %+v", p)
+		t.Fatalf("approval %+v", p)
 	}
 	select {
 	case a := <-done:
@@ -120,7 +120,7 @@ func TestPreToolUseLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	if a := <-done; a.Decision != proxy.AnswerAllow {
-		t.Fatalf("Antwort %+v", a)
+		t.Fatalf("answer %+v", a)
 	}
 	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionDeny, ""); !errors.Is(err, apperr.ErrConflict) {
 		t.Fatalf("second decision: %v", err)
@@ -135,7 +135,7 @@ func TestPreToolUseLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	if a := <-done; a.Decision != proxy.AnswerDeny || !strings.Contains(a.Reason, "please make clean") {
-		t.Fatalf("Antwort %+v", a)
+		t.Fatalf("answer %+v", a)
 	}
 
 	// If the agent no longer waits, the approval is canceled.
@@ -220,13 +220,13 @@ func TestTimeoutAndRecover(t *testing.T) {
 	}
 
 	// Pending approvals of an earlier run count as expired after the restart.
-	if err := f.st.CreateApproval(ctx, &store.Approval{ID: "alt", Kind: store.ApprovalTool, ProjectID: "p1", WorkspaceID: "wl", Title: "x", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+	if err := f.st.CreateApproval(ctx, &store.Approval{ID: "old", Kind: store.ApprovalTool, ProjectID: "p1", WorkspaceID: "wl", Title: "x", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.svc.Recover(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := f.svc.Get(ctx, "alt"); got.Status != store.ApprovalExpired {
+	if got, _ := f.svc.Get(ctx, "old"); got.Status != store.ApprovalExpired {
 		t.Fatalf("Status %s", got.Status)
 	}
 }
@@ -250,14 +250,14 @@ func TestEgress(t *testing.T) {
 		t.Fatalf("%d pending approvals", len(as))
 	}
 	if p.Kind != store.ApprovalEgress || p.Title != "pypi.org:443" || !p.Sandbox {
-		t.Fatalf("Freigabe %+v", p)
+		t.Fatalf("approval %+v", p)
 	}
 	if _, err := f.svc.Decide(ctx, p.ID, store.DecisionAllowProject, ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, ch := range []<-chan proxy.Answer{a1, a2} {
 		if a := <-ch; a.Decision != proxy.AnswerAllow {
-			t.Fatalf("Antwort %+v", a)
+			t.Fatalf("answer %+v", a)
 		}
 	}
 	gs, _ := f.st.ListEgressGrants(ctx, "p1", "")
@@ -286,7 +286,7 @@ func TestEgress(t *testing.T) {
 	p = f.pending(t)
 	cancel()
 	if a := <-a4; a.Decision != proxy.AnswerDeny {
-		t.Fatalf("Antwort %+v", a)
+		t.Fatalf("answer %+v", a)
 	}
 	if got, _ := f.svc.Get(ctx, p.ID); got.Status != store.ApprovalPending {
 		t.Fatalf("Status %s", got.Status)

@@ -66,7 +66,7 @@ func TestRunsAPI(t *testing.T) {
 	t.Cleanup(srv.Close)
 	a := &agentServer{srv: srv, handler: h, base: "http://localhost:" + port, project: p.ID, st: st}
 
-	// Ohne Anmeldung nichts.
+	// Nothing without login.
 	req, _ := http.NewRequest(http.MethodGet, a.base+"/api/runs", nil)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {

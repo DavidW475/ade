@@ -502,7 +502,7 @@ func TestRunUnattendedSensitive(t *testing.T) {
 	e.decide(st3.ApprovalID, store.DecisionDeny, "nein")
 	waitFor(t, "run 3 canceled", func() bool { return e.run(v3.ID).Status == store.RunCanceled })
 	if got, _ := e.ws.Get(e.ctx, v3.WorkspaceID); got.PRURL != "" {
-		t.Fatal("PR trotz Ablehnung")
+		t.Fatal("PR despite denial")
 	}
 }
 
@@ -776,7 +776,7 @@ func TestRunParallelRestart(t *testing.T) {
 func TestRunParallelFailure(t *testing.T) {
 	e := setup(t)
 	e.answer("review", `{"verdict": "approve", "comments": []}`)
-	e.answer("test", "kaputt", "kaputt", "kaputt")
+	e.answer("test", "broken", "broken", "broken")
 	v, err := e.runner.Start(e.ctx, StartRequest{ProjectID: e.project.ID, Factory: "p", Task: "Baue P"})
 	if err != nil {
 		t.Fatal(err)

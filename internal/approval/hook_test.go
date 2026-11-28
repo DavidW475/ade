@@ -18,10 +18,10 @@ func runHook(t *testing.T, input string, env map[string]string) (decision, reaso
 	_ = RunHook(context.Background(), strings.NewReader(input), &out, func(k string) string { return env[k] }, nil)
 	var o hookOutput
 	if err := json.Unmarshal(out.Bytes(), &o); err != nil {
-		t.Fatalf("Ausgabe %q: %v", out.String(), err)
+		t.Fatalf("output %q: %v", out.String(), err)
 	}
 	if o.HookSpecificOutput.HookEventName != "PreToolUse" {
-		t.Fatalf("Ausgabe %q", out.String())
+		t.Fatalf("output %q", out.String())
 	}
 	return o.HookSpecificOutput.PermissionDecision, o.HookSpecificOutput.PermissionDecisionReason
 }

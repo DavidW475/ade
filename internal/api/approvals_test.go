@@ -67,7 +67,7 @@ func TestApprovalRoutes(t *testing.T) {
 		}
 	}
 	tok := svc.IssueToken("s1")
-	if w := hook(tok, "kaputt"); w.Code != http.StatusBadRequest {
+	if w := hook(tok, "broken"); w.Code != http.StatusBadRequest {
 		t.Errorf("kaputter Body: %d", w.Code)
 	}
 

@@ -60,7 +60,7 @@ func cmdGC(args []string, stdout, stderr io.Writer) error {
 		verb = "would remove"
 	}
 	if len(removed) == 0 {
-		_, _ = fmt.Fprintln(stdout, "Keine verwaisten Sandbox-Container.")
+		_, _ = fmt.Fprintln(stdout, "No orphaned sandbox containers.")
 		return nil
 	}
 	for _, ct := range removed {

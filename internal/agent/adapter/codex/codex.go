@@ -59,7 +59,7 @@ func (a *Adapter) Capabilities() adapter.Capabilities {
 	return adapter.Capabilities{Resume: true}
 }
 
-// Command implementiert adapter.Adapter.
+// Command implements adapter.Adapter.
 func (a *Adapter) Command(spec adapter.Spec) (*adapter.Cmd, error) {
 	bin := a.Binary
 	if bin == "" {
@@ -178,7 +178,7 @@ type item struct {
 // maxLine limits an output line (large command output).
 const maxLine = 64 << 20
 
-// Parse implementiert adapter.Adapter.
+// Parse implements adapter.Adapter.
 func (a *Adapter) Parse(r io.Reader, sink adapter.Sink) error {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64<<10), maxLine)

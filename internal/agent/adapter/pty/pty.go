@@ -22,7 +22,7 @@ func New() *Adapter { return &Adapter{} }
 // Name implements adapter.Adapter.
 func (*Adapter) Name() string { return "pty" }
 
-// Capabilities implementiert adapter.Adapter.
+// Capabilities implements adapter.Adapter.
 func (*Adapter) Capabilities() adapter.Capabilities { return adapter.Capabilities{Terminal: true} }
 
 // Command implements adapter.Adapter. Without a command the user's login shell starts,

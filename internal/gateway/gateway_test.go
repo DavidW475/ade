@@ -105,7 +105,7 @@ func upstream(t *testing.T, s *seen) *url.URL {
 func setup(t *testing.T) (*Gateway, *fakeAuth, *fakeIDEs, *seen) {
 	t.Helper()
 	s := &seen{}
-	auth := &fakeAuth{tickets: map[string]string{"t1": "abc", "t2": "andere"}, sessions: map[string]string{}}
+	auth := &fakeAuth{tickets: map[string]string{"t1": "abc", "t2": "other"}, sessions: map[string]string{}}
 	ides := &fakeIDEs{url: upstream(t, s)}
 	g := New(Options{Auth: auth, IDEs: ides, DashboardURL: "http://localhost:7000/", Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	return g, auth, ides, s
@@ -143,7 +143,7 @@ func TestWorkspaceFromHost(t *testing.T) {
 
 func TestRequiresSession(t *testing.T) {
 	g, auth, ides, _ := setup(t)
-	auth.sessions["fremd"] = "andere"
+	auth.sessions["foreign"] = "other"
 
 	for name, cookies := range map[string][]*http.Cookie{
 		"without cookie":  nil,

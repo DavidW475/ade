@@ -207,7 +207,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 	})
-	s.opts.Logger.Info("Browser angemeldet", "remote", r.RemoteAddr)
+	s.opts.Logger.Info("browser logged in", "remote", r.RemoteAddr)
 	// The redirect removes the ticket from the address bar and the history.
 	http.Redirect(w, r, safeNext(r.URL.Query().Get("next")), http.StatusSeeOther) //nolint:gosec // G710: safeNext only allows local paths
 }

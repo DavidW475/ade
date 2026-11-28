@@ -471,7 +471,7 @@ func TestControlAPI(t *testing.T) {
 		t.Fatalf("after after=1: %+v %v", r, err)
 	}
 	// Another boot: from the start.
-	r, err = c.Events(context.Background(), "alt", 1, 0)
+	r, err = c.Events(context.Background(), "old", 1, 0)
 	if err != nil || len(r.Events) != 1 {
 		t.Fatalf("other boot: %+v %v", r, err)
 	}

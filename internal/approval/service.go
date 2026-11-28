@@ -430,7 +430,7 @@ func (s *Service) PreToolUse(ctx context.Context, req HookRequest) proxy.Answer 
 	res, err := s.wait(ctx, a.ID)
 	if err != nil {
 		_, _ = s.finish(context.Background(), a.ID, store.ApprovalCanceled, "", "agent no longer waits")
-		return deny("abgebrochen")
+		return deny("canceled")
 	}
 	return answerFor(res)
 }
@@ -448,9 +448,9 @@ func answerFor(a *store.Approval) proxy.Answer {
 	case a.Status == store.ApprovalDenied:
 		return deny("denied in the dashboard")
 	case a.Status == store.ApprovalExpired:
-		return deny("abgelehnt, %s", a.Reason)
+		return deny("denied, %s", a.Reason)
 	}
-	return deny("Freigabe %s", a.Status)
+	return deny("approval %s", a.Status)
 }
 
 // toolTitle is a short description of a call.

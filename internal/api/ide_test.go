@@ -182,7 +182,7 @@ func TestIDEOnlyWithSession(t *testing.T) {
 	// Without IDE cookie: locked – even with a dashboard cookie or the daemon secret.
 	dash, _ := x.auth.Redeem(x.auth.NewTicket())
 	for name, mod := range map[string]func(*http.Request){
-		"ohne":             nil,
+		"without":          nil,
 		"dashboard cookie": func(r *http.Request) { r.AddCookie(&http.Cookie{Name: SessionCookie, Value: dash}) },
 		"Daemon-Secret":    func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+testSecret) },
 	} {
@@ -252,7 +252,7 @@ func TestIDEOnlyWithSession(t *testing.T) {
 			r.Header.Set("Origin", origin)
 		}))
 		if w.Code != want {
-			t.Errorf("WebSocket von %s: %d, want %d", origin, w.Code, want)
+			t.Errorf("WebSocket from %s: %d, want %d", origin, w.Code, want)
 		}
 	}
 

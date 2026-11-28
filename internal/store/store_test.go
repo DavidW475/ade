@@ -70,7 +70,7 @@ func TestOpenMakesDatabasePrivate(t *testing.T) {
 			t.Fatal(err)
 		}
 		if m := fi.Mode().Perm(); m != 0o600 {
-			t.Errorf("%s: Rechte %o, want 600", filepath.Base(p), m)
+			t.Errorf("%s: permissions %o, want 600", filepath.Base(p), m)
 		}
 	}
 }

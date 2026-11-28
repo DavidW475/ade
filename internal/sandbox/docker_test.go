@@ -168,7 +168,7 @@ func TestContainerIsolation(t *testing.T) {
 func TestReaderContainer(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
-	if err := os.WriteFile(filepath.Join(e.path, "plan.txt"), []byte("lesbar\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(e.path, "plan.txt"), []byte("readable\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.m.EnsureReader(ctx, e.spec); err != nil {
@@ -187,15 +187,15 @@ func TestReaderContainer(t *testing.T) {
 		out, err := e.m.Command(ctx, e.ws, sandbox.Exec{Argv: []string{"sh", "-c", script}, Reader: true}).CombinedOutput()
 		return strings.TrimSpace(string(out)), err
 	}
-	if out, err := run("cat /workspace/plan.txt"); err != nil || out != "lesbar" {
-		t.Fatalf("Lesen: %q, %v", out, err)
+	if out, err := run("cat /workspace/plan.txt"); err != nil || out != "readable" {
+		t.Fatalf("reading: %q, %v", out, err)
 	}
 	for _, script := range []string{"echo x > /workspace/new", "rm /workspace/plan.txt", "mkdir /workspace/d", "touch /workspace/plan.txt"} {
 		if out, err := run(script); err == nil {
 			t.Errorf("%s succeeded in the reader container: %s", script, out)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(e.path, "neu")); err == nil {
+	if _, err := os.Stat(filepath.Join(e.path, "new")); err == nil {
 		t.Fatal("file from the reader container in the workspace")
 	}
 	// Outside /workspace the container's file system stays writable (HOME of the CLI in the
@@ -235,7 +235,7 @@ func TestSignalByMarker(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	time.Sleep(500 * time.Millisecond)
-	// Eine andere Markierung trifft nichts.
+	// Another marker hits nothing.
 	if err := e.m.Signal(context.Background(), e.ws, "ADE_SESSION_ID=anders", syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestWorkspaceGitConfigDoesNotRunOnHost(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(e.path, ".gitattributes"), []byte("* filter=evil\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(e.path, "datei.txt"), []byte("inhalt\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(e.path, "file.txt"), []byte("content\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -295,7 +295,7 @@ func TestWorkspaceGitConfigDoesNotRunOnHost(t *testing.T) {
 	if len(d.Files) != 2 {
 		t.Errorf("Diff: %+v", d.Files)
 	}
-	if _, ok, err := git.WorktreeBlob(ctx, wt, "datei.txt"); err != nil || !ok {
+	if _, ok, err := git.WorktreeBlob(ctx, wt, "file.txt"); err != nil || !ok {
 		t.Errorf("WorktreeBlob: %v %v", ok, err)
 	}
 	committed, err := git.CommitAll(ctx, wt, "ade: wip test")
@@ -471,7 +471,7 @@ func TestIDEForward(t *testing.T) {
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("IDE-Weiterleitung: %v", err)
+			t.Fatalf("IDE forwarding: %v", err)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}

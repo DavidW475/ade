@@ -89,7 +89,7 @@ func TestInstallScript(t *testing.T) {
 		t.Fatalf("Binary: %v, %v", fi, err)
 	}
 	if _, err := os.Stat(filepath.Join(target, "LICENSE")); err == nil {
-		t.Error("LICENSE mitinstalliert")
+		t.Error("LICENSE installed as well")
 	}
 	// A second run replaces the binary.
 	if out, err := runInstall(t, release, target); err != nil {

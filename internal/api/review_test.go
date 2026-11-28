@@ -37,7 +37,7 @@ func TestReviewRoutes(t *testing.T) {
 	api(t, s, "POST", "/api/projects/"+p.ID+"/workspaces", "", http.StatusCreated, &ws)
 	base := "/api/workspaces/" + ws.ID
 
-	// Alle Review-Routen brauchen Anmeldung.
+	// All review routes need a login.
 	for _, rt := range [][2]string{
 		{"GET", base + "/file?path=a.txt"}, {"POST", base + "/collect"}, {"POST", base + "/merge"},
 		{"GET", base + "/pull-request"}, {"POST", base + "/pull-request"},

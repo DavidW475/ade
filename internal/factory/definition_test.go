@@ -100,7 +100,7 @@ func TestParseValid(t *testing.T) {
 		t.Fatal(err)
 	}
 	if f.Roles["b"].Adapter != "claude" || f.Roles["b"].Permissions != PermWrite {
-		t.Fatalf("Voreinstellungen: %+v", f.Roles["b"])
+		t.Fatalf("defaults: %+v", f.Roles["b"])
 	}
 }
 
@@ -211,7 +211,7 @@ func TestLoadProject(t *testing.T) {
 	dir := filepath.Join(repo, Dir)
 	writeFile(t, filepath.Join(dir, "feature.yaml"), strings.Replace(minimal, "name: x", "name: feature", 1)+"description: own\n")
 	writeFile(t, filepath.Join(dir, "p.yaml"), "name: p\nroles:\n  a: { prompt: prompts/a.md }\nflow:\n  - { step: s, role: a }\n")
-	writeFile(t, filepath.Join(dir, "prompts", "a.md"), "  Hallo  \n")
+	writeFile(t, filepath.Join(dir, "prompts", "a.md"), "  Hello  \n")
 	writeFile(t, filepath.Join(dir, "broken.yaml"), "name: broken\n")
 	writeFile(t, filepath.Join(repo, "geheim.md"), "geheim")
 	if err := os.Symlink(filepath.Join(repo, "geheim.md"), filepath.Join(dir, "prompts", "link.md")); err != nil {
@@ -224,7 +224,7 @@ func TestLoadProject(t *testing.T) {
 		t.Fatalf("own factory instead of template: %v %s %+v", err, src, f)
 	}
 	p, _, err := Load(repo, "p")
-	if err != nil || p.Roles["a"].PromptText != "Hallo" {
+	if err != nil || p.Roles["a"].PromptText != "Hello" {
 		t.Fatalf("Prompt: %v %+v", err, p)
 	}
 	if _, _, err := Load(repo, "link"); err == nil {
@@ -287,7 +287,7 @@ func TestParseLoop(t *testing.T) {
 	}
 	d := f.Flow[2]
 	if d.Kind() != KindDecision || d.Target() != "implement" || d.Iterations() != 4 || f.Pos("final") != 3 {
-		t.Fatalf("Entscheidung %+v", d)
+		t.Fatalf("decision %+v", d)
 	}
 	if g := f.Flow[3]; g.Kind() != KindGate || g.Target() != "implement" || g.Iterations() != DefaultMaxIterations {
 		t.Fatalf("Gate %+v", g)
@@ -380,7 +380,7 @@ func TestLoadSchema(t *testing.T) {
 	// Definitions from before M10 (outputs as a list of names).
 	var old Factory
 	if err := json.Unmarshal([]byte(`{"roles":{"a":{"outputs":["plan.md"]}}}`), &old); err != nil || old.Roles["a"].Output() != "plan.md" {
-		t.Fatalf("alte Definition: %v %+v", err, old.Roles["a"])
+		t.Fatalf("old definition: %v %+v", err, old.Roles["a"])
 	}
 	if y, _, err := Load(repo, "y"); err != nil || !strings.Contains(string(y.Roles["r"].OutputSpec().SchemaDoc), `"required":["verdict"]`) {
 		t.Fatalf("YAML-Schema: %v", err)
