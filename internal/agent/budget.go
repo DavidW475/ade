@@ -12,11 +12,11 @@ import (
 	"github.com/DavidW475/ade/internal/store"
 )
 
-// TypeUsage meldet eine vom Egress-Proxy gemessene Nutzung (Payload UsageEvent). Die
-// Timeline zeigt es nicht an; die UI aktualisiert damit Kosten und Budget live.
+// TypeUsage reports a usage measured by the egress proxy (payload UsageEvent). The timeline
+// does not show it; the UI uses it to update costs and budget live.
 const TypeUsage = "usage"
 
-// UsageEvent ist die Payload von TypeUsage.
+// UsageEvent is the payload of TypeUsage.
 type UsageEvent struct {
 	Provider         string  `json:"provider,omitempty"`
 	Model            string  `json:"model,omitempty"`
@@ -30,18 +30,18 @@ type UsageEvent struct {
 	BudgetUSD        float64 `json:"budget_usd,omitempty"`
 }
 
-// Bereiche eines Budgets.
+// Scopes of a budget.
 const (
 	BudgetSession = "session"
 	BudgetMonthly = "monthly"
 )
 
-// BudgetDetail ist der Inhalt einer Budget-Freigabe.
+// BudgetDetail is the content of a budget approval.
 type BudgetDetail struct {
 	Scope    string  `json:"scope"`
 	LimitUSD float64 `json:"limit_usd"`
 	SpentUSD float64 `json:"spent_usd"`
-	// StepUSD ist der Betrag, um den eine Freigabe das Budget erhöht.
+	// StepUSD is the amount by which an approval raises the budget.
 	StepUSD float64 `json:"step_usd"`
 }
 
@@ -49,9 +49,9 @@ type budgetPause BudgetDetail
 
 func (p *budgetPause) reason() string {
 	if p.Scope == BudgetMonthly {
-		return fmt.Sprintf("Monatsbudget des Projekts überschritten (%s von %s)", usd(p.SpentUSD), usd(p.LimitUSD))
+		return fmt.Sprintf("monthly budget of the project exceeded (%s of %s)", usd(p.SpentUSD), usd(p.LimitUSD))
 	}
-	return fmt.Sprintf("Budget der Session überschritten (%s von %s)", usd(p.SpentUSD), usd(p.LimitUSD))
+	return fmt.Sprintf("budget of the session exceeded (%s of %s)", usd(p.SpentUSD), usd(p.LimitUSD))
 }
 
 func usd(v float64) string { return fmt.Sprintf("%.2f $", v) }
@@ -60,8 +60,8 @@ func tokensOf(c adapter.Cost) provider.Usage {
 	return provider.Usage{Input: c.InputTokens, Output: c.OutputTokens, CacheRead: c.CacheReadTokens, CacheWrite: c.CacheWriteTokens}
 }
 
-// turnCost verbucht die Kostenmeldung eines Durchgangs und ergänzt die Payload. Misst der
-// Proxy, zählt seine Summe seit dem letzten Durchgang, nicht die Meldung der CLI.
+// turnCost books the cost report of a turn and completes the payload. If the proxy
+// measures, its sum since the last turn counts, not the CLI's report.
 func (r *run) turnCost(c adapter.Cost) adapter.Cost {
 	m := r.m
 	if c.Model == "" {
@@ -91,7 +91,7 @@ func (r *run) turnCost(c adapter.Cost) adapter.Cost {
 		CostUSD: c.TurnUSD, Priced: priced,
 	}
 	if err := m.opts.Store.AddUsage(context.Background(), u); err != nil {
-		m.log.Error("Kosten speichern", "session", r.id, "err", err)
+		m.log.Error("store costs", "session", r.id, "err", err)
 	}
 	r.mu.Lock()
 	r.sessionUSD += c.TurnUSD
@@ -101,7 +101,7 @@ func (r *run) turnCost(c adapter.Cost) adapter.Cost {
 	return c
 }
 
-// ProxyUsage ist eine vom Egress-Proxy gemessene Nutzung.
+// ProxyUsage is a usage measured by the egress proxy.
 type ProxyUsage struct {
 	Provider string
 	Model    string
@@ -109,16 +109,16 @@ type ProxyUsage struct {
 	Time     time.Time
 }
 
-// RecordProxyUsage verbucht Nutzungen, die der Egress-Proxy eines Workspaces gemessen hat.
-// Sie zählen für den Agenten im Workspace, wenn seine Nutzung über den Proxy gemessen wird,
-// oder für ein Terminal; sonst nur für den Workspace (keine Doppelzählung mit der CLI).
+// RecordProxyUsage books usages that a workspace's egress proxy measured. They count for
+// the agent in the workspace if its usage is measured through the proxy, or for a terminal;
+// otherwise only for the workspace (no double counting with the CLI).
 func (m *Manager) RecordProxyUsage(ctx context.Context, workspaceID string, us []ProxyUsage) {
 	if len(us) == 0 {
 		return
 	}
 	ws, err := m.opts.Workspaces.Get(ctx, workspaceID)
 	if err != nil {
-		m.log.Warn("Nutzung für unbekannten Workspace", "workspace", workspaceID, "err", err)
+		m.log.Warn("usage for an unknown workspace", "workspace", workspaceID, "err", err)
 		return
 	}
 	r := m.usageRun(workspaceID)
@@ -133,7 +133,7 @@ func (m *Manager) RecordProxyUsage(ctx context.Context, workspaceID string, us [
 			u.SessionID = r.id
 		}
 		if err := m.opts.Store.AddUsage(ctx, u); err != nil {
-			m.log.Error("Nutzung speichern", "workspace", ws.ID, "err", err)
+			m.log.Error("store usage", "workspace", ws.ID, "err", err)
 			continue
 		}
 		if r == nil {
@@ -154,7 +154,7 @@ func (m *Manager) RecordProxyUsage(ctx context.Context, workspaceID string, us [
 	}
 }
 
-// usageRun liefert den Lauf, dem eine Proxy-Nutzung im Workspace zusteht (nil: keiner).
+// usageRun returns the run a proxy usage in the workspace belongs to (nil: none).
 func (m *Manager) usageRun(workspaceID string) *run {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -170,15 +170,15 @@ func (m *Manager) usageRun(workspaceID string) *run {
 			if metered {
 				return r
 			}
-			return nil // die CLI meldet selbst; nicht doppelt zählen
+			return nil // the CLI reports itself; do not count twice
 		}
 		term = r
 	}
 	return term
 }
 
-// checkBudget prüft die Budgets. Ist eins überschritten, merkt es sich die Pause und beendet
-// den Prozess (stop) bzw. liefert vor dem Start den Grund. Leer: alles im Rahmen.
+// checkBudget checks the budgets. If one is exceeded, it remembers the pause and ends the
+// process (stop) or, before the start, returns the reason. Empty: everything within limits.
 func (r *run) checkBudget(ctx context.Context, stop bool) string {
 	r.mu.Lock()
 	if r.stopAs != "" && r.stopAs != store.SessionPaused {
@@ -199,7 +199,7 @@ func (r *run) checkBudget(ctx context.Context, stop bool) string {
 	} else if monthly > 0 {
 		t, err := r.m.opts.Store.UsageTotal(ctx, store.UsageFilter{ProjectID: r.projectID, Since: store.MonthStart(time.Now())})
 		if err != nil {
-			r.m.log.Error("Monatskosten lesen", "projekt", r.projectID, "err", err)
+			r.m.log.Error("read monthly costs", "project", r.projectID, "err", err)
 		} else if limit := math.Max(monthly, allow); t.CostUSD >= limit {
 			p = &budgetPause{Scope: BudgetMonthly, LimitUSD: limit, SpentUSD: t.CostUSD, StepUSD: math.Max(monthly/10, 1)}
 		}
@@ -213,15 +213,15 @@ func (r *run) checkBudget(ctx context.Context, stop bool) string {
 	}
 	p = r.pause
 	r.mu.Unlock()
-	r.m.log.Warn("Budget überschritten – Session wird pausiert", "session", r.id, "bereich", p.Scope, "kosten", p.SpentUSD, "grenze", p.LimitUSD)
+	r.m.log.Warn("budget exceeded – pausing session", "session", r.id, "scope", p.Scope, "costs", p.SpentUSD, "limit", p.LimitUSD)
 	if stop {
 		r.stop(store.SessionPaused)
 	}
 	return p.reason()
 }
 
-// requestBudget legt nach der Pause eine Freigabe an. Erlauben erhöht das Budget um einen
-// Schritt und setzt die Session fort; Ablehnen beendet sie.
+// requestBudget creates an approval after the pause. Allowing raises the budget by one step
+// and resumes the session; denying ends it.
 func (m *Manager) requestBudget(r *run) {
 	r.mu.Lock()
 	p := r.pause
@@ -242,7 +242,7 @@ func (m *Manager) requestBudget(r *run) {
 		m.budgetDecided(sess, *p, res)
 	})
 	if err != nil {
-		m.log.Error("Budget-Freigabe anlegen", "session", r.id, "err", err)
+		m.log.Error("create budget approval", "session", r.id, "err", err)
 	}
 }
 
@@ -250,13 +250,13 @@ func (m *Manager) budgetDecided(sess *store.Session, p budgetPause, a *store.App
 	ctx := context.Background()
 	cur, err := m.opts.Store.GetSession(ctx, sess.ID)
 	if err != nil || cur.Status != store.SessionPaused {
-		return // inzwischen gelöscht, fortgesetzt oder beendet
+		return // deleted, resumed or ended in the meantime
 	}
 	if a.Status == store.ApprovalCanceled {
-		return // z. B. von Hand fortgesetzt; eine neue Pause fragt neu
+		return // e.g. resumed by hand; a new pause asks anew
 	}
 	if a.Status != store.ApprovalApproved {
-		m.finish(sess.ID, store.SessionStopped, p.reason()+" – nicht freigegeben", nil)
+		m.finish(sess.ID, store.SessionStopped, p.reason()+" – not approved", nil)
 		return
 	}
 	u := store.SessionUpdate{}
@@ -266,16 +266,16 @@ func (m *Manager) budgetDecided(sess *store.Session, p budgetPause, a *store.App
 		u.BudgetUSD = store.Ptr(p.SpentUSD + p.StepUSD)
 	}
 	if err := m.opts.Store.UpdateSession(ctx, sess.ID, u); err != nil {
-		m.log.Error("Budget speichern", "session", sess.ID, "err", err)
+		m.log.Error("store budget", "session", sess.ID, "err", err)
 		return
 	}
-	m.log.Info("Budget freigegeben", "session", sess.ID, "bereich", p.Scope)
+	m.log.Info("budget approved", "session", sess.ID, "scope", p.Scope)
 	if v, err := m.Get(ctx, sess.ID); err == nil && v.Resumable {
 		if _, err := m.Input(ctx, sess.ID, ""); err != nil {
-			m.log.Error("Session nach Budget-Freigabe fortsetzen", "session", sess.ID, "err", err)
-			m.emit(sess.ID, adapter.TypeError, adapter.Error{Message: "Fortsetzen nach Budget-Freigabe: " + err.Error()})
+			m.log.Error("resume session after budget approval", "session", sess.ID, "err", err)
+			m.emit(sess.ID, adapter.TypeError, adapter.Error{Message: "resume after budget approval: " + err.Error()})
 		}
 		return
 	}
-	m.finish(sess.ID, store.SessionStopped, "Budget freigegeben – die Session lässt sich nicht fortsetzen, bitte neu starten", nil)
+	m.finish(sess.ID, store.SessionStopped, "budget approved – the session cannot be resumed, please start a new one", nil)
 }

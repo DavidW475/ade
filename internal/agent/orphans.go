@@ -7,13 +7,13 @@ import (
 	"syscall"
 )
 
-// procDir ist das proc-Dateisystem (Tests setzen ein eigenes Verzeichnis).
+// procDir is the proc file system (tests set their own directory).
 var procDir = "/proc"
 
-// findOrphans sucht Prozesse, deren Umgebung ADE_SESSION_ID mit einer der gegebenen
-// Session-IDs enthält. Kindprozesse erben die Variable, werden also mitgefunden. Die Prüfung
-// über die Umgebung statt über gespeicherte PIDs schützt vor wiederverwendeten PIDs und vor
-// Prozessen eines anderen ADE-Daemons.
+// findOrphans looks for processes whose environment contains ADE_SESSION_ID with one of the
+// given session IDs. Child processes inherit the variable and are therefore found as well.
+// Checking the environment instead of stored PIDs protects against reused PIDs and against
+// processes of another ADE daemon.
 func findOrphans(ids map[string]bool) map[int]string {
 	out := map[int]string{}
 	if len(ids) == 0 {
@@ -44,7 +44,7 @@ func findOrphans(ids map[string]bool) map[int]string {
 	return out
 }
 
-// killOrphans beendet die gefundenen Prozesse hart und liefert ihre Anzahl.
+// killOrphans kills the found processes and returns their count.
 func killOrphans(ids map[string]bool) map[int]string {
 	found := findOrphans(ids)
 	for pid := range found {

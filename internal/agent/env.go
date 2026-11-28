@@ -6,26 +6,26 @@ import (
 	"strings"
 )
 
-// passEnv sind die Variablen der Daemon-Umgebung, die ein Agent-Prozess erbt. Alles andere
-// (Tokens wie GH_TOKEN, SSH_AUTH_SOCK, Cloud-Zugänge, ADE_*-Variablen des Daemons) bleibt
-// draußen – der Agent soll nichts veröffentlichen können (doc/architecture.md#7-sicherheit).
+// passEnv are the variables of the daemon's environment an agent process inherits. Everything
+// else (tokens like GH_TOKEN, SSH_AUTH_SOCK, cloud credentials, the daemon's ADE_* variables)
+// stays out – the agent must not be able to publish anything (doc/architecture.md#7-security).
 var passEnv = []string{
 	"HOME", "USER", "LOGNAME", "SHELL", "PATH", "LANG", "LANGUAGE", "TZ", "TMPDIR",
 	"XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME",
-	// WSL: Windows-Programme starten (explorer.exe, wslview) und Pfade übersetzen.
+	// WSL: start Windows programs (explorer.exe, wslview) and translate paths.
 	"WSL_DISTRO_NAME", "WSL_INTEROP", "WSLENV",
 	"DISPLAY", "WAYLAND_DISPLAY",
 }
 
-// Variablen, die ADE jedem Prozess setzt.
+// Variables ADE sets for every process.
 const (
 	EnvSessionID     = "ADE_SESSION_ID"
 	EnvWorkspaceID   = "ADE_WORKSPACE_ID"
 	EnvWorkspacePath = "ADE_WORKSPACE_PATH"
 )
 
-// FilterEnv liefert die Variablen aus base (KEY=VALUE), die ADE an Prozesse in einem
-// Workspace weitergibt (passEnv und LC_*). Die Browser-IDE nutzt dieselbe Liste.
+// FilterEnv returns the variables from base (KEY=VALUE) that ADE passes to processes in a
+// workspace (passEnv and LC_*). The browser IDE uses the same list.
 func FilterEnv(base []string) []string {
 	var out []string
 	for _, kv := range base {
@@ -37,8 +37,8 @@ func FilterEnv(base []string) []string {
 	return out
 }
 
-// buildEnv baut die kontrollierte Umgebung eines Agent-Prozesses aus base (KEY=VALUE),
-// den ADE-Variablen und den Variablen des Adapters (extra überschreibt alles davor).
+// buildEnv builds the controlled environment of an agent process from base (KEY=VALUE), the
+// ADE variables and the adapter's variables (extra overrides everything before it).
 func buildEnv(base []string, terminal bool, sessionID, workspaceID, workdir string, extra []string) []string {
 	vars := map[string]string{}
 	var order []string
@@ -77,9 +77,9 @@ func buildEnv(base []string, terminal bool, sessionID, workspaceID, workdir stri
 
 func daemonEnv() []string { return os.Environ() }
 
-// sandboxEnv ist die Umgebung eines Agent-Prozesses im Container: nichts vom Host, nur
-// Terminal-Einstellungen, ADE-Variablen und die Variablen des Adapters. HOME, PATH und
-// LANG kommen aus dem Image.
+// sandboxEnv is the environment of an agent process in the container: nothing from the host,
+// only terminal settings, ADE variables and the adapter's variables. HOME, PATH and LANG come
+// from the image.
 func sandboxEnv(terminal bool, sessionID, workspaceID string, extra []string) []string {
 	env := []string{"TERM=dumb", "NO_COLOR=1"}
 	if terminal {

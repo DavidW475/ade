@@ -6,19 +6,19 @@ import (
 	"sync"
 )
 
-// Grenzen für Terminal-Ausgaben.
+// Limits for terminal output.
 const (
-	// TerminalReplay ist die Menge an Ausgabe, die ein neu verbundener Client zuerst bekommt.
+	// TerminalReplay is the amount of output a newly connected client gets first.
 	TerminalReplay = 256 << 10
-	// MaxTerminalLog begrenzt die Log-Datei einer Terminal-Session; danach wird nur noch
-	// der Puffer im Speicher aktualisiert.
+	// MaxTerminalLog limits the log file of a terminal session; after that only the buffer in
+	// memory is updated.
 	MaxTerminalLog   = 32 << 20
 	termClientBuffer = 256
 )
 
-// terminal puffert die Ausgabe eines PTY: die letzten TerminalReplay Bytes im Speicher für
-// neu verbundene Clients und die gesamte Ausgabe in einer Datei, damit sie auch nach
-// Prozessende oder Daemon-Neustart sichtbar bleibt.
+// terminal buffers a PTY's output: the last TerminalReplay bytes in memory for newly
+// connected clients and the whole output in a file, so it stays visible after the process
+// ends or the daemon restarts.
 type terminal struct {
 	mu      sync.Mutex
 	ring    []byte
@@ -59,7 +59,7 @@ func (t *terminal) Write(p []byte) (int, error) {
 		select {
 		case c.ch <- buf:
 		default:
-			// Zu langsam: trennen. Der Client verbindet sich neu und bekommt den Puffer.
+			// Too slow: disconnect. The client reconnects and gets the buffer.
 			delete(t.clients, c)
 			close(c.ch)
 		}
@@ -67,8 +67,8 @@ func (t *terminal) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// attach liefert den bisherigen Puffer und einen Kanal für weitere Ausgabe. Der Kanal wird
-// geschlossen, wenn der Prozess endet oder der Client nicht hinterherkommt.
+// attach returns the buffer so far and a channel for further output. The channel is closed
+// when the process ends or the client cannot keep up.
 func (t *terminal) attach() ([]byte, *termClient) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -106,9 +106,9 @@ func (t *terminal) close() {
 	}
 }
 
-// readTail liefert die letzten n Bytes einer Datei (leer, wenn es sie nicht gibt).
+// readTail returns the last n bytes of a file (empty if it does not exist).
 func readTail(path string, n int64) []byte {
-	f, err := os.Open(path) //nolint:gosec // G304: Pfad baut der Manager aus Datenverzeichnis und Session-ID
+	f, err := os.Open(path) //nolint:gosec // G304: the manager builds the path from the data directory and the session ID
 	if err != nil {
 		return nil
 	}

@@ -8,19 +8,19 @@ import (
 	"github.com/DavidW475/ade/internal/store"
 )
 
-// Grenzen für den Event-Strom.
+// Limits for the event stream.
 const (
-	// DefaultFlushInterval ist die längste Zeit, die ein Event ungespeichert im Speicher liegt.
+	// DefaultFlushInterval is the longest time an event stays in memory unstored.
 	DefaultFlushInterval = 100 * time.Millisecond
-	// flushBatch: ab so vielen ausstehenden Events wird sofort geschrieben.
+	// flushBatch: from this many pending events on, write right away.
 	flushBatch = 256
-	// subBuffer ist der Puffer pro Abonnent; wer nicht hinterherkommt, wird getrennt und
-	// verbindet sich mit ?since=<seq> neu.
+	// subBuffer is the buffer per subscriber; whoever cannot keep up is disconnected and
+	// reconnects with ?since=<seq>.
 	subBuffer = 1024
 )
 
-// hub verteilt die Events einer Session live an Abonnenten und schreibt sie gebündelt in die
-// Datenbank. seq wird hier vergeben, deshalb gibt es pro Session genau einen hub.
+// hub distributes a session's events live to subscribers and writes them to the database in
+// batches. seq is assigned here, which is why there is exactly one hub per session.
 type hub struct {
 	id       string
 	st       *store.Store
@@ -38,7 +38,7 @@ func newHub(st *store.Store, id string, seq int64, interval time.Duration, onErr
 	return &hub{id: id, st: st, seq: seq, interval: interval, onError: onError, subs: map[*Subscription]struct{}{}}
 }
 
-// publish vergibt die nächste seq, verteilt das Event und plant das Schreiben.
+// publish assigns the next seq, distributes the event and schedules the write.
 func (h *hub) publish(typ string, payload []byte) store.Event {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -78,7 +78,7 @@ func (h *hub) flushLocked() {
 	}
 	if err := h.st.AppendEvents(context.Background(), h.pending); err != nil {
 		h.onError(err)
-		// Events nicht verwerfen: beim nächsten Mal erneut versuchen.
+		// Do not discard the events: try again next time.
 		if h.timer == nil {
 			h.timer = time.AfterFunc(time.Second, h.flush)
 		}
@@ -87,9 +87,9 @@ func (h *hub) flushLocked() {
 	h.pending = h.pending[:0]
 }
 
-// subscribe schreibt ausstehende Events, meldet einen neuen Abonnenten an und liefert die
-// seq, bis zu der alle Events in der Datenbank stehen. Alle Events im Kanal haben eine
-// größere seq – zusammen mit einem Replay aus der Datenbank geht nichts verloren.
+// subscribe writes pending events, registers a new subscriber and returns the seq up to
+// which all events are in the database. All events in the channel have a greater seq –
+// together with a replay from the database nothing is lost.
 func (h *hub) subscribe() (*Subscription, int64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -112,28 +112,28 @@ func (h *hub) idle() bool {
 	return len(h.subs) == 0 && len(h.pending) == 0
 }
 
-// Subscription ist ein Live-Abonnement der Events einer Session.
+// Subscription is a live subscription to the events of a session.
 type Subscription struct {
 	ch     chan store.Event
 	h      *hub
 	lagged bool
-	// release meldet dem Manager, dass das Abonnement endet.
+	// release tells the manager that the subscription ends.
 	release func()
 	once    sync.Once
 }
 
-// C liefert die Live-Events. Der Kanal wird geschlossen, wenn das Abonnement endet
-// (Close oder der Abonnent kam nicht hinterher, siehe Lagged).
+// C returns the live events. The channel is closed when the subscription ends (Close or
+// the subscriber could not keep up, see Lagged).
 func (s *Subscription) C() <-chan store.Event { return s.ch }
 
-// Lagged meldet, ob das Abonnement beendet wurde, weil der Abonnent zu langsam war.
+// Lagged reports whether the subscription ended because the subscriber was too slow.
 func (s *Subscription) Lagged() bool {
 	s.h.mu.Lock()
 	defer s.h.mu.Unlock()
 	return s.lagged
 }
 
-// Close beendet das Abonnement.
+// Close ends the subscription.
 func (s *Subscription) Close() {
 	s.once.Do(func() {
 		s.h.mu.Lock()
