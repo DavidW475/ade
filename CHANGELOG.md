@@ -8,6 +8,9 @@ section of each version as release notes.
 
 ### Added
 
+- **`ade stop`** and **`ade restart`** (M11): stop the daemon of the configuration – the systemd
+  service if it runs as one, otherwise the background process from `daemon.lock` – and wait until
+  it has ended; `restart` starts it again, e.g. after changing `config.yaml`.
 - **Documentation for 1.0** (M11): [user guide](doc/guide.md) from installation to the first
   merged result including troubleshooting, [configuration reference](doc/configuration.md) with
   every option of `config.yaml`, `.ade/project.yaml`, `.ade/sandbox.yaml` and factories (a test

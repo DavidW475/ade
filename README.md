@@ -83,6 +83,7 @@ service running without an open WSL shell: `sudo loginctl enable-linger "$USER"`
 ```sh
 ade start                          # start the daemon and open the dashboard in the Windows browser
 ade project add ~/git/my-repo      # register a repository (also possible in the dashboard)
+ade stop                           # stop the daemon again (ade restart after changing config.yaml)
 ```
 
 1. Open the project in the dashboard and **start an agent**: enter the task, adapter `claude`.
