@@ -47,17 +47,17 @@ func TestReviewRoutes(t *testing.T) {
 		w := httptest.NewRecorder()
 		s.ServeHTTP(w, r)
 		if w.Code != http.StatusUnauthorized {
-			t.Errorf("%s %s ohne Auth: %d", rt[0], rt[1], w.Code)
+			t.Errorf("%s %s without auth: %d", rt[0], rt[1], w.Code)
 		}
 	}
 
-	if err := os.WriteFile(filepath.Join(ws.Path, "a.txt"), []byte("aus dem Workspace\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(ws.Path, "a.txt"), []byte("from the workspace\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var fc workspace.FileContents
 	api(t, s, "GET", base+"/file?path=a.txt", "", http.StatusOK, &fc)
-	if fc.Original.Text != "a\n" || fc.Modified.Text != "aus dem Workspace\n" {
-		t.Errorf("Datei = %#v", fc)
+	if fc.Original.Text != "a\n" || fc.Modified.Text != "from the workspace\n" {
+		t.Errorf("file = %#v", fc)
 	}
 	api(t, s, "GET", base+"/file?path=../x", "", http.StatusBadRequest, nil)
 
@@ -68,8 +68,8 @@ func TestReviewRoutes(t *testing.T) {
 	}
 	api(t, s, "POST", base+"/pull-request", `{}`, http.StatusBadRequest, nil)
 
-	// Konflikt: main ändert dieselbe Zeile.
-	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("im Repo\n"), 0o600); err != nil {
+	// Conflict: main changes the same line.
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("in the repo\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	git("commit", "-q", "-am", "parallel")
@@ -88,6 +88,6 @@ func TestReviewRoutes(t *testing.T) {
 	api(t, s, "DELETE", base, "", http.StatusNoContent, nil)
 	out, _ := exec.Command("git", "-C", repo, "branch", "--list", ws.Branch).Output()
 	if len(out) != 0 {
-		t.Errorf("Branch nach Verwerfen noch da: %s", out)
+		t.Errorf("branch still there after discarding: %s", out)
 	}
 }

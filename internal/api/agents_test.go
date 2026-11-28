@@ -35,8 +35,8 @@ type agentServer struct {
 	st      *store.Store
 }
 
-// newAgentServer startet einen echten HTTP-Server (für WebSockets) mit Fake- und pty-Adapter
-// und einem registrierten Projekt.
+// newAgentServer starts a real HTTP server (for WebSockets) with fake and pty adapter and a
+// registered project.
 func newAgentServer(t *testing.T) *agentServer {
 	t.Helper()
 	ctx := context.Background()
@@ -104,7 +104,7 @@ func (a *agentServer) call(t *testing.T, method, path, body string, wantCode int
 	}
 }
 
-// dial verbindet einen WebSocket und liefert den HTTP-Status der Upgrade-Antwort.
+// dial connects a WebSocket and returns the HTTP status of the upgrade response.
 func (a *agentServer) dial(t *testing.T, path string, header http.Header) (*websocket.Conn, int, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -129,7 +129,7 @@ func readEvent(t *testing.T, c *websocket.Conn) store.Event {
 	defer cancel()
 	_, data, err := c.Read(ctx)
 	if err != nil {
-		t.Fatalf("Event lesen: %v", err)
+		t.Fatalf("read event: %v", err)
 	}
 	var e store.Event
 	if err := json.Unmarshal(data, &e); err != nil {
@@ -138,7 +138,7 @@ func readEvent(t *testing.T, c *websocket.Conn) store.Event {
 	return e
 }
 
-// readUntil liest Events, bis eines pred erfüllt; liefert alle gelesenen.
+// readUntil reads events until one satisfies pred; returns all read ones.
 func readUntil(t *testing.T, c *websocket.Conn, pred func(store.Event) bool) []store.Event {
 	t.Helper()
 	var out []store.Event
@@ -167,24 +167,24 @@ func TestAgentFlowWithEventStream(t *testing.T) {
 	}
 
 	var v agent.View
-	a.call(t, "POST", "/api/agents", fmt.Sprintf(`{"project_id":%q,"task":"hallo"}`, a.project), http.StatusCreated, &v)
+	a.call(t, "POST", "/api/agents", fmt.Sprintf(`{"project_id":%q,"task":"hello"}`, a.project), http.StatusCreated, &v)
 	if v.ID == "" || v.WorkspaceID == "" || !v.Capabilities.Input {
 		t.Fatalf("Session = %+v", v)
 	}
 
-	// Erster Client: komplette Historie, dann live.
+	// First client: complete history, then live.
 	c1, _, err := a.dial(t, "/ws/sessions/"+v.ID+"/events", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = c1.CloseNow() }()
-	first := readUntil(t, c1, isEcho("hallo"))
+	first := readUntil(t, c1, isEcho("hello"))
 	if first[0].Seq != 1 || first[0].Type != adapter.TypeStatus {
 		t.Fatalf("erstes Event = %+v", first[0])
 	}
 
-	a.call(t, "POST", "/api/sessions/"+v.ID+"/input", `{"text":"weiter"}`, http.StatusOK, nil)
-	live := readUntil(t, c1, isEcho("weiter"))
+	a.call(t, "POST", "/api/sessions/"+v.ID+"/input", `{"text":"continue"}`, http.StatusOK, nil)
+	live := readUntil(t, c1, isEcho("continue"))
 	for i, e := range append(first, live...) {
 		if e.Seq != int64(i+1) {
 			t.Fatalf("Event %d hat seq %d", i, e.Seq)
@@ -192,7 +192,7 @@ func TestAgentFlowWithEventStream(t *testing.T) {
 	}
 	last := live[len(live)-1].Seq
 
-	// Zweiter Client mit since: nur die Events danach, dann live (Fan-out).
+	// Second client with since: only the events after it, then live (fan-out).
 	c2, _, err := a.dial(t, fmt.Sprintf("/ws/sessions/%s/events?since=%d", v.ID, last-1), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -204,7 +204,7 @@ func TestAgentFlowWithEventStream(t *testing.T) {
 
 	a.call(t, "POST", "/api/sessions/"+v.ID+"/stop", "", http.StatusOK, &v)
 	if v.Status != store.SessionStopped {
-		t.Fatalf("nach Stop: %+v", v)
+		t.Fatalf("after Stop: %+v", v)
 	}
 	isStopped := func(e store.Event) bool {
 		return e.Type == adapter.TypeStatus && strings.Contains(string(e.Payload), `"stopped"`)
@@ -240,38 +240,38 @@ func TestWebSocketGuards(t *testing.T) {
 	for _, path := range []string{"/ws/sessions/" + v.ID + "/events", "/ws/sessions/" + v.ID + "/pty"} {
 		// Ohne Anmeldung.
 		if _, code, err := a.dial(t, path, http.Header{}); err == nil || code != http.StatusUnauthorized {
-			t.Errorf("%s ohne Auth: %d %v", path, code, err)
+			t.Errorf("%s without auth: %d %v", path, code, err)
 		}
-		// Fremde Webseite (Cross-Site-WebSocket-Hijacking) – auch mit gültigem Cookie.
+		// Foreign website (cross-site WebSocket hijacking) – even with a valid cookie.
 		h := http.Header{"Origin": {"http://evil.example"}, "Cookie": {SessionCookie + "=" + a.loginCookie(t)}}
 		if _, code, err := a.dial(t, path, h); err == nil || code != http.StatusForbidden {
-			t.Errorf("%s mit fremdem Origin: %d %v", path, code, err)
+			t.Errorf("%s with foreign origin: %d %v", path, code, err)
 		}
 	}
-	// Browser-Session mit eigenem Origin funktioniert.
+	// A browser session with its own origin works.
 	h := http.Header{"Origin": {a.base}, "Cookie": {SessionCookie + "=" + a.loginCookie(t)}}
 	c, _, err := a.dial(t, "/ws/sessions/"+v.ID+"/events", h)
 	if err != nil {
-		t.Fatalf("eigener Origin: %v", err)
+		t.Fatalf("own origin: %v", err)
 	}
 	_ = c.CloseNow()
 
-	// Agent-Session hat kein Terminal; unbekannte Session.
+	// An agent session has no terminal; unknown session.
 	if _, code, err := a.dial(t, "/ws/sessions/"+v.ID+"/pty", nil); err == nil || code != http.StatusBadRequest {
-		t.Errorf("pty einer Agent-Session: %d %v", code, err)
+		t.Errorf("pty of an agent session: %d %v", code, err)
 	}
 	if _, code, err := a.dial(t, "/ws/sessions/gibtsnicht/events", nil); err == nil || code != http.StatusNotFound {
-		t.Errorf("unbekannte Session: %d %v", code, err)
+		t.Errorf("unknown session: %d %v", code, err)
 	}
-	a.call(t, "GET", "/ws/unbekannt", "", http.StatusNotFound, nil)
+	a.call(t, "GET", "/ws/unknown", "", http.StatusNotFound, nil)
 }
 
-// loginCookie meldet einen Browser an und liefert den Wert des Session-Cookies.
+// loginCookie logs a browser in and returns the value of the session cookie.
 func (a *agentServer) loginCookie(t *testing.T) string {
 	t.Helper()
 	id, ok := a.auth.Redeem(a.auth.NewTicket())
 	if !ok {
-		t.Fatal("Ticket nicht einlösbar")
+		t.Fatal("ticket not redeemable")
 	}
 	return id
 }
@@ -283,7 +283,7 @@ func TestPTYWebSocket(t *testing.T) {
 	waitRunning := time.Now().Add(5 * time.Second)
 	for v.Status != store.SessionRunning {
 		if time.Now().After(waitRunning) {
-			t.Fatalf("Terminal startet nicht: %+v", v)
+			t.Fatalf("terminal does not start: %+v", v)
 		}
 		time.Sleep(20 * time.Millisecond)
 		a.call(t, "GET", "/api/sessions/"+v.ID, "", http.StatusOK, &v)
@@ -306,12 +306,12 @@ func TestPTYWebSocket(t *testing.T) {
 	for !strings.Contains(out.String(), "summe-5") {
 		_, data, err := c.Read(ctx)
 		if err != nil {
-			t.Fatalf("lesen: %v (bisher %q)", err, out.String())
+			t.Fatalf("read: %v (so far %q)", err, out.String())
 		}
 		out.Write(data)
 	}
 	if !strings.Contains(out.String(), "20 90") {
-		t.Errorf("Größenänderung nicht angekommen: %q", out.String())
+		t.Errorf("resize did not arrive: %q", out.String())
 	}
 
 	if err := c.Write(ctx, websocket.MessageText, []byte(`{"type":"input","data":"exit\n"}`)); err != nil {
@@ -321,7 +321,7 @@ func TestPTYWebSocket(t *testing.T) {
 	for !exit {
 		typ, data, err := c.Read(ctx)
 		if err != nil {
-			t.Fatalf("Ende nicht gemeldet: %v", err)
+			t.Fatalf("end not reported: %v", err)
 		}
 		exit = typ == websocket.MessageText && strings.Contains(string(data), `"exit"`)
 	}
@@ -330,7 +330,7 @@ func TestPTYWebSocket(t *testing.T) {
 		t.Errorf("Close = %v", err)
 	}
 
-	// Nach dem Ende: Ausgabe aus dem Log, dann exit.
+	// After the end: output from the log, then exit.
 	c2, _, err := a.dial(t, "/ws/sessions/"+v.ID+"/pty", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -338,7 +338,7 @@ func TestPTYWebSocket(t *testing.T) {
 	defer func() { _ = c2.CloseNow() }()
 	_, data, err := c2.Read(ctx)
 	if err != nil || !strings.Contains(string(data), "summe-5") {
-		t.Fatalf("Replay nach Ende: %q %v", data, err)
+		t.Fatalf("replay after the end: %q %v", data, err)
 	}
 }
 

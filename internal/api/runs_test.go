@@ -35,7 +35,7 @@ func TestRunsAPI(t *testing.T) {
 	ps := project.NewService(st)
 	ws := workspace.NewManager(st, ps, filepath.Join(t.TempDir(), "ws"), log)
 	t.Cleanup(ws.Close)
-	// Fake als „claude“: spiegelt die Anweisung und wartet (die Runde endet nie).
+	// Fake as “claude”: mirrors the instruction and waits (the turn never ends).
 	am := agent.NewManager(agent.Options{
 		Store: st, Projects: ps, Workspaces: ws, Adapters: adapter.NewRegistry(&fake.Adapter{AdapterName: "claude"}),
 		DataDir: dataDir, Logger: log, DefaultAdapter: "claude", FlushInterval: 10 * time.Millisecond,
@@ -74,7 +74,7 @@ func TestRunsAPI(t *testing.T) {
 	}
 	_ = res.Body.Close()
 	if res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("ohne Auth: %d", res.StatusCode)
+		t.Fatalf("without auth: %d", res.StatusCode)
 	}
 
 	var list []factory.Summary
@@ -98,7 +98,7 @@ func TestRunsAPI(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("Planer startet nicht: %+v", v.Steps[0])
+			t.Fatalf("planner does not start: %+v", v.Steps[0])
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -111,24 +111,24 @@ func TestRunsAPI(t *testing.T) {
 	a.call(t, "GET", "/api/runs/"+v.ID+"/artifacts/..%2Fade.db", "", http.StatusNotFound, nil)
 	a.call(t, "POST", "/api/runs/"+v.ID+"/cancel", "", http.StatusOK, &v)
 	if v.Status != store.RunCanceled {
-		t.Fatalf("nach Abbruch %s", v.Status)
+		t.Fatalf("after cancel %s", v.Status)
 	}
 	a.call(t, "POST", "/api/runs/"+v.ID+"/cancel", "", http.StatusConflict, nil)
 	a.call(t, "GET", "/api/runs/gibtsnicht", "", http.StatusNotFound, nil)
 
-	// Auslöser: ohne Anmeldung nichts; ohne triggers in project.yaml eine leere Liste.
+	// Triggers: nothing without login; without triggers in project.yaml an empty list.
 	req, _ = http.NewRequest(http.MethodGet, a.base+"/api/projects/"+p.ID+"/triggers", nil)
 	if res, err = http.DefaultClient.Do(req); err != nil {
 		t.Fatal(err)
 	}
 	_ = res.Body.Close()
 	if res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("Auslöser ohne Auth: %d", res.StatusCode)
+		t.Fatalf("triggers without auth: %d", res.StatusCode)
 	}
 	var triggers []trigger.View
 	a.call(t, "GET", "/api/projects/"+p.ID+"/triggers", "", http.StatusOK, &triggers)
 	if triggers == nil || len(triggers) != 0 {
-		t.Fatalf("Auslöser %+v", triggers)
+		t.Fatalf("triggers %+v", triggers)
 	}
 	a.call(t, "POST", "/api/projects/"+p.ID+"/triggers/x/pause", "", http.StatusNotFound, nil)
 	a.call(t, "GET", "/api/projects/gibtsnicht/triggers", "", http.StatusNotFound, nil)

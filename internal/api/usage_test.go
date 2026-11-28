@@ -42,13 +42,13 @@ func TestUsageAPI(t *testing.T) {
 	}
 	a.call(t, http.MethodGet, "/api/usage?project_id=gibtsnicht", "", http.StatusNotFound, nil)
 
-	// Ohne Anmeldung kein Zugriff.
+	// No access without login.
 	res, err := http.Get(a.base + "/api/usage")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = res.Body.Close()
 	if res.StatusCode != http.StatusUnauthorized {
-		t.Errorf("ohne Anmeldung: %d", res.StatusCode)
+		t.Errorf("without login: %d", res.StatusCode)
 	}
 }

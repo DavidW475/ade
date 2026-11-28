@@ -18,8 +18,8 @@ func (s *Server) routesApprovals(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/approvals", s.requireAuth(s.handleListApprovals))
 	mux.HandleFunc("GET /api/approvals/{id}", s.requireAuth(s.handleGetApproval))
 	mux.HandleFunc("POST /api/approvals/{id}", s.requireAuth(s.handleDecideApproval))
-	// Der Hook lokaler Agenten weist sich mit dem Token seiner Session aus (nicht mit der
-	// Browser-Session oder dem Daemon-Secret); es gilt nur für Fragen dieser Session.
+	// The hook of local agents authenticates with the token of its session (not with the
+	// browser session or the daemon secret); it only applies to questions of this session.
 	mux.HandleFunc("POST /api/hook/pretooluse", s.handleHook)
 	if s.opts.Workspaces != nil {
 		mux.HandleFunc("POST /api/workspaces/{id}/egress/grants", s.requireAuth(s.handleAddGrant))
@@ -49,9 +49,9 @@ func (s *Server) handleGetApproval(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a)
 }
 
-// DecideRequest ist der Body von POST /api/approvals/{id}.
+// DecideRequest is the body of POST /api/approvals/{id}.
 type DecideRequest struct {
-	// Decision: allow | deny, bei egress zusätzlich allow_workspace | allow_project.
+	// Decision: allow | deny, for egress also allow_workspace | allow_project.
 	Decision string `json:"decision"`
 	Reason   string `json:"reason,omitempty"`
 }
@@ -73,22 +73,22 @@ func (s *Server) handleDecideApproval(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHook(w http.ResponseWriter, r *http.Request) {
 	session, ok := s.opts.Approvals.TokenSession(bearer(r))
 	if !ok {
-		writeJSON(w, http.StatusUnauthorized, proxy.Answer{Decision: proxy.AnswerDeny, Reason: "ADE: Hook-Token ungültig"})
+		writeJSON(w, http.StatusUnauthorized, proxy.Answer{Decision: proxy.AnswerDeny, Reason: "ADE: hook token invalid"})
 		return
 	}
 	var call proxy.HookCall
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&call); err != nil || len(call.Input) == 0 {
-		writeJSON(w, http.StatusBadRequest, proxy.Answer{Decision: proxy.AnswerDeny, Reason: "ADE: ungültige Hook-Anfrage"})
+		writeJSON(w, http.StatusBadRequest, proxy.Answer{Decision: proxy.AnswerDeny, Reason: "ADE: invalid hook request"})
 		return
 	}
 	writeJSON(w, http.StatusOK, s.opts.Approvals.PreToolUse(r.Context(), approval.HookRequest{Call: call, TokenSession: session}))
 }
 
-// GrantRequest ist der Body von POST /api/workspaces/{id}/egress/grants.
+// GrantRequest is the body of POST /api/workspaces/{id}/egress/grants.
 type GrantRequest struct {
-	// Rule ist ein Eintrag im Format der Allowlist ohne Platzhalter (host oder host:port).
+	// Rule is an entry in the allowlist format without wildcards (host or host:port).
 	Rule string `json:"rule"`
-	// Scope: workspace (nur dieser Workspace) oder project (alle Workspaces des Projekts).
+	// Scope: workspace (only this workspace) or project (all workspaces of the project).
 	Scope string `json:"scope"`
 }
 
@@ -109,7 +109,7 @@ func (s *Server) handleAddGrant(w http.ResponseWriter, r *http.Request) {
 		wsID = ""
 	case "workspace", "":
 	default:
-		writeError(w, http.StatusBadRequest, "scope: workspace oder project")
+		writeError(w, http.StatusBadRequest, "scope: workspace or project")
 		return
 	}
 	g, err := s.opts.Approvals.AddGrant(r.Context(), ws.ProjectID, wsID, req.Rule, "")
@@ -123,7 +123,7 @@ func (s *Server) handleAddGrant(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteGrant(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "ungültige ID")
+		writeError(w, http.StatusBadRequest, "invalid ID")
 		return
 	}
 	if err := s.opts.Approvals.DeleteGrant(r.Context(), id); err != nil {

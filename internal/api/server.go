@@ -1,4 +1,4 @@
-// Package api stellt die HTTP-API und das eingebettete Dashboard bereit.
+// Package api provides the HTTP API and the embedded dashboard.
 package api
 
 import (
@@ -21,64 +21,64 @@ import (
 	"github.com/DavidW475/ade/internal/workspace"
 )
 
-// Store ist der Teil der Datenbank, den die API in M0 braucht.
+// Store is the part of the database the API needed in M0.
 type Store interface {
 	Ping(ctx context.Context) error
 	SchemaVersion(ctx context.Context) (int, error)
 }
 
-// Options konfiguriert den API-Server.
+// Options configures the API server.
 type Options struct {
 	Version string
-	// Port ist der Port, auf dem der Daemon lauscht (für die Origin-Prüfung).
+	// Port is the port the daemon listens on (for the origin check).
 	Port   string
 	Store  Store
 	Auth   *Auth
 	Logger *slog.Logger
-	// Projects und Workspaces sind optional; ohne sie fehlen die zugehörigen Routen.
+	// Projects and Workspaces are optional; without them the corresponding routes are missing.
 	Projects   *project.Service
 	Workspaces *workspace.Manager
-	// Agents ist optional; ohne ihn fehlen die Routen für Sessions.
+	// Agents is optional; without it the routes for sessions are missing.
 	Agents *agent.Manager
-	// DefaultAdapter ist der globale Standard-Adapter (für das Dashboard).
+	// DefaultAdapter is the global default adapter (for the dashboard).
 	DefaultAdapter string
-	// IDE ist optional; ohne sie fehlen die IDE-Routen und das Gateway (ws-<id>.localhost).
+	// IDE is optional; without it the IDE routes and the gateway (ws-<id>.localhost) are missing.
 	IDE *ide.Manager
-	// Sandbox ist optional; ohne sie fehlen die Sandbox-Routen.
+	// Sandbox is optional; without it the sandbox routes are missing.
 	Sandbox *sandbox.Manager
-	// Egress liefert die Egress-Events der Sandbox (optional, mit Sandbox).
+	// Egress returns the sandbox's egress events (optional, with sandbox).
 	Egress EgressStore
-	// Approvals ist optional; ohne ihn fehlen die Freigabe-Routen.
+	// Approvals is optional; without it the approval routes are missing.
 	Approvals *approval.Service
-	// Usage liefert Kosten und Tokens (optional; ohne ihn fehlt GET /api/usage).
+	// Usage returns costs and tokens (optional; without it GET /api/usage is missing).
 	Usage UsageStore
-	// Runs ist der Fabrik-Runner (optional; ohne ihn fehlen /api/factories und /api/runs).
+	// Runs is the factory runner (optional; without it /api/factories and /api/runs are missing).
 	Runs *factory.Runner
-	// Triggers sind die Auslöser der Fabriken (optional).
+	// Triggers are the factories' triggers (optional).
 	Triggers *trigger.Service
 }
 
-// UsageStore ist der Teil der Datenbank für Kosten.
+// UsageStore is the part of the database for costs.
 type UsageStore interface {
 	UsageTotal(ctx context.Context, f store.UsageFilter) (store.UsageTotal, error)
 	UsageByProject(ctx context.Context, since time.Time) (map[string]store.UsageTotal, error)
 	UsageByWorkspace(ctx context.Context, projectID string) (map[string]store.UsageTotal, error)
 }
 
-// EgressStore ist der Teil der Datenbank für die Netzwerk-Ansicht.
+// EgressStore is the part of the database for the network view.
 type EgressStore interface {
 	ListEgress(ctx context.Context, workspaceID string, f store.EgressFilter) ([]store.EgressEvent, error)
 	EgressHosts(ctx context.Context, workspaceID string) ([]store.EgressHost, error)
 	ListEgressGrants(ctx context.Context, projectID, workspaceID string) ([]store.EgressGrant, error)
 }
 
-// Server ist der HTTP-Handler des Daemons.
+// Server is the daemon's HTTP handler.
 type Server struct {
 	opts    Options
 	handler http.Handler
 }
 
-// New baut den Handler mit allen Routen und Schutzschichten.
+// New builds the handler with all routes and protection layers.
 func New(opts Options) *Server {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
@@ -100,7 +100,7 @@ func New(opts Options) *Server {
 	s.routesRuns(mux)
 	s.routesTriggers(mux)
 	unknown := func(w http.ResponseWriter, _ *http.Request) {
-		writeError(w, http.StatusNotFound, "unbekannter API-Pfad")
+		writeError(w, http.StatusNotFound, "unknown API path")
 	}
 	mux.HandleFunc("/api/", unknown)
 	mux.HandleFunc("/ws/", unknown)
@@ -109,7 +109,7 @@ func New(opts Options) *Server {
 
 	dashboard := securityHeaders(noStoreAPI(mux))
 	var ides http.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "Browser-IDE ist nicht aktiviert", http.StatusNotFound)
+		http.Error(w, "browser IDE is not enabled", http.StatusNotFound)
 	})
 	if opts.IDE != nil {
 		ides = gateway.New(gateway.Options{
@@ -119,7 +119,7 @@ func New(opts Options) *Server {
 			Logger:       opts.Logger,
 		})
 	}
-	// IDE-Subdomains gehen ans Gateway – ohne die Dashboard-CSP, die VS Code brechen würde.
+	// IDE subdomains go to the gateway – without the dashboard CSP, which would break VS Code.
 	byHost := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, _ := splitHost(r.Host)
 		if dashboardHost(host) {
@@ -142,11 +142,11 @@ func noStoreAPI(next http.Handler) http.Handler {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.opts.Logger.Debug("Anfrage", "method", r.Method, "host", r.Host, "path", r.URL.Path, "remote", r.RemoteAddr)
+	s.opts.Logger.Debug("request", "method", r.Method, "host", r.Host, "path", r.URL.Path, "remote", r.RemoteAddr)
 	s.handler.ServeHTTP(w, r)
 }
 
-// HealthResponse ist die Antwort von GET /api/health.
+// HealthResponse is the answer of GET /api/health.
 type HealthResponse struct {
 	Service string `json:"service"`
 	Status  string `json:"status"`
@@ -160,7 +160,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	resp := HealthResponse{Service: "ade", Status: "ok", Version: s.opts.Version}
 	code := http.StatusOK
 	if err := s.opts.Store.Ping(ctx); err != nil {
-		s.opts.Logger.Error("Health: Datenbank nicht erreichbar", "err", err)
+		s.opts.Logger.Error("health: database not reachable", "err", err)
 		resp.Status, code = "degraded", http.StatusServiceUnavailable
 	} else if v, err := s.opts.Store.SchemaVersion(ctx); err == nil {
 		resp.Schema = v
@@ -168,7 +168,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, code, resp)
 }
 
-// TicketResponse ist die Antwort von POST /api/auth/tickets.
+// TicketResponse is the answer of POST /api/auth/tickets.
 type TicketResponse struct {
 	Ticket    string    `json:"ticket"`
 	LoginPath string    `json:"login_path"`
@@ -187,18 +187,18 @@ func (s *Server) handleNewTicket(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	host, _ := splitHost(r.Host)
 	if !dashboardHost(host) {
-		http.Error(w, "Anmeldung nur über das Dashboard", http.StatusForbidden)
+		http.Error(w, "login only through the dashboard", http.StatusForbidden)
 		return
 	}
 	id, ok := s.opts.Auth.Redeem(r.URL.Query().Get("ticket"))
 	if !ok {
-		s.opts.Logger.Warn("Anmeldung mit ungültigem oder abgelaufenem Ticket", "remote", r.RemoteAddr)
+		s.opts.Logger.Warn("login with an invalid or expired ticket", "remote", r.RemoteAddr)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte("Anmeldelink ungültig oder abgelaufen.\nBitte `ade start` erneut ausführen.\n"))
+		_, _ = w.Write([]byte("Login link invalid or expired.\nPlease run `ade start` again.\n"))
 		return
 	}
-	// Kein Secure-Flag: Das Dashboard läuft über http://localhost.
+	// No Secure flag: the dashboard runs on http://localhost.
 	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124, siehe oben
 		Name:     SessionCookie,
 		Value:    id,
@@ -208,12 +208,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 	})
 	s.opts.Logger.Info("Browser angemeldet", "remote", r.RemoteAddr)
-	// Redirect entfernt das Ticket aus der Adresszeile und dem Verlauf.
-	http.Redirect(w, r, safeNext(r.URL.Query().Get("next")), http.StatusSeeOther) //nolint:gosec // G710: safeNext erlaubt nur lokale Pfade
+	// The redirect removes the ticket from the address bar and the history.
+	http.Redirect(w, r, safeNext(r.URL.Query().Get("next")), http.StatusSeeOther) //nolint:gosec // G710: safeNext only allows local paths
 }
 
-// safeNext lässt als Ziel nach der Anmeldung nur Pfade auf dem Dashboard zu
-// (kein offener Redirect auf fremde Seiten).
+// safeNext only allows paths on the dashboard as the target after login (no open redirect
+// to foreign sites).
 func safeNext(next string) string {
 	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") ||
 		strings.ContainsAny(next, "\\\r\n") || strings.HasPrefix(next, "/auth/") {
@@ -230,7 +230,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(SessionCookie); err == nil {
 		s.opts.Auth.Logout(c.Value)
 	}
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: kein Secure-Flag, http://localhost
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: no Secure flag, http://localhost
 		Name:     SessionCookie,
 		Value:    "",
 		Path:     "/",
@@ -241,18 +241,18 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// requireSecret lässt nur Anfragen mit dem Daemon-Secret durch (CLI).
+// requireSecret only lets requests with the daemon secret through (CLI).
 func (s *Server) requireSecret(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.opts.Auth.CheckSecret(bearer(r)) {
-			writeError(w, http.StatusUnauthorized, "Daemon-Secret fehlt oder ist falsch")
+			writeError(w, http.StatusUnauthorized, "daemon secret missing or wrong")
 			return
 		}
 		h(w, r)
 	}
 }
 
-// requireAuth lässt Anfragen mit gültiger Browser-Session oder Daemon-Secret durch.
+// requireAuth lets requests with a valid browser session or the daemon secret through.
 func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie(SessionCookie); err == nil && s.opts.Auth.ValidSession(c.Value) {
@@ -263,7 +263,7 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 			h(w, r)
 			return
 		}
-		writeError(w, http.StatusUnauthorized, "nicht angemeldet – `ade start` ausführen")
+		writeError(w, http.StatusUnauthorized, "not logged in – run `ade start`")
 	}
 }
 

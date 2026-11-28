@@ -18,10 +18,10 @@ func (s *Server) routesIDE(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/workspaces/{id}/ide/ticket", s.requireAuth(s.handleIDETicket))
 }
 
-// IDEStatus ist die Antwort der IDE-Routen.
+// IDEStatus is the answer of the IDE routes.
 type IDEStatus struct {
 	ide.Status
-	// URL ist die Adresse der IDE (ohne Anmeldung; die liefert POST …/ide/ticket).
+	// URL is the address of the IDE (without login; POST …/ide/ticket provides that).
 	URL string `json:"url"`
 }
 
@@ -57,9 +57,9 @@ func (s *Server) handleIDEStop(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// IDETicketResponse ist die Antwort von POST /api/workspaces/{id}/ide/ticket.
+// IDETicketResponse is the answer of POST /api/workspaces/{id}/ide/ticket.
 type IDETicketResponse struct {
-	// URL meldet den Browser an der IDE-Subdomain an und leitet zur IDE weiter.
+	// URL logs the browser in at the IDE subdomain and redirects to the IDE.
 	URL string `json:"url"`
 }
 
@@ -69,7 +69,7 @@ func (s *Server) handleIDETicket(w http.ResponseWriter, r *http.Request) {
 		s.writeAppError(w, err)
 		return
 	}
-	// Die IDE-Session hängt an der Dashboard-Session: Logout beendet auch sie.
+	// The IDE session depends on the dashboard session: logout ends it as well.
 	parent := ""
 	if c, err := r.Cookie(SessionCookie); err == nil && s.opts.Auth.ValidSession(c.Value) {
 		parent = c.Value

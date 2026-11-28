@@ -20,8 +20,8 @@ import (
 	"github.com/DavidW475/ade/internal/workspace"
 )
 
-// fakeDocker ist ein Skript statt der Docker-CLI: kein Docker-Daemon (version scheitert),
-// keine Container.
+// fakeDocker is a script instead of the Docker CLI: no Docker daemon (version fails), no
+// containers.
 const fakeDocker = `#!/bin/sh
 case "$1" in
   version) echo "Cannot connect to the Docker daemon" >&2; exit 1 ;;
@@ -57,7 +57,7 @@ func TestSandboxRoutes(t *testing.T) {
 		w := httptest.NewRecorder()
 		s.ServeHTTP(w, r)
 		if w.Code != http.StatusUnauthorized {
-			t.Errorf("%s %s ohne Auth: %d", rt[0], rt[1], w.Code)
+			t.Errorf("%s %s without auth: %d", rt[0], rt[1], w.Code)
 		}
 	}
 
@@ -73,7 +73,7 @@ func TestSandboxRoutes(t *testing.T) {
 		t.Errorf("GC = %+v", gc)
 	}
 
-	// Ohne Docker scheitert ein Sandbox-Workspace mit klarer Meldung; ohne Sandbox klappt es.
+	// Without Docker a sandbox workspace fails with a clear message; without a sandbox it works.
 	repo := t.TempDir()
 	gitInit(t, repo)
 	var p project.View
@@ -82,7 +82,7 @@ func TestSandboxRoutes(t *testing.T) {
 	var w store.Workspace
 	api(t, s, "POST", "/api/projects/"+p.ID+"/workspaces", `{"sandbox":false}`, http.StatusCreated, &w)
 	if w.Sandbox {
-		t.Error("Workspace in der Sandbox angelegt")
+		t.Error("workspace created in the sandbox")
 	}
 	var wsb WorkspaceSandbox
 	api(t, s, "GET", "/api/workspaces/"+w.ID+"/sandbox", "", http.StatusOK, &wsb)
@@ -90,7 +90,7 @@ func TestSandboxRoutes(t *testing.T) {
 		t.Errorf("Workspace-Sandbox = %+v", wsb)
 	}
 
-	// Netzwerk-Ansicht: Events und Zusammenfassung je Host.
+	// Network view: events and summary per host.
 	now := time.Now()
 	if err := st.AppendEgress(context.Background(), w.ID, []store.EgressEvent{
 		{TS: now, Kind: "connect", Host: "registry.npmjs.org", Port: 443, Allowed: true, Reason: "allowlist", BytesIn: 100},
@@ -107,11 +107,11 @@ func TestSandboxRoutes(t *testing.T) {
 	}
 	api(t, s, "GET", "/api/workspaces/"+w.ID+"/egress?blocked=1", "", http.StatusOK, &eg)
 	if len(eg.Events) != 2 || eg.Events[0].Allowed {
-		t.Errorf("nur geblockt: %+v", eg.Events)
+		t.Errorf("blocked only: %+v", eg.Events)
 	}
-	api(t, s, "GET", "/api/workspaces/unbekannt/egress", "", http.StatusNotFound, nil)
+	api(t, s, "GET", "/api/workspaces/unknown/egress", "", http.StatusNotFound, nil)
 
-	// Geblockten Host mit einem Klick dauerhaft erlauben (Projekt) bzw. nur für den Workspace.
+	// Allow a blocked host permanently with one click (project) or only for the workspace.
 	var g store.EgressGrant
 	api(t, s, "POST", "/api/workspaces/"+w.ID+"/egress/grants", `{"rule":"example.com","scope":"project"}`, http.StatusCreated, &g)
 	if g.Rule != "example.com" || g.WorkspaceID != "" || g.ProjectID != p.ID || reloads != 1 {
@@ -131,7 +131,7 @@ func TestSandboxRoutes(t *testing.T) {
 	api(t, s, "DELETE", "/api/egress-grants/"+strconv.FormatInt(g.ID, 10), "", http.StatusNotFound, nil)
 	api(t, s, "GET", "/api/workspaces/"+w.ID+"/egress", "", http.StatusOK, &eg)
 	if len(eg.Grants) != 1 {
-		t.Errorf("Ausnahmen nach dem Löschen %+v", eg.Grants)
+		t.Errorf("exceptions after deleting %+v", eg.Grants)
 	}
 }
 

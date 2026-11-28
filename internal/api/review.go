@@ -8,8 +8,8 @@ import (
 	"github.com/DavidW475/ade/internal/workspace"
 )
 
-// Review und Übernahme (M4): Stand übernehmen, Datei-Inhalte für den Diff-Editor, Mergen,
-// Pull Request und Feedback.
+// Review and delivery (M4): collect the state, file contents for the diff editor, merge,
+// pull request and feedback.
 func (s *Server) routesReview(mux *http.ServeMux) {
 	if s.opts.Workspaces == nil {
 		return
@@ -43,7 +43,7 @@ func (s *Server) handleCollect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ws)
 }
 
-// MergeConflictResponse ist die Antwort von POST /api/workspaces/{id}/merge bei Konflikten.
+// MergeConflictResponse is the answer of POST /api/workspaces/{id}/merge on conflicts.
 type MergeConflictResponse struct {
 	Error     string   `json:"error"`
 	Conflicts []string `json:"conflicts"`

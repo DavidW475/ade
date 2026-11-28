@@ -8,17 +8,17 @@ import (
 	"strings"
 )
 
-// dist enthält den Build des Dashboards (web/ → internal/api/dist, siehe Makefile).
-// Ohne Frontend-Build liegt hier nur .gitkeep; dann zeigt "/" einen Hinweis.
+// dist contains the dashboard build (web/ → internal/api/dist, see Makefile).
+// Without a frontend build only .gitkeep is here; then "/" shows a notice.
 //
 //go:embed all:dist
 var dist embed.FS
 
 const missingFrontend = `<!doctype html>
-<html lang="de"><head><meta charset="utf-8"><title>ADE</title></head>
+<html lang="en"><head><meta charset="utf-8"><title>ADE</title></head>
 <body style="font-family:system-ui;padding:2rem">
-<h1>ADE läuft</h1>
-<p>Das Dashboard ist nicht eingebettet. Mit <code>make build</code> bauen.</p>
+<h1>ADE is running</h1>
+<p>The dashboard is not embedded. Build it with <code>make build</code>.</p>
 </body></html>
 `
 
@@ -30,20 +30,20 @@ func staticHandler() http.Handler {
 	return spaHandler(sub)
 }
 
-// spaHandler liefert Dateien aus fsys aus. Unbekannte Pfade ohne Dateiendung bekommen
-// index.html, damit Client-Routen der Single-Page-App funktionieren.
+// spaHandler serves files from fsys. Unknown paths without a file extension get
+// index.html, so client routes of the single-page app work.
 func spaHandler(fsys fs.FS) http.Handler {
 	files := http.FileServerFS(fsys)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.Error(w, "Methode nicht erlaubt", http.StatusMethodNotAllowed)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 		if name != "" && name != "index.html" {
 			if st, err := fs.Stat(fsys, name); err == nil && !st.IsDir() {
 				if strings.HasPrefix(name, "assets/") {
-					// Vite versieht Assets mit Inhalts-Hash im Namen.
+					// Vite puts a content hash into asset names.
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 				}
 				files.ServeHTTP(w, r)
